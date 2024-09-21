@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Screen sharing</title>
+    <link type="text/css" rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div class="videos">
+    <span>
+        <h3>Local Stream</h3>
+        <video id="local-video" autoplay playsinline controls></video>
+    </span>
+    <span>
+        <h3>Remote Stream</h3>
+        <video id="remote-video" autoplay playsinline controls></video>
+    </span>
+</div>
+
+<div class="controls">
+    <h2>1. Start screen sharing</h2>
+    <div class="button-section">
+        <button id="start-sharing-button">Start screen sharing</button>
+    </div>
+
+    <h2>2. Create a new call</h2>
+    <div class="button-section">
+        <button id="create-call-button" disabled>Create call</button>
+        <input id="generated-call-input" contenteditable="false"/>
+    </div>
+
+    <h2>3. Join call</h2>
+    <div class="button-section">
+        <input id="join-call-input"/>
+        <button id="join-call-button">Join Call</button>
+    </div>
+
+    <h2>4. Sign out</h2>
+    <div class="button-section">
+        <button id="sign-out-button" disabled>Sign out</button>
+    </div>
+</div>
+<script type="application/javascript" src="clientApp.js"></script>
+</body>
+</html>
