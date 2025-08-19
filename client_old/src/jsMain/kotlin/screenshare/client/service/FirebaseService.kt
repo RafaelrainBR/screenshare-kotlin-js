@@ -31,11 +31,11 @@ class FirebaseService(
 
 fun getFirebaseConfig(): FirebaseOptions {
     return FirebaseOptions(
-        apiKey = "",
-        authDomain = "",
-        projectId = "",
-        storageBucket = "",
-        applicationId = "",
-        gcmSenderId = "",
+        apiKey = "AIzaSyBKNGr5tEqUpnICruHaThEWimjT_yZ89Ho",
+        authDomain = "screenshare-test-90191.firebaseapp.com",
+        projectId = "screenshare-test-90191",
+        storageBucket = "screenshare-test-90191.appspot.com",
+        applicationId = "1:143281145249:web:98f04465b6156cf46837e0",
+        gcmSenderId = "143281145249",
     )
 }

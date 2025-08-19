@@ -1,46 +1,245 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="pt-BR">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Screen sharing</title>
-    <link type="text/css" rel="stylesheet" href="styles.css">
+    <title>Compartilhamento de Tela em Grupo</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/tailwindcss/2.2.19/tailwind.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@100..900&display=swap');
+        body, html {
+          font-family: 'Outfit', sans-serif;
+        }
+        .hidden {
+          display: none;
+        }
+        .video-container {
+          position: relative;
+          width: 100%;
+          height: 100%;
+        }
+        .fullscreen-video {
+          position: fixed;
+          top: 0;
+          left: 0;
+          width: 100vw;
+          height: 100vh;
+          z-index: 50;
+          background-color: black;
+        }
+        .screen-video {
+          width: 100%;
+          height: 100%;
+          object-fit: contain;
+        }
+        .chat-container {
+          height: calc(100vh - 16rem);
+          overflow-y: auto;
+        }
+        .chat-message {
+          margin-bottom: 0.5rem;
+          padding: 0.5rem;
+          border-radius: 0.5rem;
+        }
+        .user-list {
+          max-height: 200px;
+          overflow-y: auto;
+        }
+
+        .border-green-500 {
+          border-color: #48bb78;
+        }
+
+        .audio-container {
+          position: fixed;
+          bottom: 20px;
+          left: 20px;
+          background: rgba(0,0,0,0.7);
+          padding: 10px;
+          border-radius: 8px;
+        }
+
+        .audio-item {
+          display: flex;
+          align-items: center;
+          margin: 5px 0;
+          color: white;
+        }
+
+        .speaking-indicator {
+          width: 10px;
+          height: 10px;
+          border-radius: 50%;
+          background: #48bb78;
+          margin-left: 10px;
+          opacity: 0;
+          transition: opacity 0.3s;
+        }
+
+        .speaking .speaking-indicator {
+          opacity: 1;
+        }
+    </style>
 </head>
-<body>
-<div class="videos">
-    <span>
-        <h3>Local Stream</h3>
-        <video id="local-video" autoplay playsinline controls></video>
-    </span>
-    <span>
-        <h3>Remote Stream</h3>
-        <video id="remote-video" autoplay playsinline controls></video>
-    </span>
-</div>
+<body class="bg-gray-100 h-screen">
+<!-- Tela de entrada -->
+<div id="join-screen" class="flex items-center justify-center h-screen">
+    <div class="bg-white p-8 rounded-lg shadow-lg w-full max-w-md">
+        <h1 class="text-2xl font-bold mb-6 text-center text-gray-800">Compartilhamento de Tela</h1>
 
-<div class="controls">
-    <h2>1. Start screen sharing</h2>
-    <div class="button-section">
-        <button id="start-sharing-button">Start screen sharing</button>
-    </div>
+        <div class="mb-4">
+            <label for="username" class="block text-gray-700 mb-2">Seu Nome</label>
+            <input type="text" id="username" placeholder="Digite seu nome"
+                   class="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+        </div>
 
-    <h2>2. Create a new call</h2>
-    <div class="button-section">
-        <button id="create-call-button" disabled>Create call</button>
-        <input id="generated-call-input" contenteditable="false"/>
-    </div>
+        <div class="mb-6">
+            <label for="roomId" class="block text-gray-700 mb-2">ID da Sala</label>
+            <input type="text" id="roomId" placeholder="Digite o ID da sala ou deixe em branco para gerar um novo"
+                   class="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+        </div>
 
-    <h2>3. Join call</h2>
-    <div class="button-section">
-        <input id="join-call-input"/>
-        <button id="join-call-button">Join Call</button>
-    </div>
-
-    <h2>4. Sign out</h2>
-    <div class="button-section">
-        <button id="sign-out-button" disabled>Sign out</button>
+        <button id="joinBtn" class="w-full bg-blue-500 text-white py-2 px-4 rounded-lg hover:bg-blue-600 transition duration-200">
+            Entrar na Sala
+        </button>
     </div>
 </div>
-<script type="application/javascript" src="clientApp.js"></script>
+
+<!-- Tela principal da aplicação -->
+<div id="app-screen" class="hidden h-screen flex flex-col">
+    <!-- Barra de navegação -->
+    <nav class="bg-gray-800 text-white p-4 flex justify-between items-center">
+        <div class="flex items-center">
+            <span class="font-bold text-lg">Sala: <span id="current-room-id"></span></span>
+        </div>
+
+        <div class="flex items-center space-x-4">
+            <button id="shareScreenBtn" class="bg-blue-500 hover:bg-blue-600 px-4 py-2 rounded-lg flex items-center">
+                <i class="fas fa-desktop mr-2"></i> Compartilhar Tela
+            </button>
+            <button id="stopSharingBtn" class="bg-red-500 hover:bg-red-600 px-4 py-2 rounded-lg hidden flex items-center">
+                <i class="fas fa-stop-circle mr-2"></i> Parar Compartilhamento
+            </button>
+            <!-- <button id="changeNameBtn" class="bg-purple-500 hover:bg-purple-600 px-4 py-2 rounded-lg flex items-center">
+              <i class="fas fa-user-edit mr-2"></i> Mudar Nome
+            </button> -->
+            <div class="relative">
+                <button id="userListToggle" class="bg-gray-600 hover:bg-gray-700 px-4 py-2 rounded-lg flex items-center">
+                    <i class="fas fa-users mr-2"></i> Usuários
+                </button>
+                <div id="userListDropdown" class="hidden absolute right-0 mt-2 w-64 bg-white text-gray-800 shadow-lg rounded-lg p-2 z-10 user-list">
+                    <h3 class="font-bold text-lg mb-2 border-b pb-2">Usuários na Sala</h3>
+                    <ul id="user-list" class="divide-y">
+                        <!-- Lista de usuários será preenchida dinamicamente -->
+                    </ul>
+                </div>
+            </div>
+            <!-- Novo grupo de controles de áudio -->
+            <div class="flex items-center space-x-2">
+                <button id="micToggle" class="bg-gray-700 p-3 rounded-full hover:bg-gray-600 relative">
+                    <i class="fas fa-microphone-slash text-white"></i>
+                    <div id="micStatus" class="absolute -top-1 -right-1 w-3 h-3 bg-red-500 rounded-full"></div>
+                </button>
+
+                <div class="relative">
+                    <button id="deviceSelectBtn" class="bg-gray-700 p-3 rounded-full hover:bg-gray-600">
+                        <i class="fas fa-cog text-white"></i>
+                    </button>
+                    <div id="deviceDropdown" class="hidden absolute right-0 mt-2 w-64 bg-white rounded-lg shadow-xl z-50 p-4 border border-gray-200">
+                        <div class="mb-4">
+                            <label class="block text-sm font-medium text-gray-700 mb-2">Microfone</label>
+                            <select id="inputDevices" class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm
+                             focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500
+                             bg-white text-gray-700 text-sm">
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">Alto-falante</label>
+                            <select id="outputDevices" class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm
+                              focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500
+                              bg-white text-gray-700 text-sm">
+                            </select>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Conteúdo principal: vídeo e chat -->
+    <div class="flex flex-grow h-full overflow-hidden">
+        <!-- Área de vídeo -->
+        <div class="w-3/4 bg-black relative" id="video-area">
+            <div class="flex items-center justify-center h-full text-white text-xl" id="no-screen-message">
+                <p>Nenhuma tela sendo compartilhada. Clique em "Compartilhar Tela" para iniciar.</p>
+            </div>
+
+            <div id="video-container" class="hidden video-container">
+                <video id="screen-video" class="screen-video" autoplay></video>
+                <div class="absolute bottom-4 right-4 flex space-x-2">
+                    <button id="fullscreenBtn" class="bg-gray-700 hover:bg-gray-600 p-2 rounded-lg text-white">
+                        <i class="fas fa-expand"></i>
+                    </button>
+                    <button id="exitFullscreenBtn" class="hidden bg-gray-700 hover:bg-gray-600 p-2 rounded-lg text-white">
+                        <i class="fas fa-compress"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Área de chat -->
+        <div class="w-1/4 bg-white border-l flex flex-col">
+            <div class="bg-gray-200 p-3 font-bold">
+                Chat da Sala
+            </div>
+
+            <div id="chat-messages" class="flex-grow p-4 overflow-y-auto chat-container">
+                <!-- Mensagens serão preenchidas dinamicamente -->
+            </div>
+
+            <div class="p-3 border-t">
+                <div class="flex">
+                    <input type="text" id="message-input" placeholder="Digite sua mensagem..."
+                           class="flex-grow px-3 py-2 border rounded-l-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    <button id="send-message-btn" class="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-r-lg">
+                        <i class="fas fa-paper-plane"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal para mudar nome -->
+<div id="change-name-modal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+    <div class="bg-white p-6 rounded-lg w-full max-w-md">
+        <h2 class="text-xl font-bold mb-4">Mudar Nome</h2>
+        <div class="mb-4">
+            <label for="new-username" class="block text-gray-700 mb-2">Novo Nome</label>
+            <input type="text" id="new-username" placeholder="Digite seu novo nome"
+                   class="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+        </div>
+        <div class="flex justify-end space-x-3">
+            <button id="cancel-name-change" class="px-4 py-2 border rounded-lg hover:bg-gray-100">Cancelar</button>
+            <button id="confirm-name-change" class="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600">Confirmar</button>
+        </div>
+    </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.5.1/socket.io.js"></script>
+<script src="clientApp.js"></script>
+<script>
+    document.addEventListener('DOMContentLoaded', () => {
+        const roomIdInput = document.getElementById('roomId');
+        const urlParams = new URLSearchParams(window.location.search);
+        const roomId = urlParams.get('roomId');
+
+        if (roomId) {
+            console.log("Room ID from URL:", roomId);
+            roomIdInput.value = roomId;
+        }
+    });
+</script>
 </body>
 </html>

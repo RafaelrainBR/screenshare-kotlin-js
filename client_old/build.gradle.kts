@@ -7,8 +7,8 @@ plugins {
 
 kotlin {
     js {
+        moduleName = "clientApp"
         browser {
-            val rootDirPath = project.rootDir.path
             val projectDirPath = project.projectDir.path
             commonWebpackConfig {
                 outputFileName = "clientApp.js"
@@ -17,7 +17,6 @@ kotlin {
                         static =
                             (static ?: mutableListOf()).apply {
                                 // Serve sources to debug inside browser
-                                add(rootDirPath)
                                 add(projectDirPath)
                             }
                     }
@@ -28,15 +27,8 @@ kotlin {
 
     sourceSets {
         commonMain.dependencies {
-            implementation(project(":common"))
+            implementation(libs.firebase.firestore)
             implementation(libs.kotlinx.coroutines.core)
-            implementation(libs.kotlinx.serialization.json)
-
-            implementation(libs.ktor.client.core)
-            implementation(libs.ktor.client.cio)
-            implementation(libs.ktor.client.contentNegotiation)
-            implementation(libs.ktor.client.websockets)
-            implementation(libs.ktor.serialization.kotlinx.json)
         }
     }
 }

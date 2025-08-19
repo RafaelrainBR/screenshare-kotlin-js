@@ -31,7 +31,12 @@ dependencyResolutionManagement {
             val wrappersVersion = "0.0.1-pre.806"
             from("org.jetbrains.kotlin-wrappers:kotlin-wrappers-catalog:$wrappersVersion")
         }
+        create("libs") {
+            from(files("libs.versions.toml"))
+        }
     }
 }
 
 include(":client")
+include(":common")
+include(":server")
