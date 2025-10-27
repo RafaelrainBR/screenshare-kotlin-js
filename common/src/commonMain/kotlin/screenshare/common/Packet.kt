@@ -45,6 +45,14 @@ sealed class Packet {
     @SerialName("stop-screen-share")
     data class StopScreenShare(val roomId: String) : Packet()
 
+    @Serializable
+    @SerialName("send-muted")
+    data class SendMuted(val roomId: String) : Packet()
+
+    @Serializable
+    @SerialName("send-unmuted")
+    data class SendUnmuted(val roomId: String) : Packet()
+
     // Server messages
     @Serializable
     @SerialName("user-connected")
@@ -79,6 +87,14 @@ sealed class Packet {
     @SerialName("screen-share-stopped")
     data class ScreenShareStopped(val roomId: String, val senderId: String) : Packet()
 
+    @Serializable
+    @SerialName("user-muted")
+    data class UserMuted(val roomId: String, val socketId: String) : Packet()
+
+    @Serializable
+    @SerialName("user-unmuted")
+    data class UserUnmuted(val roomId: String, val socketId: String) : Packet()
+
     fun getSide(): PacketSide {
         return when (this) {
             is JoinRoom,
@@ -88,6 +104,8 @@ sealed class Packet {
             is SendDescription,
             is StartScreenShare,
             is StopScreenShare,
+            is SendMuted,
+            is SendUnmuted,
             -> CLIENT
 
             is UserConnected,
@@ -98,6 +116,8 @@ sealed class Packet {
             is DescriptionReceived,
             is ScreenShareStarted,
             is ScreenShareStopped,
+            is UserMuted,
+            is UserUnmuted,
             -> SERVER
         }
     }

@@ -100,6 +100,14 @@ class Room(
                 broadcast(ScreenShareStopped(roomId = id, senderId = user.id))
             }
 
+            is Packet.SendMuted -> {
+                broadcast(Packet.UserMuted(roomId = id, socketId = user.id))
+            }
+
+            is Packet.SendUnmuted -> {
+                broadcast(Packet.UserUnmuted(roomId = id, socketId = user.id))
+            }
+
             else -> {}
         }
     }

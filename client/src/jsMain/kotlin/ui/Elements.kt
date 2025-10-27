@@ -1,3 +1,5 @@
+package ui
+
 import kotlinx.browser.document
 import org.w3c.dom.HTMLButtonElement
 import org.w3c.dom.HTMLElement

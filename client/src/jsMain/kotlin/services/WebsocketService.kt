@@ -1,3 +1,6 @@
+package services
+
+import getSessionOrAlert
 import io.ktor.client.HttpClient
 import io.ktor.client.plugins.websocket.WebSockets
 import io.ktor.client.plugins.websocket.webSocketSession
@@ -19,7 +22,7 @@ class WebsocketService(
     private val urlProtocol: URLProtocol = URLProtocol.WS,
     private val host: String = "0.0.0.0",
     private val port: Int = 8080,
-    private val handler: suspend (WebsocketService, Packet, CoroutineScope) -> Unit,
+    private val handler: suspend (Session, Packet, CoroutineScope) -> Unit,
     private val onClose: () -> Unit = {},
 ) {
     private var session: WebSocketSession? = null
@@ -85,6 +88,17 @@ class WebsocketService(
         sendPacket(Packet.SendChatMessage(roomId, message))
     }
 
+    suspend fun sendToggleMute(
+        roomId: String,
+        isMuted: Boolean,
+    ) {
+        if (isMuted) {
+            sendPacket(Packet.SendMuted(roomId))
+        } else {
+            sendPacket(Packet.SendUnmuted(roomId))
+        }
+    }
+
     private fun close() {
         session?.cancel()
         session = null
@@ -102,7 +116,7 @@ class WebsocketService(
                         // Handle incoming text frames
                         val text = frame.readText()
                         val packet = Json.decodeFromString<Packet>(text)
-                        handler(this@WebsocketService, packet, coroutineScope)
+                        handler(getSessionOrAlert(), packet, coroutineScope)
                     }
 
                     is Close -> {
