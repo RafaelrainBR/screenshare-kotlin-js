@@ -1,0 +1,11 @@
+services:
+  screenshare:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: screenshare-server
+    ports:
+      - "8080:8080"
+    restart: unless-stopped
+    environment:
+      - JAVA_OPTS=-Xmx512m

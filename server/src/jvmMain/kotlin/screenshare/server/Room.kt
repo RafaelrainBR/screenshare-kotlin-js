@@ -27,6 +27,8 @@ class Room(
 ) {
     private val logger = LoggerFactory.getLogger(Room::class.java)
 
+    private val messages = mutableListOf<ChatMessage>()
+
     val isEmpty: Boolean
         get() = users.isEmpty()
 
@@ -35,6 +37,7 @@ class Room(
 
     suspend fun addUser(user: RoomUser) {
         users[user.id] = user
+        sendMessageHistory(user)
         notifyUserJoin(user)
     }
 
@@ -59,6 +62,7 @@ class Room(
                         content = packet.message,
                         timestamp = System.currentTimeMillis(),
                     )
+                messages.add(chatMessage)
                 broadcast(ChatMessageReceived(roomId = id, message = chatMessage))
             }
 
@@ -119,6 +123,17 @@ class Room(
     private suspend fun broadcast(packet: Packet) {
         users.values.forEach { user ->
             user.session.send(Text(Json.encodeToString(packet)))
+        }
+    }
+
+    private suspend fun sendMessageHistory(toUser: RoomUser) {
+        messages.forEach { message ->
+            toUser.sendPacket(
+                ChatMessageReceived(
+                    roomId = id,
+                    message = message,
+                ),
+            )
         }
     }
 

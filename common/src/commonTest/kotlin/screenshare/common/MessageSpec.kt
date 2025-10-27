@@ -1,6 +1,5 @@
 package screenshare.common
 
-import io.kotest.core.spec.style.DescribeSpec
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.datatest.withData
 import io.kotest.matchers.shouldBe
@@ -21,16 +20,16 @@ class MessageSpec : FunSpec({
         sendMessageJson("testRoomId", "Hello") to SendChatMessage("testRoomId", "Hello"),
         listUsersJson("testRoomId") to ListUsers("testRoomId"),
         sendIceCandidateJson("testRoomId", "candidate", "targetId") to
-                SendIceCandidate("testRoomId", "candidate", "targetId"),
+            SendIceCandidate("testRoomId", "candidate", "targetId"),
         userConnectedJson("testRoomId", "socketId", "username") to
-                UserConnected("testRoomId", "socketId", "username"),
+            UserConnected("testRoomId", "socketId", "username"),
         userDisconnectedJson("testRoomId", "socketId", "username") to
-                UserDisconnected("testRoomId", "socketId", "username"),
+            UserDisconnected("testRoomId", "socketId", "username"),
         messageReceivedJson("testRoomId", "username", "Hello", 1234567890) to
-                ChatMessageReceived("testRoomId", ChatMessage("username", "Hello", 1234567890)),
+            ChatMessageReceived("testRoomId", ChatMessage("username", "Hello", 1234567890)),
         userListJson("testRoomId", listOf(SocketUser("socketId", "username", "testRoomId")))
-                to
-                UserList(roomId = "testRoomId", users = listOf(SocketUser("socketId", "username", "testRoomId"))),
+            to
+            UserList(roomId = "testRoomId", users = listOf(SocketUser("socketId", "username", "testRoomId"))),
     ) { (json, expected) ->
         Json.decodeFromString<Packet>(json) shouldBe expected
     }
@@ -41,18 +40,20 @@ class MessageSpec : FunSpec({
         SendChatMessage("testRoomId", "Hello") to sendMessageJson("testRoomId", "Hello"),
         ListUsers("testRoomId") to listUsersJson("testRoomId"),
         UserConnected("testRoomId", "socketId", "username") to userConnectedJson("testRoomId", "socketId", "username"),
-        UserDisconnected("testRoomId", "socketId", "username") to userDisconnectedJson(
-            "testRoomId",
-            "socketId",
-            "username"
-        ),
+        UserDisconnected("testRoomId", "socketId", "username") to
+            userDisconnectedJson(
+                "testRoomId",
+                "socketId",
+                "username",
+            ),
         ChatMessageReceived(
             "testRoomId",
-            ChatMessage("username", "Hello", 1234567890)
+            ChatMessage("username", "Hello", 1234567890),
         ) to messageReceivedJson("testRoomId", "username", "Hello", 1234567890),
-        UserList("testRoomId", listOf(SocketUser("socketId", "username", "testRoomId"))) to userListJson(
-            "testRoomId", listOf(SocketUser("socketId", "username", "testRoomId")),
-        ),
+        UserList("testRoomId", listOf(SocketUser("socketId", "username", "testRoomId"))) to
+            userListJson(
+                "testRoomId", listOf(SocketUser("socketId", "username", "testRoomId")),
+            ),
     ) { (message, expected) ->
         Json.encodeToString(message) shouldBe expected
     }
@@ -93,8 +94,7 @@ class MessageSpec : FunSpec({
             username: String,
             content: String,
             timestamp: Long,
-        ) =
-            """{"type":"chat-message","roomId":"$roomId","message":{"username":"$username","content":"$content","timestamp":$timestamp}}"""
+        ) = """{"type":"chat-message","roomId":"$roomId","message":{"username":"$username","content":"$content","timestamp":$timestamp}}"""
 
         fun userListJson(
             roomId: String,

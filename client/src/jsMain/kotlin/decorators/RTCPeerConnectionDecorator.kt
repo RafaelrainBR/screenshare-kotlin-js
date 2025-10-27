@@ -28,10 +28,14 @@ class RTCPeerConnectionDecorator(private val windowRTCPeerConnection: dynamic) {
         windowRTCPeerConnection.addTrack(track, localStream)
     }
 
-    fun onTrack(block: (streams: List<MediaStream>) -> Unit) {
+    fun onTrack(block: (streams: Array<MediaStream>) -> Unit) {
         windowRTCPeerConnection.addEventListener("track") { event ->
             console.log("received track event ", event)
-            block(event.streams as List<MediaStream>)
+            try {
+                block(event.streams as Array<MediaStream>)
+            } catch (e: Throwable) {
+                console.error("Error in onTrack handler: ", e)
+            }
         }
     }
 
@@ -88,5 +92,5 @@ class RTCPeerConnectionDecorator(private val windowRTCPeerConnection: dynamic) {
 fun createRTCIceCandidate(
     candidate: String,
     sdpMid: String,
-    sdpMLineIndex: Int
+    sdpMLineIndex: Int,
 ): Json = js("new RTCIceCandidate({candidate: candidate, sdpMid: sdpMid, sdpMLineIndex: sdpMLineIndex})") as Json

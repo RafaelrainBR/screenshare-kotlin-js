@@ -3,7 +3,9 @@ import kotlinx.browser.window
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.await
 import kotlinx.coroutines.launch
-import org.w3c.dom.Node
+import org.w3c.dom.DocumentFragment
+import org.w3c.dom.HTMLElement
+import org.w3c.dom.asList
 import org.w3c.dom.events.Event
 import org.w3c.dom.mediacapture.MediaStreamConstraints
 
@@ -25,16 +27,6 @@ fun registerDocumentHandlers(
 
         coroutineScope.launch {
             joinRoom(websocketService, roomId, username)
-        }
-    })
-
-    Elements.userListButton.addEventListener("click", {
-        Elements.userListDropdown.classList.toggle("hidden")
-    })
-
-    document.addEventListener("click", { event ->
-        if (!Elements.userListButton.contains(event.target as Node) && !Elements.userListDropdown.contains(event.target as Node)) {
-            Elements.userListDropdown.classList.add("hidden")
         }
     })
 
@@ -96,7 +88,7 @@ private fun Event.isEnterKey(): Boolean {
 private suspend fun setupLocalMic(
     websocketService: WebsocketService,
     roomId: String,
-    coroutineScope: CoroutineScope
+    coroutineScope: CoroutineScope,
 ) {
     localMicStream = window.navigator.mediaDevices.getUserMedia(MediaStreamConstraints(audio = true)).await()
     val audioTrack = localMicStream?.getAudioTracks()?.firstOrNull()
@@ -106,13 +98,34 @@ private suspend fun setupLocalMic(
 }
 
 private fun updateAudioControls() {
-    val micIcon = document.querySelector("#micToggle i")!!
+    val micSlash = document.getElementById("micSlash")!!
     val micStatus = document.getElementById("micStatus")!!
+
     if (isMicMuted) {
-        micIcon.classList.replace("fa-microphone", "fa-microphone-slash");
-        micStatus.classList.add("bg-red-500");
+        micSlash.classList.remove("hidden")
+        micStatus.classList.remove("bg-green-500")
+        micStatus.classList.add("bg-destructive")
     } else {
-        micIcon.classList.replace("fa-microphone-slash", "fa-microphone");
-        micStatus.classList.remove("bg-red-500");
+        micSlash.classList.add("hidden")
+        micStatus.classList.remove("bg-destructive")
+        micStatus.classList.add("bg-green-500")
+    }
+}
+
+fun setUserSpeaking(
+    username: String,
+    isSpeaking: Boolean,
+) {
+    val userElements = Elements.userList.querySelectorAll("div.flex.items-center.gap-3")
+    userElements.asList().forEach { element ->
+        val nameElement = (element as DocumentFragment).querySelector("div.text-sm")
+        if (nameElement?.textContent?.contains(username) == true) {
+            val indicator = element.querySelector(".speaking-indicator") as? HTMLElement
+            if (isSpeaking) {
+                indicator?.classList?.add("speaking-pulse")
+            } else {
+                indicator?.classList?.remove("speaking-pulse")
+            }
+        }
     }
 }

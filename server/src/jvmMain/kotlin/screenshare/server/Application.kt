@@ -5,6 +5,7 @@ import io.ktor.server.application.Application
 import io.ktor.server.application.install
 import io.ktor.server.http.content.staticResources
 import io.ktor.server.plugins.contentnegotiation.ContentNegotiation
+import io.ktor.server.plugins.origin
 import io.ktor.server.routing.routing
 import io.ktor.server.websocket.WebSockets
 import io.ktor.server.websocket.pingPeriod
@@ -43,14 +44,18 @@ fun Application.module() {
             var roomUser: RoomUser? = null
             var roomId: String? = null
 
-            logger.info("New connection: ${this.call.request.local.remoteHost}")
+            val clientIp =
+                call.request.headers["X-Forwarded-For"]?.split(",")?.first()?.trim()
+                    ?: call.request.origin.remoteAddress
+
+            logger.info("New connection: $clientIp")
 
             val connectUser: suspend (JoinRoom) -> Unit = { joinRoomPacket ->
                 roomUser = RoomUser.create(session = this, username = joinRoomPacket.username)
                 roomId = joinRoomPacket.roomId
 
-                val room = rooms.computeIfAbsent(roomId!!) { Room.create(roomId!!) }
-                room.addUser(roomUser!!)
+                val room = rooms.computeIfAbsent(roomId) { Room.create(roomId) }
+                room.addUser(roomUser)
             }
 
             val disconnectUser =
@@ -89,7 +94,7 @@ fun Application.module() {
                 }
             }
 
-            logger.info("Connection closed: ${this.call.request.local.remoteHost}")
+            logger.info("Connection closed: $clientIp")
             disconnectUser()
         }
 

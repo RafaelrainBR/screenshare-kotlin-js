@@ -31,6 +31,7 @@ ktor-client-websockets = { group = "io.ktor", name = "ktor-client-websockets", v
 
 [plugins]
 kotlinMultiplatform = { id = "org.jetbrains.kotlin.multiplatform", version.ref = "kotlin" }
+kotlinJvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }
 kotlinSerialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }
 ktlint = { id = "org.jlleitschuh.gradle.ktlint", version.ref = "ktlint" }
 kotestMultiplatform = { id = "io.kotest.multiplatform", version.ref = "kotest" }

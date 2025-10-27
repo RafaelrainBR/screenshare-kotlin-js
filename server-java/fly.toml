@@ -1,0 +1,58 @@
+# fly.toml app configuration file generated for screen-share on 2025-10-27T03:23:28-03:00
+#
+# See https://fly.io/docs/reference/configuration/ for information about how to use this file.
+#
+
+app = 'screen-share'
+primary_region = 'gru'
+
+[build]
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = 'stop'
+  auto_start_machines = true
+  min_machines_running = 0
+  processes = ['app']
+
+[[services]]
+  internal_port = 8080
+  protocol = "tcp"
+
+  # Use connection-based concurrency for long-lived websocket connections.
+  # This tells the platform to count open connections instead of requests when
+  # scaling and enforcing limits. Adjust soft/hard limits to match expected load.
+  [services.concurrency]
+    type = "connections"
+    hard_limit = 500
+    soft_limit = 250
+
+  # HTTP ports with TLS support so WebSocket (ws/wss) upgrades work through the
+  # platform's proxy. Keep handlers set to http/tls.
+  [[services.ports]]
+    handlers = ["http"]
+    port = "80"
+
+  [[services.ports]]
+    handlers = ["tls", "http"]
+    port = "443"
+
+  # Prefer an HTTP health check against the root path (the app serves static
+  # content at "/"). This is websocket-friendly because it's only used to
+  # determine instance health and doesn't interfere with upgrades.
+  [[services.http_checks]]
+    interval = 10000
+    timeout = 2000
+    grace_period = "10s"
+    method = "get"
+    path = "/"
+
+  # Keep a lightweight TCP check as a fallback for strict port availability
+  # verification (helps with low-level connectivity problems).
+  [[services.tcp_checks]]
+    interval = 10000
+    timeout = 2000
+
+[[vm]]
+  size = 'shared-cpu-1x'

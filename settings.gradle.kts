@@ -40,3 +40,4 @@ dependencyResolutionManagement {
 include(":client")
 include(":common")
 include(":server")
+include(":server-java")

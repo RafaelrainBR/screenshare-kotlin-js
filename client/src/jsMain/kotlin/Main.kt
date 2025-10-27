@@ -10,7 +10,6 @@ import org.w3c.dom.mediacapture.MediaStream
 import screenshare.common.ChatMessage
 import screenshare.common.SocketUser
 import kotlin.js.Date
-import kotlin.uuid.ExperimentalUuidApi
 
 lateinit var localUsername: String
 lateinit var localRoomId: String
@@ -27,7 +26,6 @@ val remoteAudioStreams: MutableMap<String, MediaStream> = mutableMapOf()
 var isMicMuted = true
 var isAudioMuted = true
 
-
 val peers: MutableMap<String, RTCPeerConnectionDecorator> = mutableMapOf()
 
 fun main() {
@@ -36,6 +34,12 @@ fun main() {
     val websocketService =
         with(window.location) {
             println("Connecting to WebSocket at $href")
+            val port =
+                if (port.isNullOrBlank()) {
+                    if (protocol == "https:") "443" else "80"
+                } else {
+                    port
+                }
             WebsocketService(
                 urlProtocol = if (protocol == "https:") URLProtocol.WSS else URLProtocol.WS,
                 host = hostname,
@@ -68,14 +72,15 @@ fun recreatePeerConnections(
     coroutineScope: CoroutineScope,
 ) {
     peers.forEach { (peerId, peerConnection) ->
-        peers[peerId] = createPeerConnection(
-            websocketService = websocketService,
-            socketId = peerId,
-            roomId = roomId,
-            isInitiator = isInitiator,
-            coroutineScope = coroutineScope,
-            peerConnection = peerConnection
-        )
+        peers[peerId] =
+            createPeerConnection(
+                websocketService = websocketService,
+                socketId = peerId,
+                roomId = roomId,
+                isInitiator = isInitiator,
+                coroutineScope = coroutineScope,
+                peerConnection = peerConnection,
+            )
     }
 }
 
@@ -85,7 +90,7 @@ fun createPeerConnection(
     roomId: String,
     isInitiator: Boolean,
     coroutineScope: CoroutineScope,
-    peerConnection: RTCPeerConnectionDecorator? = null
+    peerConnection: RTCPeerConnectionDecorator? = null,
 ): RTCPeerConnectionDecorator {
     val peerConnection = peerConnection ?: RTCPeerConnectionDecorator.create()
 

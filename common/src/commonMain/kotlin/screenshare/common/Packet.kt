@@ -2,7 +2,6 @@ package screenshare.common
 
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.Transient
 import screenshare.common.PacketSide.CLIENT
 import screenshare.common.PacketSide.SERVER
 
@@ -80,7 +79,6 @@ sealed class Packet {
     @SerialName("screen-share-stopped")
     data class ScreenShareStopped(val roomId: String, val senderId: String) : Packet()
 
-
     fun getSide(): PacketSide {
         return when (this) {
             is JoinRoom,
@@ -89,7 +87,8 @@ sealed class Packet {
             is SendIceCandidate,
             is SendDescription,
             is StartScreenShare,
-            is StopScreenShare -> CLIENT
+            is StopScreenShare,
+            -> CLIENT
 
             is UserConnected,
             is UserDisconnected,
@@ -98,7 +97,8 @@ sealed class Packet {
             is IceCandidateReceived,
             is DescriptionReceived,
             is ScreenShareStarted,
-            is ScreenShareStopped -> SERVER
+            is ScreenShareStopped,
+            -> SERVER
         }
     }
 }

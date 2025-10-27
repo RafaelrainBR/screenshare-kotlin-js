@@ -1,165 +1,367 @@
 <!DOCTYPE html>
-<html lang="pt-BR">
+<html lang="pt-BR" class="dark">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Compartilhamento de Tela em Grupo</title>
-    <link href="https://cdnjs.cloudflare.com/ajax/libs/tailwindcss/2.2.19/tailwind.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+    <title>Compartilhamento de Tela</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        border: "hsl(var(--border))",
+                        background: "hsl(var(--background))",
+                        foreground: "hsl(var(--foreground))",
+                        primary: {
+                            DEFAULT: "hsl(var(--primary))",
+                            foreground: "hsl(var(--primary-foreground))"
+                        },
+                        secondary: {
+                            DEFAULT: "hsl(var(--secondary))",
+                            foreground: "hsl(var(--secondary-foreground))"
+                        },
+                        muted: {
+                            DEFAULT: "hsl(var(--muted))",
+                            foreground: "hsl(var(--muted-foreground))"
+                        },
+                        accent: {
+                            DEFAULT: "hsl(var(--accent))",
+                            foreground: "hsl(var(--accent-foreground))"
+                        },
+                        destructive: {
+                            DEFAULT: "hsl(var(--destructive))",
+                            foreground: "hsl(var(--destructive-foreground))"
+                        }
+                    },
+                    borderRadius: { lg: "var(--radius)", md: "calc(var(--radius) - 2px)", sm: "calc(var(--radius) - 4px)" },
+                    keyframes: {
+                        "fade-in": { "0%": { opacity: 0, transform: "translateY(10px)" }, "100%": { opacity: 1, transform: "translateY(0)" }},
+                        "scale-in": { "0%": { opacity: 0, transform: "scale(0.95)" }, "100%": { opacity: 1, transform: "scale(1)" }},
+                        "pulse-ring": { "0%, 100%": { opacity: 0.8 }, "50%": { opacity: 0.4, transform: "scale(1.1)" }}
+                    },
+                    animation: {
+                        "fade-in": "fade-in 0.3s ease-out",
+                        "scale-in": "scale-in 0.2s ease-out",
+                        "pulse-ring": "pulse-ring 2s ease-in-out infinite"
+                    }
+                }
+            }
+        }
+    </script>
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@100..900&display=swap');
-        body, html {
-          font-family: 'Outfit', sans-serif;
-        }
-        .hidden {
-          display: none;
-        }
-        .video-container {
-          position: relative;
-          width: 100%;
-          height: 100%;
-        }
-        .fullscreen-video {
-          position: fixed;
-          top: 0;
-          left: 0;
-          width: 100vw;
-          height: 100vh;
-          z-index: 50;
-          background-color: black;
-        }
-        .screen-video {
-          width: 100%;
-          height: 100%;
-          object-fit: contain;
-        }
-        .chat-container {
-          height: calc(100vh - 16rem);
-          overflow-y: auto;
-        }
-        .chat-message {
-          margin-bottom: 0.5rem;
-          padding: 0.5rem;
-          border-radius: 0.5rem;
-        }
-        .user-list {
-          max-height: 200px;
-          overflow-y: auto;
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
+        :root {
+            --background: 222.2 84% 4.9%;
+            --foreground: 210 40% 98%;
+            --primary: 217.2 91.2% 59.8%;
+            --primary-foreground: 222.2 47.4% 11.2%;
+            --secondary: 217.2 32.6% 17.5%;
+            --secondary-foreground: 210 40% 98%;
+            --muted: 217.2 32.6% 17.5%;
+            --muted-foreground: 215 20.2% 65.1%;
+            --accent: 217.2 32.6% 17.5%;
+            --accent-foreground: 210 40% 98%;
+            --destructive: 0 62.8% 30.6%;
+            --destructive-foreground: 210 40% 98%;
+            --border: 217.2 32.6% 17.5%;
+            --radius: 0.5rem;
         }
 
-        .border-green-500 {
-          border-color: #48bb78;
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
         }
 
-        .audio-container {
-          position: fixed;
-          bottom: 20px;
-          left: 20px;
-          background: rgba(0,0,0,0.7);
-          padding: 10px;
-          border-radius: 8px;
+        /* Glass morphism effects */
+        .glass {
+            background: rgba(255, 255, 255, 0.05);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
         }
 
-        .audio-item {
-          display: flex;
-          align-items: center;
-          margin: 5px 0;
-          color: white;
+        .glass-strong {
+            background: rgba(0, 0, 0, 0.95);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
         }
 
-        .speaking-indicator {
-          width: 10px;
-          height: 10px;
-          border-radius: 50%;
-          background: #48bb78;
-          margin-left: 10px;
-          opacity: 0;
-          transition: opacity 0.3s;
+        /* Custom scrollbar */
+        .custom-scroll::-webkit-scrollbar { width: 6px; height: 6px; }
+        .custom-scroll::-webkit-scrollbar-track { background: transparent; }
+        .custom-scroll::-webkit-scrollbar-thumb {
+            background: hsl(var(--muted));
+            border-radius: 3px;
+            transition: background 0.2s;
+        }
+        .custom-scroll::-webkit-scrollbar-thumb:hover { background: hsl(var(--muted-foreground)); }
+
+        /* Animated gradient background */
+        .gradient-bg {
+            background: linear-gradient(135deg,
+                hsl(217.2, 91.2%, 10%) 0%,
+                hsl(222.2, 84%, 4.9%) 50%,
+                hsl(270, 50%, 8%) 100%
+            );
+            background-size: 200% 200%;
+            animation: gradient-shift 15s ease infinite;
         }
 
-        .speaking .speaking-indicator {
-          opacity: 1;
+        @keyframes gradient-shift {
+            0%, 100% { background-position: 0% 50%; }
+            50% { background-position: 100% 50%; }
+        }
+
+        /* Particle effect container */
+        .particles {
+            position: absolute;
+            inset: 0;
+            overflow: hidden;
+            pointer-events: none;
+        }
+
+        .particle {
+            position: absolute;
+            width: 2px;
+            height: 2px;
+            background: hsl(var(--primary));
+            border-radius: 50%;
+            opacity: 0.3;
+            animation: float-particle 20s linear infinite;
+        }
+
+        @keyframes float-particle {
+            0% { transform: translateY(100vh) translateX(0); opacity: 0; }
+            10% { opacity: 0.3; }
+            90% { opacity: 0.3; }
+            100% { transform: translateY(-100vh) translateX(100px); opacity: 0; }
+        }
+
+        /* Speaking indicator pulse */
+        .speaking-pulse {
+            box-shadow: 0 0 0 0 rgba(34, 197, 94, 1);
+            animation: pulse-wave 1.5s infinite;
+        }
+
+        .speaking-indicator.speaking-pulse {
+            background: rgb(34, 197, 94);
+            opacity: 1;
+        }
+
+        @keyframes pulse-wave {
+            0% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.7); }
+            70% { box-shadow: 0 0 0 10px rgba(34, 197, 94, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0); }
+        }
+
+        /* Hover lift effect */
+        .hover-lift {
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+        }
+        .hover-lift:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+        }
+
+        /* Video container effects */
+        .video-frame {
+            position: relative;
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+        }
+
+        .video-frame::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            border: 2px solid transparent;
+            border-radius: 12px;
+            background: linear-gradient(135deg,
+                rgba(59, 130, 246, 0.3),
+                rgba(147, 51, 234, 0.3)
+            ) border-box;
+            -webkit-mask: linear-gradient(#fff 0 0) padding-box, linear-gradient(#fff 0 0);
+            -webkit-mask-composite: destination-out;
+            mask-composite: exclude;
+            pointer-events: none;
+        }
+
+        /* Status badges */
+        .status-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.25rem 0.75rem;
+            border-radius: 9999px;
+            font-size: 0.75rem;
+            font-weight: 500;
+        }
+
+        .status-online { background: rgba(34, 197, 94, 0.1); color: rgb(34, 197, 94); }
+        .status-speaking { background: rgba(59, 130, 246, 0.1); color: rgb(59, 130, 246); }
+
+        /* Smooth reveal animations */
+        [data-animate] {
+            opacity: 0;
+            transform: translateY(20px);
+        }
+
+        [data-animate].revealed {
+            animation: fade-in 0.5s ease forwards;
         }
     </style>
 </head>
-<body class="bg-gray-100 h-screen">
-<!-- Tela de entrada -->
-<div id="join-screen" class="flex items-center justify-center h-screen">
-    <div class="bg-white p-8 rounded-lg shadow-lg w-full max-w-md">
-        <h1 class="text-2xl font-bold mb-6 text-center text-gray-800">Compartilhamento de Tela</h1>
+<body class="bg-background text-foreground antialiased">
 
-        <div class="mb-4">
-            <label for="username" class="block text-gray-700 mb-2">Seu Nome</label>
-            <input type="text" id="username" placeholder="Digite seu nome"
-                   class="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+<!-- Login Screen -->
+<div id="join-screen" class="gradient-bg min-h-screen flex items-center justify-center p-4 relative overflow-hidden">
+    <!-- Animated particles -->
+    <div class="particles">
+        <div class="particle" style="left: 10%; animation-delay: 0s;"></div>
+        <div class="particle" style="left: 30%; animation-delay: 3s;"></div>
+        <div class="particle" style="left: 50%; animation-delay: 6s;"></div>
+        <div class="particle" style="left: 70%; animation-delay: 9s;"></div>
+        <div class="particle" style="left: 90%; animation-delay: 12s;"></div>
+    </div>
+
+    <div class="glass-strong rounded-2xl p-8 w-full max-w-md hover-lift animate-scale-in relative z-10" data-animate>
+        <div class="text-center mb-8">
+            <!-- Logo with glow effect -->
+            <div class="inline-flex items-center justify-center w-20 h-20 rounded-2xl bg-gradient-to-br from-primary to-purple-600 mb-4 relative">
+                <div class="absolute inset-0 bg-gradient-to-br from-primary to-purple-600 rounded-2xl blur-xl opacity-50 animate-pulse-ring"></div>
+                <svg class="w-10 h-10 text-white relative z-10" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/>
+                </svg>
+            </div>
+            <h1 class="text-3xl font-bold mb-2 bg-clip-text text-transparent bg-gradient-to-r from-white to-gray-400">
+                Screen Share
+            </h1>
+            <p class="text-muted-foreground text-sm">Compartilhe sua tela em tempo real com qualidade HD</p>
         </div>
 
-        <div class="mb-6">
-            <label for="roomId" class="block text-gray-700 mb-2">ID da Sala</label>
-            <input type="text" id="roomId" placeholder="Digite o ID da sala ou deixe em branco para gerar um novo"
-                   class="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
-        </div>
+        <form class="space-y-4" onsubmit="return false;">
+            <div class="space-y-2">
+                <label for="username" class="text-sm font-medium text-foreground">Nome de exibição</label>
+                <div class="relative">
+                    <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/>
+                    </svg>
+                    <input type="text" id="username" placeholder="Digite seu nome"
+                           class="w-full pl-10 pr-4 py-3 bg-secondary/50 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition-all placeholder:text-muted-foreground">
+                </div>
+            </div>
 
-        <button id="joinBtn" class="w-full bg-blue-500 text-white py-2 px-4 rounded-lg hover:bg-blue-600 transition duration-200">
-            Entrar na Sala
-        </button>
+            <div class="space-y-2">
+                <label for="roomId" class="text-sm font-medium text-foreground">Código da sala</label>
+                <div class="relative">
+                    <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/>
+                    </svg>
+                    <input type="text" id="roomId" placeholder="Deixe vazio para criar nova sala"
+                           class="w-full pl-10 pr-4 py-3 bg-secondary/50 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition-all placeholder:text-muted-foreground">
+                </div>
+            </div>
+
+            <button type="button" id="joinBtn"
+                    class="w-full py-3 bg-gradient-to-r from-primary to-purple-600 hover:from-primary/90 hover:to-purple-600/90 text-white font-medium rounded-lg transition-all duration-200 flex items-center justify-center gap-2 shadow-lg hover:shadow-primary/50 mt-6">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 16l-4-4m0 0l4-4m-4 4h14m-5 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h7a3 3 0 013 3v1"/>
+                </svg>
+                Entrar na Sala
+            </button>
+        </form>
     </div>
 </div>
 
-<!-- Tela principal da aplicação -->
-<div id="app-screen" class="hidden h-screen flex flex-col">
-    <!-- Barra de navegação -->
-    <nav class="bg-gray-800 text-white p-4 flex justify-between items-center">
-        <div class="flex items-center">
-            <span class="font-bold text-lg">Sala: <span id="current-room-id"></span></span>
-        </div>
-
-        <div class="flex items-center space-x-4">
-            <button id="shareScreenBtn" class="bg-blue-500 hover:bg-blue-600 px-4 py-2 rounded-lg flex items-center">
-                <i class="fas fa-desktop mr-2"></i> Compartilhar Tela
-            </button>
-            <button id="stopSharingBtn" class="bg-red-500 hover:bg-red-600 px-4 py-2 rounded-lg hidden flex items-center">
-                <i class="fas fa-stop-circle mr-2"></i> Parar Compartilhamento
-            </button>
-            <!-- <button id="changeNameBtn" class="bg-purple-500 hover:bg-purple-600 px-4 py-2 rounded-lg flex items-center">
-              <i class="fas fa-user-edit mr-2"></i> Mudar Nome
-            </button> -->
-            <div class="relative">
-                <button id="userListToggle" class="bg-gray-600 hover:bg-gray-700 px-4 py-2 rounded-lg flex items-center">
-                    <i class="fas fa-users mr-2"></i> Usuários
-                </button>
-                <div id="userListDropdown" class="hidden absolute right-0 mt-2 w-64 bg-white text-gray-800 shadow-lg rounded-lg p-2 z-10 user-list">
-                    <h3 class="font-bold text-lg mb-2 border-b pb-2">Usuários na Sala</h3>
-                    <ul id="user-list" class="divide-y">
-                        <!-- Lista de usuários será preenchida dinamicamente -->
-                    </ul>
+<!-- Main App Screen -->
+<div id="app-screen" class="hidden h-screen flex flex-col bg-background">
+    <!-- Top Navigation -->
+    <nav class="glass-strong border-b border-border/50 backdrop-blur-xl relative z-50">
+        <div class="px-6 py-4 flex items-center justify-between">
+            <div class="flex items-center gap-4">
+                <div class="flex items-center gap-3">
+                    <div class="w-10 h-10 rounded-lg bg-gradient-to-br from-primary to-purple-600 flex items-center justify-center">
+                        <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/>
+                        </svg>
+                    </div>
+                    <div>
+                        <div class="text-xs text-muted-foreground">Sala</div>
+                        <div class="text-sm font-semibold text-primary" id="current-room-id"></div>
+                    </div>
                 </div>
             </div>
-            <!-- Novo grupo de controles de áudio -->
-            <div class="flex items-center space-x-2">
-                <button id="micToggle" class="bg-gray-700 p-3 rounded-full hover:bg-gray-600 relative">
-                    <i class="fas fa-microphone-slash text-white"></i>
-                    <div id="micStatus" class="absolute -top-1 -right-1 w-3 h-3 bg-red-500 rounded-full"></div>
+
+            <div class="flex items-center gap-2">
+                <button id="shareScreenBtn"
+                        class="px-4 py-2 bg-primary hover:bg-primary/90 text-primary-foreground font-medium rounded-lg transition-all flex items-center gap-2 shadow-lg hover:shadow-primary/30">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"/>
+                    </svg>
+                    Compartilhar
+                </button>
+
+                <button id="stopSharingBtn"
+                        class="hidden px-4 py-2 bg-destructive hover:bg-destructive/90 text-destructive-foreground font-medium rounded-lg transition-all flex items-center gap-2">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 10a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1v-4z"/>
+                    </svg>
+                    Parar
+                </button>
+
+                <div class="w-px h-8 bg-border mx-2"></div>
+
+                <button id="micToggle"
+                        class="relative p-2.5 bg-secondary hover:bg-secondary/80 rounded-lg transition-all">
+                    <svg id="micIcon" class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path id="micIconPath" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"/>
+                        <line id="micSlash" class="hidden" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" x1="4" y1="4" x2="20" y2="20"/>
+                    </svg>
+                    <div id="micStatus" class="absolute -top-1 -right-1 w-3 h-3 bg-destructive rounded-full border-2 border-background"></div>
                 </button>
 
                 <div class="relative">
-                    <button id="deviceSelectBtn" class="bg-gray-700 p-3 rounded-full hover:bg-gray-600">
-                        <i class="fas fa-cog text-white"></i>
+                    <button id="deviceSelectBtn"
+                            class="p-2.5 bg-secondary hover:bg-secondary/80 rounded-lg transition-all">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/>
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
+                        </svg>
                     </button>
-                    <div id="deviceDropdown" class="hidden absolute right-0 mt-2 w-64 bg-white rounded-lg shadow-xl z-50 p-4 border border-gray-200">
-                        <div class="mb-4">
-                            <label class="block text-sm font-medium text-gray-700 mb-2">Microfone</label>
-                            <select id="inputDevices" class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm
-                             focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500
-                             bg-white text-gray-700 text-sm">
-                            </select>
-                        </div>
-                        <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-2">Alto-falante</label>
-                            <select id="outputDevices" class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm
-                              focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500
-                              bg-white text-gray-700 text-sm">
-                            </select>
+
+                    <div id="deviceDropdown"
+                         class="hidden absolute right-0 mt-2 w-80 glass-strong rounded-xl shadow-2xl border border-border/50 p-4 z-50 animate-scale-in">
+                        <h3 class="text-sm font-semibold mb-4 flex items-center gap-2">
+                            <svg class="w-4 h-4 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"/>
+                            </svg>
+                            Dispositivos de Áudio
+                        </h3>
+
+                        <div class="space-y-4">
+                            <div>
+                                <label class="block text-xs font-medium text-muted-foreground mb-2">Microfone</label>
+                                <select id="inputDevices"
+                                        class="w-full px-3 py-2 bg-secondary/50 border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary transition-all">
+                                    <option>Carregando dispositivos...</option>
+                                </select>
+                            </div>
+
+                            <div>
+                                <label class="block text-xs font-medium text-muted-foreground mb-2">Alto-falante</label>
+                                <select id="outputDevices"
+                                        class="w-full px-3 py-2 bg-secondary/50 border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary transition-all">
+                                    <option>Carregando dispositivos...</option>
+                                </select>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -167,79 +369,140 @@
         </div>
     </nav>
 
-    <!-- Conteúdo principal: vídeo e chat -->
-    <div class="flex flex-grow h-full overflow-hidden">
-        <!-- Área de vídeo -->
-        <div class="w-3/4 bg-black relative" id="video-area">
-            <div class="flex items-center justify-center h-full text-white text-xl" id="no-screen-message">
-                <p>Nenhuma tela sendo compartilhada. Clique em "Compartilhar Tela" para iniciar.</p>
-            </div>
-
-            <div id="video-container" class="hidden video-container">
-                <video id="screen-video" class="screen-video" autoplay></video>
-                <div class="absolute bottom-4 right-4 flex space-x-2">
-                    <button id="fullscreenBtn" class="bg-gray-700 hover:bg-gray-600 p-2 rounded-lg text-white">
-                        <i class="fas fa-expand"></i>
-                    </button>
-                    <button id="exitFullscreenBtn" class="hidden bg-gray-700 hover:bg-gray-600 p-2 rounded-lg text-white">
-                        <i class="fas fa-compress"></i>
-                    </button>
+    <!-- Main Content Area -->
+    <div class="flex flex-1 overflow-hidden">
+        <!-- Video Display Area -->
+        <div class="flex-1 bg-gradient-to-br from-background to-secondary/20 p-6 relative">
+            <!-- Empty State -->
+            <div id="no-screen-message" class="flex items-center justify-center h-full">
+                <div class="text-center animate-fade-in">
+                    <div class="inline-flex items-center justify-center w-24 h-24 rounded-2xl bg-secondary/50 mb-6">
+                        <svg class="w-12 h-12 text-muted-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/>
+                        </svg>
+                    </div>
+                    <h3 class="text-xl font-semibold mb-2">Nenhuma tela compartilhada</h3>
+                    <p class="text-muted-foreground">Inicie o compartilhamento para visualizar o conteúdo</p>
                 </div>
             </div>
+
+            <!-- Video Container -->
+            <div id="video-container" class="hidden h-full video-frame">
+                <video id="screen-video" class="w-full h-full object-contain" autoplay></video>
+
+                <button id="fullscreenBtn"
+                        class="absolute bottom-6 right-6 p-3 glass-strong hover:bg-white/10 rounded-lg transition-all group">
+                    <svg class="w-5 h-5 group-hover:scale-110 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4"/>
+                    </svg>
+                </button>
+            </div>
         </div>
 
-        <!-- Área de chat -->
-        <div class="w-1/4 bg-white border-l flex flex-col">
-            <div class="bg-gray-200 p-3 font-bold">
-                Chat da Sala
+        <!-- Right Sidebar -->
+        <div class="w-96 border-l border-border/50 flex flex-col bg-secondary/20 backdrop-blur-xl relative z-10">
+            <!-- Participants Section -->
+            <div class="border-b border-border/50">
+                <div class="px-4 py-3 bg-secondary/30 flex items-center justify-between">
+                    <div class="flex items-center gap-2 text-sm font-semibold">
+                        <svg class="w-4 h-4 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"/>
+                        </svg>
+                        Participantes
+                    </div>
+                    <span class="text-xs text-muted-foreground px-2 py-1 bg-primary/10 rounded-full" id="participant-count">0</span>
+                </div>
+                <div id="user-list" class="p-2 max-h-64 overflow-y-auto custom-scroll space-y-1"></div>
             </div>
 
-            <div id="chat-messages" class="flex-grow p-4 overflow-y-auto chat-container">
-                <!-- Mensagens serão preenchidas dinamicamente -->
-            </div>
+            <!-- Chat Section -->
+            <div class="flex-1 flex flex-col overflow-hidden">
+                <div class="px-4 py-3 bg-secondary/30 flex items-center gap-2 text-sm font-semibold border-b border-border/50">
+                    <svg class="w-4 h-4 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/>
+                    </svg>
+                    Chat
+                </div>
 
-            <div class="p-3 border-t">
-                <div class="flex">
-                    <input type="text" id="message-input" placeholder="Digite sua mensagem..."
-                           class="flex-grow px-3 py-2 border rounded-l-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
-                    <button id="send-message-btn" class="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-r-lg">
-                        <i class="fas fa-paper-plane"></i>
-                    </button>
+                <div id="chat-messages" class="flex-1 p-4 overflow-y-auto custom-scroll space-y-3"></div>
+
+                <div class="p-4 border-t border-border/50 bg-secondary/30">
+                    <div class="flex gap-2">
+                        <input type="text" id="message-input"
+                               placeholder="Digite sua mensagem..."
+                               class="flex-1 px-4 py-2.5 bg-background/50 border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary transition-all placeholder:text-muted-foreground">
+                        <button id="send-message-btn"
+                                class="p-2.5 bg-primary hover:bg-primary/90 text-primary-foreground rounded-lg transition-all group">
+                            <svg class="w-5 h-5 rotate-90 group-hover:translate-y-1 transition-transform duration-200" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"></path>
+                            </svg>
+                        </button>
+                    </div>
                 </div>
             </div>
-        </div>
-    </div>
-</div>
-
-<!-- Modal para mudar nome -->
-<div id="change-name-modal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-    <div class="bg-white p-6 rounded-lg w-full max-w-md">
-        <h2 class="text-xl font-bold mb-4">Mudar Nome</h2>
-        <div class="mb-4">
-            <label for="new-username" class="block text-gray-700 mb-2">Novo Nome</label>
-            <input type="text" id="new-username" placeholder="Digite seu novo nome"
-                   class="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
-        </div>
-        <div class="flex justify-end space-x-3">
-            <button id="cancel-name-change" class="px-4 py-2 border rounded-lg hover:bg-gray-100">Cancelar</button>
-            <button id="confirm-name-change" class="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600">Confirmar</button>
         </div>
     </div>
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.5.1/socket.io.js"></script>
-<script src="clientApp.js"></script>
 <script>
-    document.addEventListener('DOMContentLoaded', () => {
-        const roomIdInput = document.getElementById('roomId');
-        const urlParams = new URLSearchParams(window.location.search);
-        const roomId = urlParams.get('roomId');
+    // Initialize room ID from URL
+    const roomIdInput = document.getElementById('roomId');
+    const urlParams = new URLSearchParams(window.location.search);
+    const roomId = urlParams.get('roomId');
+    if (roomId) roomIdInput.value = roomId;
 
-        if (roomId) {
-            console.log("Room ID from URL:", roomId);
-            roomIdInput.value = roomId;
+    // Dropdown toggle
+    const deviceSelectBtn = document.getElementById('deviceSelectBtn');
+    const deviceDropdown = document.getElementById('deviceDropdown');
+
+    deviceSelectBtn?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        deviceDropdown.classList.toggle('hidden');
+    });
+
+    document.addEventListener('click', (e) => {
+        if (!deviceDropdown.contains(e.target) && !deviceSelectBtn.contains(e.target)) {
+            deviceDropdown.classList.add('hidden');
+        }
+    });
+
+    // Animate elements on scroll/load
+    const observerOptions = {
+        threshold: 0.1,
+        rootMargin: '0px 0px -50px 0px'
+    };
+
+    const observer = new IntersectionObserver((entries) => {
+        entries.forEach(entry => {
+            if (entry.isIntersecting) {
+                entry.target.classList.add('revealed');
+            }
+        });
+    }, observerOptions);
+
+    document.querySelectorAll('[data-animate]').forEach(el => observer.observe(el));
+
+    // Enter key to send message
+    document.getElementById('message-input')?.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') {
+            document.getElementById('send-message-btn')?.click();
+        }
+    });
+
+    // Enter key to join room
+    document.getElementById('username')?.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') {
+            document.getElementById('roomId')?.focus();
+        }
+    });
+
+    document.getElementById('roomId')?.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') {
+            document.getElementById('joinBtn')?.click();
         }
     });
 </script>
+<script src="clientApp.js"></script>
 </body>
 </html>
