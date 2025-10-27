@@ -128,4 +128,5 @@ data class SocketUser(
     val socketId: String,
     val username: String,
     val roomId: String,
+    val isMuted: Boolean = true,
 )

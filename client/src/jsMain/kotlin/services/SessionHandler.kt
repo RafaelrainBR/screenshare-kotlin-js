@@ -11,7 +11,7 @@ import kotlin.js.json
 fun handlePacket(
     session: Session,
     packet: Packet,
-    coroutineScope: CoroutineScope
+    coroutineScope: CoroutineScope,
 ) {
     println("Received packet: $packet")
     when (packet) {
@@ -23,6 +23,7 @@ fun handlePacket(
         is Packet.DescriptionReceived -> handleDescriptionReceived(session, packet, coroutineScope)
         is Packet.ScreenShareStarted -> {}
         is Packet.ScreenShareStopped -> {}
+        is Packet.UserMuted, is Packet.UserUnmuted -> handleUserMuted(packet)
         else -> {
             println("Unknown packet type: ${packet::class.simpleName}")
         }
@@ -37,12 +38,13 @@ private fun handleUserConnected(
     val isLocalUser = packet.username == session.localUsername
     if (!isLocalUser) {
         InterfaceMutations.addMessageToChat(
-            message = ChatMessage(
-                username = "Sistema",
-                content = "${packet.username} entrou na sala",
-                timestamp = Date().getTime().toLong(),
-            ),
-            localUsername = session.localUsername
+            message =
+                ChatMessage(
+                    username = "Sistema",
+                    content = "${packet.username} entrou na sala",
+                    timestamp = Date().getTime().toLong(),
+                ),
+            localUsername = session.localUsername,
         )
 
         session.peerConnections.createPeerConnection(
@@ -55,14 +57,18 @@ private fun handleUserConnected(
     }
 }
 
-private fun handleUserDisconnected(session: Session, packet: Packet.UserDisconnected) {
+private fun handleUserDisconnected(
+    session: Session,
+    packet: Packet.UserDisconnected,
+) {
     InterfaceMutations.addMessageToChat(
-        message = ChatMessage(
-            username = "Sistema",
-            content = "${packet.username} saiu da sala",
-            timestamp = Date().getTime().toLong(),
-        ),
-        localUsername = session.localUsername
+        message =
+            ChatMessage(
+                username = "Sistema",
+                content = "${packet.username} saiu da sala",
+                timestamp = Date().getTime().toLong(),
+            ),
+        localUsername = session.localUsername,
     )
 
     session.peerConnections.closePeerConnection(packet.socketId)
@@ -74,18 +80,25 @@ private fun handleUserDisconnected(session: Session, packet: Packet.UserDisconne
     }
 }
 
-private fun handleChatMessageReceived(session: Session, packet: Packet.ChatMessageReceived) {
+private fun handleChatMessageReceived(
+    session: Session,
+    packet: Packet.ChatMessageReceived,
+) {
     InterfaceMutations.addMessageToChat(
-        message = ChatMessage(
-            username = packet.message.username,
-            content = packet.message.content,
-            timestamp = packet.message.timestamp,
-        ),
-        localUsername = session.localUsername
+        message =
+            ChatMessage(
+                username = packet.message.username,
+                content = packet.message.content,
+                timestamp = packet.message.timestamp,
+            ),
+        localUsername = session.localUsername,
     )
 }
 
-private fun handleUserList(session: Session, packet: Packet.UserList) {
+private fun handleUserList(
+    session: Session,
+    packet: Packet.UserList,
+) {
     session.userList = packet.users
     InterfaceMutations.updateUserList(packet.users, session.localUsername)
 }
@@ -93,12 +106,12 @@ private fun handleUserList(session: Session, packet: Packet.UserList) {
 private fun handleIceCandidateReceived(
     session: Session,
     packet: Packet.IceCandidateReceived,
-    coroutineScope: CoroutineScope
+    coroutineScope: CoroutineScope,
 ) = coroutineScope.launch {
     runCatching {
         session.peerConnections.updateIceCandidate(
             senderId = packet.senderId,
-            candidate = packet.candidate
+            candidate = packet.candidate,
         )
     }.onFailure {
         println("Failed to add ICE candidate: ${it.message}")
@@ -108,7 +121,7 @@ private fun handleIceCandidateReceived(
 private fun handleDescriptionReceived(
     session: Session,
     packet: Packet.DescriptionReceived,
-    coroutineScope: CoroutineScope
+    coroutineScope: CoroutineScope,
 ) = coroutineScope.launch {
     runCatching {
         val type = packet.description["type"] as String
@@ -130,7 +143,7 @@ private fun handleDescriptionReceived(
                 websocketService = session.websocketService,
                 roomId = session.localRoomId,
                 senderId = packet.senderId,
-                descriptionJson = descriptionJson
+                descriptionJson = descriptionJson,
             )
         }
 
@@ -138,10 +151,21 @@ private fun handleDescriptionReceived(
             val descriptionJson = json("type" to type, "sdp" to sdp)
             session.peerConnections.updateDescriptionFromAnswer(
                 senderId = packet.senderId,
-                descriptionJson = descriptionJson
+                descriptionJson = descriptionJson,
             )
         }
     }.onFailure {
         println("Failed to set remote description from packet [$packet]: ${it.message}")
     }
+}
+
+private fun handleUserMuted(packet: Packet) {
+    val (isMuted, socketId) =
+        when (packet) {
+            is Packet.UserMuted -> Pair(true, packet.socketId)
+            is Packet.UserUnmuted -> Pair(false, packet.socketId)
+            else -> return
+        }
+
+    InterfaceMutations.updateUserMuted(socketId, isMuted)
 }

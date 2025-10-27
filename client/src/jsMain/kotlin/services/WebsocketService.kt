@@ -110,27 +110,37 @@ class WebsocketService(
     ) {
         coroutineScope.launch {
             println("Listening for incoming messages...")
-            session.incoming.consumeEach { frame ->
-                when (frame) {
-                    is Text -> {
-                        // Handle incoming text frames
-                        val text = frame.readText()
-                        val packet = Json.decodeFromString<Packet>(text)
-                        handler(getSessionOrAlert(), packet, coroutineScope)
-                    }
+            try {
+                session.incoming.consumeEach { frame ->
+                    when (frame) {
+                        is Text -> {
+                            // Handle incoming text frames
+                            val text = frame.readText()
+                            val packet = Json.decodeFromString<Packet>(text)
+                            handler(getSessionOrAlert(), packet, coroutineScope)
+                        }
 
-                    is Close -> {
-                        println("Websocket closed: ${frame.readReason()}")
-                        this@WebsocketService.session = null
-                        onClose()
-                    }
+                        is Close -> {
+                            println("Websocket closed: ${frame.readReason()}")
+                            this@WebsocketService.session = null
+                            onClose()
+                        }
 
-                    else -> {
-                        // Handle other types of frames if needed
+                        else -> {
+                            // Handle other types of frames if needed
+                        }
                     }
                 }
+                close()
+            } catch (e: Exception) {
+                println("Websocket connection error: ${e.message}")
+                try {
+                    close()
+                } catch (closeException: Exception) {
+                    println("Error during websocket closure: ${closeException.message}")
+                }
+                onClose()
             }
-            close()
         }
     }
 

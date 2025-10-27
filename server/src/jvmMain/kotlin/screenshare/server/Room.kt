@@ -101,11 +101,11 @@ class Room(
             }
 
             is Packet.SendMuted -> {
-                broadcast(Packet.UserMuted(roomId = id, socketId = user.id))
+                handleToggleMute(socketId = user.id, isMuted = true)
             }
 
             is Packet.SendUnmuted -> {
-                broadcast(Packet.UserUnmuted(roomId = id, socketId = user.id))
+                handleToggleMute(socketId = user.id, isMuted = false)
             }
 
             else -> {}
@@ -145,6 +145,21 @@ class Room(
         }
     }
 
+    private suspend fun handleToggleMute(
+        socketId: String,
+        isMuted: Boolean,
+    ) {
+        users[socketId]?.isMuted = isMuted
+
+        val packet =
+            if (isMuted) {
+                Packet.UserMuted(roomId = id, socketId = socketId)
+            } else {
+                Packet.UserUnmuted(roomId = id, socketId = socketId)
+            }
+        broadcast(packet)
+    }
+
     companion object {
         fun create(roomId: String): Room {
             return Room(id = roomId)
@@ -155,7 +170,7 @@ class Room(
 fun Room.createUserListPacket(): UserList {
     val userList =
         allUsers.map {
-            SocketUser(socketId = it.id, username = it.username, roomId = id)
+            SocketUser(socketId = it.id, username = it.username, roomId = id, isMuted = it.isMuted)
         }
     return UserList(roomId = id, users = userList)
 }

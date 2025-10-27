@@ -38,7 +38,7 @@ fun main() {
                             content = "Conexão encerrada! Recarregue a página.",
                             timestamp = Date().getTime().toLong(),
                         ),
-                        localUsername = session?.localUsername.orEmpty()
+                        localUsername = session?.localUsername.orEmpty(),
                     )
                 },
             )
@@ -51,19 +51,20 @@ fun main() {
 
     registerUIHandlers(
         joinRoom = { username, roomId ->
-            session = Session(
-                localUsername = username,
-                localRoomId = roomId,
-                websocketService = websocketService,
-                coroutineScope = websocketCoroutineScope
-            )
+            session =
+                Session(
+                    localUsername = username,
+                    localRoomId = roomId,
+                    websocketService = websocketService,
+                    coroutineScope = websocketCoroutineScope,
+                )
         },
         sendChatMessage = { message ->
             getSessionOrAlert().handleMessageSend(message)
         },
         onMicButtonToggle = {
             getSessionOrAlert().handleMicButtonToggle()
-        }
+        },
     )
 }
 

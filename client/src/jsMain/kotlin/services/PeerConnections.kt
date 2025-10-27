@@ -13,7 +13,7 @@ import ui.InterfaceMutations
 import kotlin.js.Json
 
 class PeerConnections(
-    private val voiceChat: VoiceChat
+    private val voiceChat: VoiceChat,
 ) {
     val peers: MutableMap<String, RTCPeerConnectionDecorator> = mutableMapOf()
 
@@ -113,7 +113,10 @@ class PeerConnections(
         return peers.containsKey(socketId)
     }
 
-    suspend fun updateIceCandidate(senderId: String, candidate: String) {
+    suspend fun updateIceCandidate(
+        senderId: String,
+        candidate: String,
+    ) {
         peers[senderId]?.let { peerConnectionDecorator ->
             val candidateAsJson = JSON.parse<Json>(candidate)
             val rtcIceCandidate =
@@ -131,7 +134,7 @@ class PeerConnections(
         websocketService: WebsocketService,
         roomId: String,
         senderId: String,
-        descriptionJson: Json
+        descriptionJson: Json,
     ) {
         peers[senderId]?.let { peerConnection ->
             console.log("Setting remote description: ${JSON.stringify(descriptionJson)}")
@@ -151,7 +154,7 @@ class PeerConnections(
 
     fun updateDescriptionFromAnswer(
         senderId: String,
-        descriptionJson: Json
+        descriptionJson: Json,
     ) {
         peers[senderId]?.let { peerConnection ->
             console.log("Setting remote description: ${JSON.stringify(descriptionJson)}")

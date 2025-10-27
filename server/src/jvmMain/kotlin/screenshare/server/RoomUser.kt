@@ -10,6 +10,7 @@ data class RoomUser(
     val id: String,
     val session: WebSocketSession,
     val username: String,
+    var isMuted: Boolean = true,
 ) {
     suspend fun sendPacket(packet: Packet) {
         session.send(Text(Json.encodeToString(packet)))

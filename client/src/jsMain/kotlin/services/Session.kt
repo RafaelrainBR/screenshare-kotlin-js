@@ -23,7 +23,7 @@ class Session(
         launch {
             InterfaceMutations.navigateToRoomScreen(
                 roomId = localRoomId,
-                username = localUsername
+                username = localUsername,
             )
             websocketService.joinRoom(
                 roomId = localRoomId,
@@ -33,44 +33,46 @@ class Session(
                 ChatMessage(
                     username = "Sistema",
                     content = "Você entrou na sala $localRoomId",
-                    Date().getTime().toLong()
+                    Date().getTime().toLong(),
                 ),
-                localUsername = localUsername
+                localUsername = localUsername,
             )
         }
     }
 
-    fun handleMessageSend(message: String) = launch {
-        websocketService.sendChatMessage(
-            roomId = localRoomId,
-            message = message,
-        )
-    }
-
-    fun handleMicButtonToggle() = launch {
-        if (voiceChat.localMicStream == null) {
-            runCatching {
-                voiceChat.setupLocalMic(
-                    recreatePeerConnections = {
-                        peerConnections.recreatePeerConnections(
-                            websocketService = websocketService,
-                            roomId = localRoomId,
-                            isInitiator = true,
-                            coroutineScope = this
-                        )
-                    }
-                )
-            }.onFailure { error ->
-                console.error("Error getting microphone", error)
-                window.alert("Permissao de mic necessária")
-                return@launch
-            }
+    fun handleMessageSend(message: String) =
+        launch {
+            websocketService.sendChatMessage(
+                roomId = localRoomId,
+                message = message,
+            )
         }
 
-        voiceChat.toggleMute(
-            broadcastMuted = { isMuted ->
-                websocketService.sendToggleMute(roomId = localRoomId, isMuted = isMuted)
+    fun handleMicButtonToggle() =
+        launch {
+            if (voiceChat.localMicStream == null) {
+                runCatching {
+                    voiceChat.setupLocalMic(
+                        recreatePeerConnections = {
+                            peerConnections.recreatePeerConnections(
+                                websocketService = websocketService,
+                                roomId = localRoomId,
+                                isInitiator = true,
+                                coroutineScope = this,
+                            )
+                        },
+                    )
+                }.onFailure { error ->
+                    console.error("Error getting microphone", error)
+                    window.alert("Permissao de mic necessária")
+                    return@launch
+                }
             }
-        )
-    }
+
+            voiceChat.toggleMute(
+                broadcastMuted = { isMuted ->
+                    websocketService.sendToggleMute(roomId = localRoomId, isMuted = isMuted)
+                },
+            )
+        }
 }

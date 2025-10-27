@@ -6,7 +6,6 @@ fun generateRandomRoomId(): String {
     return Uuid.random().toString()
 }
 
-
 fun String.getUsernameInitials(): String {
     return this.split(" ")
         .mapNotNull { it.firstOrNull()?.toString()?.uppercase() }
