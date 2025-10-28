@@ -3,12 +3,10 @@ package ui
 import getUsernameInitials
 import kotlinx.browser.document
 import kotlinx.browser.window
-import org.w3c.dom.DocumentFragment
 import org.w3c.dom.HTMLAudioElement
 import org.w3c.dom.HTMLDivElement
 import org.w3c.dom.HTMLElement
 import org.w3c.dom.HTMLParagraphElement
-import org.w3c.dom.asList
 import org.w3c.dom.mediacapture.MediaStream
 import org.w3c.dom.url.URL
 import screenshare.common.ChatMessage
@@ -28,24 +26,19 @@ object InterfaceMutations {
             val isCurrentUser = user.username == localUserName
             val isMuted = user.isMuted
 
-            val micIcon =
-                """
-                <svg id="micIcon-user-${user.socketId}" class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path class="micIconPath" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"></path>
-                    <line class="micSlash ${if (isMuted) "" else "hidden"}" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" x1="4" y1="4" x2="20" y2="20" class=""></line>
-                </svg>
-                """.trimIndent()
-
             // TODO: Sanitize username to prevent XSS
             li.innerHTML =
                 """
-                <div class="flex items-center gap-3 p-2 rounded-lg hover:bg-secondary/50 transition-all cursor-pointer group">
-                    <div class="w-8 h-8 rounded-full ${if (isCurrentUser) "bg-primary/20" else "bg-secondary"} flex items-center justify-center ring-2 ring-transparent group-hover:ring-primary/30 transition-all">
+                <div id="${if (isCurrentUser) "user-list-self" else "user-list-${user.socketId}"}" class="flex items-center gap-3 p-2 rounded-lg hover:bg-secondary/50 transition-all cursor-pointer group">
+                    <div class="avatar-circle w-8 h-8 rounded-full ${if (isCurrentUser) "bg-primary/20" else "bg-secondary"} flex items-center justify-center ring-0 ring-transparent transition-all">
                         <span class="text-xs font-semibold ${if (isCurrentUser) "text-primary" else "text-muted-foreground"}">$initials</span>
                     </div>
                     <div class="flex-1 min-w-0 flex flex-row gap-3">
-                        <div class="text-sm font-medium truncate">${user.username}${if (isCurrentUser) " (Você)" else ""}</div
-                        <div>$micIcon</div>
+                        <div class="text-sm font-medium truncate">${user.username}${if (isCurrentUser) " (Você)" else ""}</div>
+                        <svg id="micIcon-user-${user.socketId}" class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path class="micIconPath" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"></path>
+                            <line class="micSlash ${if (isMuted) "" else "hidden"}" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" x1="4" y1="4" x2="20" y2="20" class=""></line>
+                        </svg>
                     </div>
                     <div class="speaking-indicator"></div>
                 </div>
@@ -193,19 +186,17 @@ object InterfaceMutations {
     }
 
     fun setUserSpeaking(
-        username: String,
+        socketId: String,
         isSpeaking: Boolean,
     ) {
-        val userElements = Elements.userList.querySelectorAll("div.flex.items-center.gap-3")
-        userElements.asList().forEach { element ->
-            val nameElement = (element as DocumentFragment).querySelector("div.text-sm")
-            if (nameElement?.textContent?.contains(username) == true) {
-                val indicator = element.querySelector(".speaking-indicator") as? HTMLElement
-                if (isSpeaking) {
-                    indicator?.classList?.add("speaking-pulse")
-                } else {
-                    indicator?.classList?.remove("speaking-pulse")
-                }
+        val userElement = document.getElementById("user-list-$socketId")
+        if (userElement != null) {
+            val avatarCircle = userElement.querySelector(".avatar-circle") as? HTMLElement
+
+            if (isSpeaking) {
+                avatarCircle?.classList?.add("ring-2", "ring-green-500")
+            } else {
+                avatarCircle?.classList?.remove("ring-2", "ring-green-500")
             }
         }
     }

@@ -6,6 +6,8 @@ import org.w3c.dom.mediacapture.MediaStream
 import org.w3c.dom.mediacapture.MediaStreamConstraints
 import ui.InterfaceMutations
 
+private const val SPEAKING_THRESHOLD = 30
+
 class VoiceChat {
     var isMicMuted = true
     var isAudioMuted = true
@@ -20,6 +22,14 @@ class VoiceChat {
         remoteAudioStreams[socketId] = stream
 
         InterfaceMutations.addAudioElementForUser(userId = socketId, stream = stream)
+
+        monitorAudioLevel(
+            stream = stream,
+            socketId = socketId,
+            isEnable = { remoteAudioStreams.containsKey(socketId) },
+        ) { isSpeaking ->
+            InterfaceMutations.setUserSpeaking(socketId, isSpeaking)
+        }
     }
 
     suspend fun setupLocalMic(recreatePeerConnections: suspend () -> Unit) {
@@ -27,6 +37,14 @@ class VoiceChat {
         val audioTrack = localMicStream?.getAudioTracks()?.firstOrNull()
         if (audioTrack != null) {
             recreatePeerConnections()
+        }
+
+        monitorAudioLevel(
+            stream = localMicStream!!,
+            socketId = "self",
+            isEnable = { true },
+        ) { isSpeaking ->
+            InterfaceMutations.setUserSpeaking("self", isSpeaking)
         }
     }
 
@@ -39,4 +57,46 @@ class VoiceChat {
         InterfaceMutations.updateAudioControls(isMicMuted = isMicMuted)
         broadcastMuted(isMicMuted)
     }
+}
+
+private fun monitorAudioLevel(
+    stream: MediaStream,
+    socketId: String,
+    isEnable: () -> Boolean,
+    onSpeakingChange: (Boolean) -> Unit,
+) {
+    val audioContext = js("new AudioContext()").unsafeCast<dynamic>()
+    val source = audioContext.createMediaStreamSource(stream)
+    val analyser = audioContext.createAnalyser()
+
+    analyser.fftSize = 512
+    analyser.smoothingTimeConstant = 0.8
+    source.connect(analyser)
+
+    val bufferLength = analyser.frequencyBinCount as Int
+    val dataArray = js("new Uint8Array(bufferLength)").unsafeCast<dynamic>()
+
+    var isSpeaking = false
+
+    fun checkAudioLevel() {
+        if (!isEnable()) return
+
+        analyser.getByteFrequencyData(dataArray)
+
+        var sum = 0
+        for (i in 0 until bufferLength) {
+            sum += dataArray[i].unsafeCast<Int>()
+        }
+        val average = sum / bufferLength
+
+        val nowSpeaking = average > SPEAKING_THRESHOLD
+        if (nowSpeaking != isSpeaking) {
+            isSpeaking = nowSpeaking
+            onSpeakingChange(isSpeaking)
+        }
+
+        window.requestAnimationFrame { checkAudioLevel() }
+    }
+
+    checkAudioLevel()
 }
