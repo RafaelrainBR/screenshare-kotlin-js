@@ -61,6 +61,17 @@ screenshare/
 
 ### Communication flow
 
+```mermaid
+flowchart LR
+    A["Peer A (Browser)"] -- "Signaling + Chat (via WebSocket)" --> S["Server"]
+    S -- "Signaling + Chat (via WebSocket)" --> B["Peer B (Browser)"]
+    A <-- "Video + Audio (direct, via WebRTC)" --> B
+
+    style S fill:#087cfa,color:#fff,stroke:#065bb5
+    style A fill:#7f52ff,color:#fff,stroke:#5c3bbf
+    style B fill:#7f52ff,color:#fff,stroke:#5c3bbf
+```
+
 1. Clients connect to the server via **WebSocket**.
 2. When a user starts sharing or joins a room, the server broadcasts presence events.
 3. Peers exchange **ICE candidates** and **SDP descriptions** through the server.
