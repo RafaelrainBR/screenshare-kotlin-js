@@ -17,15 +17,38 @@ fun handlePacket(
     println("Received packet: $packet")
     runCatching {
         when (packet) {
-            is Packet.UserConnected -> handleUserConnected(session, packet, coroutineScope)
-            is Packet.UserDisconnected -> handleUserDisconnected(session, packet)
-            is Packet.ChatMessageReceived -> handleChatMessageReceived(session, packet)
-            is Packet.UserList -> handleUserList(session, packet)
-            is Packet.IceCandidateReceived -> handleIceCandidateReceived(session, packet, coroutineScope)
-            is Packet.DescriptionReceived -> handleDescriptionReceived(session, packet, coroutineScope)
+            is Packet.UserConnected -> {
+                handleUserConnected(session, packet, coroutineScope)
+            }
+
+            is Packet.UserDisconnected -> {
+                handleUserDisconnected(session, packet)
+            }
+
+            is Packet.ChatMessageReceived -> {
+                handleChatMessageReceived(session, packet)
+            }
+
+            is Packet.UserList -> {
+                handleUserList(session, packet)
+            }
+
+            is Packet.IceCandidateReceived -> {
+                handleIceCandidateReceived(session, packet, coroutineScope)
+            }
+
+            is Packet.DescriptionReceived -> {
+                handleDescriptionReceived(session, packet, coroutineScope)
+            }
+
             is Packet.ScreenShareStarted -> {}
+
             is Packet.ScreenShareStopped -> {}
-            is Packet.UserMuted, is Packet.UserUnmuted -> handleUserMuted(packet)
+
+            is Packet.UserMuted, is Packet.UserUnmuted -> {
+                handleUserMuted(packet)
+            }
+
             else -> {
                 println("Unknown packet type: ${packet::class.simpleName}")
             }

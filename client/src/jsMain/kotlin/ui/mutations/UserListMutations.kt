@@ -105,9 +105,7 @@ object UserListMutations {
         return article
     }
 
-    private fun createAvatar(
-        initials: String,
-    ): HTMLElement {
+    private fun createAvatar(initials: String): HTMLElement {
         val avatar = document.createSafeElement("div") as HTMLElement
         avatar.style.apply {
             width = "2rem"

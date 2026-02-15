@@ -21,11 +21,13 @@ fun main() {
         with(window.location) {
             println("Connecting to WebSocket at $href")
             val port =
+                @Suppress("UselessCallOnNotNull")
                 if (port.isNullOrBlank()) {
                     if (protocol == "https:") "443" else "80"
                 } else {
                     port
                 }
+
             WebsocketService(
                 urlProtocol = if (protocol == "https:") URLProtocol.WSS else URLProtocol.WS,
                 host = hostname,
@@ -40,6 +42,7 @@ fun main() {
                         ),
                         localUsername = session?.localUsername.orEmpty(),
                     )
+                    window.alert("Conexão encerrada! Recarregue a página.")
                 },
             )
         }

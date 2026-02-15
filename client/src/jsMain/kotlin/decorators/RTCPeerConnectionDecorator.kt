@@ -54,7 +54,7 @@ class RTCPeerConnectionDecorator(
         windowRTCPeerConnection.onicecandidate = { event: dynamic ->
             console.log("new ice event ${JSON.stringify(event)}")
             console.log("new ice candidate ${JSON.stringify(event.candidate)}")
-            block(event.candidate as Json?)
+            block(event.candidate.unsafeCast<Json?>())
         }
     }
 
@@ -100,4 +100,7 @@ fun createRTCIceCandidate(
     candidate: String,
     sdpMid: String,
     sdpMLineIndex: Int,
-): Json = js("new RTCIceCandidate({candidate: candidate, sdpMid: sdpMid, sdpMLineIndex: sdpMLineIndex})") as Json
+): Json =
+    js(
+        "new RTCIceCandidate({candidate: candidate, sdpMid: sdpMid, sdpMLineIndex: sdpMLineIndex})",
+    ).unsafeCast<Json>()

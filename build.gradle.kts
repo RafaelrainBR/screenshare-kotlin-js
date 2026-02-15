@@ -17,7 +17,7 @@ subprojects {
     apply(plugin = "org.jlleitschuh.gradle.ktlint")
 
     configure<KtlintExtension> {
-        version.set("1.7.1")
+        version.set("1.8.0")
         filter {
             exclude { element ->
                 val path = element.file.path

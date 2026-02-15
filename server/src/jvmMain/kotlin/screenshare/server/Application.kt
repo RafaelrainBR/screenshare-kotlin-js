@@ -93,7 +93,9 @@ fun Application.module() {
                         }
                     }
 
-                    is Close -> disconnectUser()
+                    is Close -> {
+                        disconnectUser()
+                    }
 
                     else -> {}
                 }

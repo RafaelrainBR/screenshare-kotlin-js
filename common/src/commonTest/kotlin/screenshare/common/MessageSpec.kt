@@ -52,32 +52,32 @@ class MessageSpec : FunSpec({
         fun joinRoomJson(
             roomId: String,
             username: String,
-        ) = """{"type":"join-room","roomId":"$roomId","username":"$username"}"""
+        ) = """{"type":"join-room","rid":"$roomId","username":"$username"}"""
 
         fun sendMessageJson(
             roomId: String,
             message: String,
-        ) = """{"type":"send-message","roomId":"$roomId","message":"$message"}"""
+        ) = """{"type":"send-message","rid":"$roomId","msg":"$message"}"""
 
-        fun listUsersJson(roomId: String) = """{"type":"list-users","roomId":"$roomId"}"""
+        fun listUsersJson(roomId: String) = """{"type":"list-users","rid":"$roomId"}"""
 
         fun sendIceCandidateJson(
             roomId: String,
             candidate: String,
             targetId: String,
-        ) = """{"type":"send-ice-candidate","roomId":"$roomId","candidate":"$candidate","targetId":"$targetId"}"""
+        ) = """{"type":"send-ice-candidate","rid":"$roomId","ice":"$candidate","tid":"$targetId"}"""
 
         fun userConnectedJson(
             roomId: String,
             socketId: String,
             username: String,
-        ) = """{"type":"user-connected","roomId":"$roomId","socketId":"$socketId","username":"$username"}"""
+        ) = """{"type":"user-connected","rid":"$roomId","sid":"$socketId","username":"$username"}"""
 
         fun userDisconnectedJson(
             roomId: String,
             socketId: String,
             username: String,
-        ) = """{"type":"user-disconnected","roomId":"$roomId","socketId":"$socketId","username":"$username"}"""
+        ) = """{"type":"user-disconnected","rid":"$roomId","sid":"$socketId","username":"$username"}"""
 
         fun messageReceivedJson(
             roomId: String,
@@ -85,11 +85,11 @@ class MessageSpec : FunSpec({
             content: String,
             timestamp: Long,
         ) =
-            """{"type":"chat-message","roomId":"$roomId","message":{"username":"$username","content":"$content","timestamp":$timestamp}}"""
+            """{"type":"chat-message","rid":"$roomId","msg":{"username":"$username","content":"$content","timestamp":$timestamp}}"""
 
         fun userListJson(
             roomId: String,
             users: List<SocketUser>,
-        ) = """{"type":"user-list","roomId":"$roomId","users":${Json.encodeToString(users)}}"""
+        ) = """{"type":"user-list","rid":"$roomId","users":${Json.encodeToString(users)}}"""
     }
 }
