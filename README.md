@@ -56,8 +56,8 @@ screenshare/
 |---|---|---|
 | **common** | JS + JVM | `@Serializable` packet types for all client ↔ server messages (`JoinRoom`, `SendDescription`, `IceCandidateReceived`, etc.) |
 | **client** | Kotlin/JS (Browser) | Single-page app compiled to `clientApp.js`. Manages WebRTC peer connections, screen capture, voice chat, and the DaisyUI interface. |
-| **server** | JVM | Ktor CIO server exposing a WebSocket endpoint for signaling. Handles room lifecycle, user presence, chat history, and ICE/SDP relay. Serves the client's static files. |
-| **server-java** | JVM | Thin wrapper that packages everything into a single fat JAR for deployment. |
+| **server** | JVM (KMP) | Ktor CIO server exposing a WebSocket endpoint for signaling. Handles room lifecycle, user presence, chat history, and ICE/SDP relay. Built with KMP so additional targets (e.g. Kotlin/Native) can be added directly to this module. |
+| **server-java** | JVM | Packages the server into a fat JAR for deployment. |
 
 ### Communication flow
 
