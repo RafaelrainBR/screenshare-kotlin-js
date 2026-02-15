@@ -5,27 +5,38 @@ import org.w3c.dom.mediacapture.MediaStreamTrack
 import kotlin.js.Json
 import kotlin.js.Promise
 
-external class RTCSessionDescription(data: Json)
+external class RTCSessionDescription(
+    data: Json,
+)
 
-external class RTCIceCandidate(candidateInfo: Json)
+external class RTCIceCandidate(
+    candidateInfo: Json,
+)
 
-class RTCPeerConnectionDecorator(private val windowRTCPeerConnection: dynamic) {
+class RTCPeerConnectionDecorator(
+    private val windowRTCPeerConnection: dynamic,
+) {
     val currentRemoteDescription: Any?
         get() = windowRTCPeerConnection.currentRemoteDescription
 
-    fun createOffer(): Promise<Json> {
-        return windowRTCPeerConnection.createOffer() as Promise<Json>
-    }
+    fun createOffer(): Promise<Json> = windowRTCPeerConnection.createOffer() as Promise<Json>
 
-    fun createAnswer(): Promise<Json> {
-        return windowRTCPeerConnection.createAnswer() as Promise<Json>
-    }
+    fun createAnswer(): Promise<Json> = windowRTCPeerConnection.createAnswer() as Promise<Json>
 
     fun addTrack(
         track: MediaStreamTrack,
         localStream: MediaStream,
     ) {
         windowRTCPeerConnection.addTrack(track, localStream)
+    }
+
+    fun getSenders(): Array<dynamic> = windowRTCPeerConnection.getSenders() as Array<dynamic>
+
+    fun hasTrack(track: MediaStreamTrack): Boolean {
+        val senders = getSenders()
+        return senders.any { sender ->
+            sender.track?.id == track.id
+        }
     }
 
     fun onTrack(block: (streams: Array<MediaStream>) -> Unit) {
@@ -47,17 +58,14 @@ class RTCPeerConnectionDecorator(private val windowRTCPeerConnection: dynamic) {
         }
     }
 
-    fun setLocalDescription(description: Json): Promise<Json> {
-        return windowRTCPeerConnection.setLocalDescription(description) as Promise<Json>
-    }
+    fun setLocalDescription(description: Json): Promise<Json> =
+        windowRTCPeerConnection.setLocalDescription(description) as Promise<Json>
 
-    fun setRemoteDescription(description: RTCSessionDescription): Promise<Json> {
-        return windowRTCPeerConnection.setRemoteDescription(description) as Promise<Json>
-    }
+    fun setRemoteDescription(description: RTCSessionDescription): Promise<Json> =
+        windowRTCPeerConnection.setRemoteDescription(description) as Promise<Json>
 
-    fun addIceCandidate(candidate: RTCIceCandidate): Promise<Json> {
-        return windowRTCPeerConnection.addIceCandidate(candidate) as Promise<Json>
-    }
+    fun addIceCandidate(candidate: RTCIceCandidate): Promise<Json> =
+        windowRTCPeerConnection.addIceCandidate(candidate) as Promise<Json>
 
     fun close() {
         windowRTCPeerConnection.close()
@@ -72,8 +80,8 @@ class RTCPeerConnectionDecorator(private val windowRTCPeerConnection: dynamic) {
             return RTCPeerConnectionDecorator(peerConnection)
         }
 
-        private fun instantiate(): dynamic {
-            return js(
+        private fun instantiate(): dynamic =
+            js(
                 """
                 new RTCPeerConnection({
                   iceServers: [
@@ -85,7 +93,6 @@ class RTCPeerConnectionDecorator(private val windowRTCPeerConnection: dynamic) {
                 });
             """,
             )
-        }
     }
 }
 

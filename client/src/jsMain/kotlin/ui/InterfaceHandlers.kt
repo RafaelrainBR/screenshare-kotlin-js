@@ -2,39 +2,46 @@ package ui
 
 import generateRandomRoomId
 import kotlinx.browser.window
-import org.w3c.dom.HTMLButtonElement
-import org.w3c.dom.HTMLInputElement
-import org.w3c.dom.events.Event
 
 fun registerUIHandlers(
     joinRoom: (username: String, roomId: String) -> Unit,
     sendChatMessage: (message: String) -> Unit,
     onMicButtonToggle: () -> Unit,
+    onStartScreenShare: () -> Unit,
+    onStopScreenShare: () -> Unit,
 ) {
+    println("Registering UI handlers")
     setupJoinButtonHandler(joinRoom)
     setupSendMessageButtonHandler(sendChatMessage)
     setupMicToggleButtonHandler(onMicButtonToggle)
-    setupEnterKeyHandlers()
+    setupScreenShareButtonHandlers(onStartScreenShare, onStopScreenShare)
+    setupFullScreenButtonHandler()
 }
 
 private fun setupJoinButtonHandler(joinRoom: (username: String, roomId: String) -> Unit) =
-    Elements.joinButton.addEventListener("click", {
+    Elements.joinButton.addEventListener("click", { e ->
+        e.preventDefault()
         val username = Elements.usernameInput.value.trim()
         val roomId =
-            Elements.roomIdInput.value.trim()
+            Elements.roomIdInput.value
+                .trim()
                 .takeIf { it.isNotBlank() }
-                ?: generateRandomRoomId()
+                ?: generateRandomRoomId().take(8)
 
         if (username.isBlank()) {
             window.alert("Please enter a username.")
             return@addEventListener
         }
 
+        Elements.currentRoomId.textContent = roomId
+
+        println("Joining room '$roomId' as user '$username'")
         joinRoom(username, roomId)
     })
 
 private fun setupSendMessageButtonHandler(sendChatMessage: (message: String) -> Unit) =
-    Elements.sendMessageButton.addEventListener("click", {
+    Elements.sendMessageButton.addEventListener("click", { e ->
+        e.preventDefault()
         val message = Elements.messageInput.value.trim()
 
         if (message.isNotBlank()) {
@@ -44,25 +51,29 @@ private fun setupSendMessageButtonHandler(sendChatMessage: (message: String) -> 
     })
 
 private fun setupMicToggleButtonHandler(onMicButtonToggle: () -> Unit) =
-    Elements.micToggle.addEventListener("click", {
+    Elements.micToggle.addEventListener("click", { e ->
+        e.preventDefault()
         onMicButtonToggle()
     })
 
-private fun setupEnterKeyHandlers() {
-    setupEnterKeyHandler(Elements.messageInput, Elements.sendMessageButton)
-    setupEnterKeyHandler(Elements.usernameInput, Elements.joinButton)
-    setupEnterKeyHandler(Elements.roomIdInput, Elements.joinButton)
+private fun setupScreenShareButtonHandlers(
+    onStartScreenShare: () -> Unit,
+    onStopScreenShare: () -> Unit,
+) {
+    Elements.shareScreenButton.addEventListener("click", { e ->
+        e.preventDefault()
+        onStartScreenShare()
+    })
+
+    Elements.stopScreenShareButton.addEventListener("click", { e ->
+        e.preventDefault()
+        onStopScreenShare()
+    })
 }
 
-private fun setupEnterKeyHandler(
-    inputElement: HTMLInputElement,
-    buttonElement: HTMLButtonElement,
-) = inputElement.addEventListener("keypress", { event ->
-    if (event.isEnterKey()) {
-        buttonElement.click()
-    }
-})
-
-private fun Event.isEnterKey(): Boolean {
-    return this.asDynamic().key.toString().equals("enter", ignoreCase = true)
+private fun setupFullScreenButtonHandler() {
+    Elements.fullScreenButton.addEventListener("click", { e ->
+        e.preventDefault()
+        Elements.screenVideo.requestFullscreen()
+    })
 }

@@ -23,7 +23,9 @@ import kotlin.time.Duration.Companion.seconds
 
 private val logger = LoggerFactory.getLogger("Server")
 
-fun main(args: Array<String>) = io.ktor.server.cio.EngineMain.main(args)
+fun main(args: Array<String>) =
+    io.ktor.server.cio.EngineMain
+        .main(args)
 
 fun Application.module() {
     install(ContentNegotiation) {
@@ -45,7 +47,10 @@ fun Application.module() {
             var roomId: String? = null
 
             val clientIp =
-                call.request.headers["X-Forwarded-For"]?.split(",")?.first()?.trim()
+                call.request.headers["X-Forwarded-For"]
+                    ?.split(",")
+                    ?.first()
+                    ?.trim()
                     ?: call.request.origin.remoteAddress
 
             logger.info("New connection: $clientIp")

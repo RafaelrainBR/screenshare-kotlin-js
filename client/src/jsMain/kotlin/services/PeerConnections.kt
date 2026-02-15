@@ -8,17 +8,33 @@ import getSessionOrAlert
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.await
 import kotlinx.coroutines.launch
-import org.w3c.dom.mediacapture.MediaStream
-import ui.InterfaceMutations
 import kotlin.js.Json
 
 class PeerConnections(
     private val voiceChat: VoiceChat,
+    private val screenSharing: ScreenSharing,
 ) {
     val peers: MutableMap<String, RTCPeerConnectionDecorator> = mutableMapOf()
 
-    var localScreenStream: MediaStream? = null
-    val remoteScreenStreams: MutableMap<String, MediaStream> = mutableMapOf()
+    private fun addTracksIfNotPresent(peerConnection: RTCPeerConnectionDecorator) {
+        screenSharing.localScreenStream?.getTracks()?.forEach { track ->
+            if (!peerConnection.hasTrack(track)) {
+                console.log("Adding screen track: ${track.id}")
+                peerConnection.addTrack(track, screenSharing.localScreenStream!!)
+            } else {
+                console.log("Screen track already present: ${track.id}")
+            }
+        }
+
+        voiceChat.localMicStream?.getTracks()?.forEach { track ->
+            if (!peerConnection.hasTrack(track)) {
+                console.log("Adding mic track: ${track.id}")
+                peerConnection.addTrack(track, voiceChat.localMicStream!!)
+            } else {
+                console.log("Mic track already present: ${track.id}")
+            }
+        }
+    }
 
     fun recreatePeerConnections(
         websocketService: WebsocketService,
@@ -26,16 +42,29 @@ class PeerConnections(
         isInitiator: Boolean,
         coroutineScope: CoroutineScope,
     ) {
+        console.log("Recreating peer connections for ${peers.size} peers")
+
         peers.forEach { (peerId, peerConnection) ->
-            peers[peerId] =
-                createPeerConnection(
-                    websocketService = websocketService,
-                    socketId = peerId,
-                    roomId = roomId,
-                    isInitiator = isInitiator,
-                    coroutineScope = coroutineScope,
-                    peerConnection = peerConnection,
-                )
+            addTracksIfNotPresent(peerConnection)
+
+            if (isInitiator) {
+                coroutineScope.launch {
+                    runCatching {
+                        val offer = peerConnection.createOffer().await()
+                        peerConnection.setLocalDescription(offer).await()
+
+                        val offerDescriptionAsMap =
+                            mapOf("type" to offer["type"] as String, "sdp" to offer["sdp"] as String)
+                        websocketService.sendDescription(
+                            roomId = roomId,
+                            targetId = peerId,
+                            description = offerDescriptionAsMap,
+                        )
+                    }.onFailure { error ->
+                        console.error("Error recreating offer for peer $peerId", error)
+                    }
+                }
+            }
         }
     }
 
@@ -49,13 +78,7 @@ class PeerConnections(
     ): RTCPeerConnectionDecorator {
         val peerConnection = peerConnection ?: RTCPeerConnectionDecorator.create()
 
-        localScreenStream?.getTracks()?.forEach { track ->
-            peerConnection.addTrack(track, localScreenStream!!)
-        }
-
-        voiceChat.localMicStream?.getTracks()?.forEach { track ->
-            peerConnection.addTrack(track, voiceChat.localMicStream!!)
-        }
+        addTracksIfNotPresent(peerConnection)
 
         peerConnection.onIceCandidateAdd { iceCandidate ->
             if (iceCandidate != null) {
@@ -90,7 +113,7 @@ class PeerConnections(
             val isScreenStream = remoteStream.getVideoTracks().isNotEmpty()
             console.log("isScreenStream: $isScreenStream")
             if (isScreenStream) {
-                InterfaceMutations.updateScreenContainer(remoteStream)
+                screenSharing.handleRemoteScreen(socketId, remoteStream)
                 getSessionOrAlert().currentSharerSocketId = socketId
             } else {
                 voiceChat.handleRemoteAudio(socketId, remoteStream)
@@ -109,9 +132,7 @@ class PeerConnections(
         }
     }
 
-    fun contains(socketId: String): Boolean {
-        return peers.containsKey(socketId)
-    }
+    fun contains(socketId: String): Boolean = peers.containsKey(socketId)
 
     suspend fun updateIceCandidate(
         senderId: String,

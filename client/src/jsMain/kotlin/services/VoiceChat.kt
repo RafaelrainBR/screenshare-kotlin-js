@@ -5,6 +5,7 @@ import kotlinx.coroutines.await
 import org.w3c.dom.mediacapture.MediaStream
 import org.w3c.dom.mediacapture.MediaStreamConstraints
 import ui.InterfaceMutations
+import ui.mutations.UserListMutations
 
 private const val SPEAKING_THRESHOLD = 30
 
@@ -28,12 +29,15 @@ class VoiceChat {
             socketId = socketId,
             isEnable = { remoteAudioStreams.containsKey(socketId) },
         ) { isSpeaking ->
-            InterfaceMutations.setUserSpeaking(socketId, isSpeaking)
+            UserListMutations.setUserSpeaking(socketId, isSpeaking)
         }
     }
 
     suspend fun setupLocalMic(recreatePeerConnections: suspend () -> Unit) {
-        localMicStream = window.navigator.mediaDevices.getUserMedia(MediaStreamConstraints(audio = true)).await()
+        localMicStream =
+            window.navigator.mediaDevices
+                .getUserMedia(buildMediaStreamConstraints())
+                .await()
         val audioTrack = localMicStream?.getAudioTracks()?.firstOrNull()
         if (audioTrack != null) {
             recreatePeerConnections()
@@ -44,7 +48,7 @@ class VoiceChat {
             socketId = "self",
             isEnable = { true },
         ) { isSpeaking ->
-            InterfaceMutations.setUserSpeaking("self", isSpeaking)
+            UserListMutations.setUserSpeaking("self", isSpeaking)
         }
     }
 
@@ -57,6 +61,20 @@ class VoiceChat {
         InterfaceMutations.updateAudioControls(isMicMuted = isMicMuted)
         broadcastMuted(isMicMuted)
     }
+
+    private fun buildMediaStreamConstraints(): MediaStreamConstraints =
+        MediaStreamConstraints(
+            audio =
+                mapOf(
+                    "echoCancellation" to true,
+                    "noiseSuppression" to true,
+                    "autoGainControl" to false,
+                    "sampleRate" to 48000,
+                    "sampleSize" to 16,
+                    "channelCount" to 2,
+                    "latency" to 0,
+                ),
+        )
 }
 
 private fun monitorAudioLevel(

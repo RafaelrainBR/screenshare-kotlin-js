@@ -112,9 +112,7 @@ class Room(
         }
     }
 
-    private fun getUserById(id: String): RoomUser? {
-        return users[id]
-    }
+    private fun getUserById(id: String): RoomUser? = users[id]
 
     private suspend fun notifyUserJoin(user: RoomUser) {
         broadcast(UserConnected(roomId = id, socketId = user.id, username = user.username))
@@ -161,9 +159,7 @@ class Room(
     }
 
     companion object {
-        fun create(roomId: String): Room {
-            return Room(id = roomId)
-        }
+        fun create(roomId: String): Room = Room(id = roomId)
     }
 }
 

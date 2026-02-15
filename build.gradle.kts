@@ -1,6 +1,9 @@
+import org.jlleitschuh.gradle.ktlint.KtlintExtension
+
 plugins {
     alias(libs.plugins.kotlinMultiplatform) apply false
     alias(libs.plugins.kotlinJvm) apply false
+    alias(libs.plugins.ksp) apply false
     alias(libs.plugins.kotlinSerialization) apply false
     alias(libs.plugins.kotestMultiplatform) apply false
     alias(libs.plugins.ktor) apply false
@@ -12,4 +15,14 @@ version = "1.0-SNAPSHOT"
 
 subprojects {
     apply(plugin = "org.jlleitschuh.gradle.ktlint")
+
+    configure<KtlintExtension> {
+        version.set("1.7.1")
+        filter {
+            exclude { element ->
+                val path = element.file.path
+                path.contains("\\generated\\") || path.contains("/generated/")
+            }
+        }
+    }
 }

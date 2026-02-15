@@ -5,6 +5,7 @@ import kotlinx.coroutines.launch
 import screenshare.common.ChatMessage
 import screenshare.common.Packet
 import ui.InterfaceMutations
+import ui.mutations.UserListMutations
 import kotlin.js.Date
 import kotlin.js.json
 
@@ -14,19 +15,25 @@ fun handlePacket(
     coroutineScope: CoroutineScope,
 ) {
     println("Received packet: $packet")
-    when (packet) {
-        is Packet.UserConnected -> handleUserConnected(session, packet, coroutineScope)
-        is Packet.UserDisconnected -> handleUserDisconnected(session, packet)
-        is Packet.ChatMessageReceived -> handleChatMessageReceived(session, packet)
-        is Packet.UserList -> handleUserList(session, packet)
-        is Packet.IceCandidateReceived -> handleIceCandidateReceived(session, packet, coroutineScope)
-        is Packet.DescriptionReceived -> handleDescriptionReceived(session, packet, coroutineScope)
-        is Packet.ScreenShareStarted -> {}
-        is Packet.ScreenShareStopped -> {}
-        is Packet.UserMuted, is Packet.UserUnmuted -> handleUserMuted(packet)
-        else -> {
-            println("Unknown packet type: ${packet::class.simpleName}")
+    runCatching {
+        when (packet) {
+            is Packet.UserConnected -> handleUserConnected(session, packet, coroutineScope)
+            is Packet.UserDisconnected -> handleUserDisconnected(session, packet)
+            is Packet.ChatMessageReceived -> handleChatMessageReceived(session, packet)
+            is Packet.UserList -> handleUserList(session, packet)
+            is Packet.IceCandidateReceived -> handleIceCandidateReceived(session, packet, coroutineScope)
+            is Packet.DescriptionReceived -> handleDescriptionReceived(session, packet, coroutineScope)
+            is Packet.ScreenShareStarted -> {}
+            is Packet.ScreenShareStopped -> {}
+            is Packet.UserMuted, is Packet.UserUnmuted -> handleUserMuted(packet)
+            else -> {
+                println("Unknown packet type: ${packet::class.simpleName}")
+            }
         }
+    }.onFailure { error ->
+        println("Error handling packet [$packet]: ${error.message}")
+        println(error.stackTraceToString())
+        println(error)
     }
 }
 
@@ -100,7 +107,7 @@ private fun handleUserList(
     packet: Packet.UserList,
 ) {
     session.userList = packet.users
-    InterfaceMutations.updateUserList(packet.users, session.localUsername)
+    UserListMutations.updateUserList(packet.users, session.localUsername)
 }
 
 private fun handleIceCandidateReceived(
@@ -167,5 +174,5 @@ private fun handleUserMuted(packet: Packet) {
             else -> return
         }
 
-    InterfaceMutations.updateUserMuted(socketId, isMuted)
+    UserListMutations.updateUserMuted(socketId, isMuted)
 }

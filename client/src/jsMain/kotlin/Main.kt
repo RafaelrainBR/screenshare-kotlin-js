@@ -65,6 +65,12 @@ fun main() {
         onMicButtonToggle = {
             getSessionOrAlert().handleMicButtonToggle()
         },
+        onStartScreenShare = {
+            getSessionOrAlert().handleStartScreenShare()
+        },
+        onStopScreenShare = {
+            getSessionOrAlert().handleStopScreenShare()
+        },
     )
 }
 

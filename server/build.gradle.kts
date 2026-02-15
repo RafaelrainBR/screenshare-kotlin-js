@@ -5,9 +5,7 @@ plugins {
 }
 
 kotlin {
-    targets {
-        jvm()
-    }
+    jvm()
 
     sourceSets {
         commonMain.dependencies {
@@ -31,7 +29,6 @@ kotlin {
         commonTest.dependencies {
             implementation(libs.kotest.assertions.core)
             implementation(libs.kotest.framework.engine)
-            implementation(libs.kotest.framework.datatest)
         }
 
         jvmTest.dependencies {
@@ -51,9 +48,11 @@ java {
 }
 
 val clientBuildDir = project(":client").layout.buildDirectory.dir("dist/js/productionExecutable")
+// val clientBuildDir = project(":client").layout.buildDirectory.dir("dist/js/developmentExecutable")
 
 tasks.register<Copy>("copyClientToServer") {
     dependsOn(":client:jsBrowserDistribution")
+//    dependsOn(":client:jsBrowserDevelopmentExecutableDistribution")
     from(clientBuildDir)
     into("src/jvmMain/resources/static")
 }

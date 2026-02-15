@@ -17,7 +17,8 @@ class Session(
     coroutineScope: CoroutineScope,
 ) : CoroutineScope by coroutineScope {
     val voiceChat = VoiceChat()
-    val peerConnections = PeerConnections(voiceChat = voiceChat)
+    val screenSharing = ScreenSharing()
+    val peerConnections = PeerConnections(voiceChat, screenSharing)
 
     init {
         launch {
@@ -52,16 +53,7 @@ class Session(
         launch {
             if (voiceChat.localMicStream == null) {
                 runCatching {
-                    voiceChat.setupLocalMic(
-                        recreatePeerConnections = {
-                            peerConnections.recreatePeerConnections(
-                                websocketService = websocketService,
-                                roomId = localRoomId,
-                                isInitiator = true,
-                                coroutineScope = this,
-                            )
-                        },
-                    )
+                    voiceChat.setupLocalMic(recreatePeerConnections = { recreatePeerConnections() })
                 }.onFailure { error ->
                     console.error("Error getting microphone", error)
                     window.alert("Permissao de mic necessária")
@@ -75,4 +67,30 @@ class Session(
                 },
             )
         }
+
+    fun handleStartScreenShare() =
+        launch {
+            screenSharing.setupLocalScreenStream(
+                onStreamEnd = {
+                    handleStopScreenShare()
+                },
+                recreatePeerConnections = { recreatePeerConnections() },
+            )
+            websocketService.startScreenSharing(localRoomId)
+        }
+
+    fun handleStopScreenShare() =
+        launch {
+            screenSharing.stopScreenSharing(recreatePeerConnections = { recreatePeerConnections() })
+            websocketService.stopScreenSharing(localRoomId)
+        }
+
+    private fun recreatePeerConnections() {
+        peerConnections.recreatePeerConnections(
+            websocketService = websocketService,
+            roomId = localRoomId,
+            isInitiator = true,
+            coroutineScope = this,
+        )
+    }
 }

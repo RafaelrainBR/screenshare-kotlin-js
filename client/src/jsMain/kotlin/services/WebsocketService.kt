@@ -134,6 +134,7 @@ class WebsocketService(
                 close()
             } catch (e: Exception) {
                 println("Websocket connection error: ${e.message}")
+                println(e)
                 try {
                     close()
                 } catch (closeException: Exception) {
@@ -150,8 +151,7 @@ class WebsocketService(
     }
 }
 
-private fun createHttpClient(): HttpClient {
-    return HttpClient {
+private fun createHttpClient(): HttpClient =
+    HttpClient {
         install(WebSockets)
     }
-}

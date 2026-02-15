@@ -20,12 +20,11 @@ data class RoomUser(
         fun create(
             session: WebSocketSession,
             username: String,
-        ): RoomUser {
-            return RoomUser(
+        ): RoomUser =
+            RoomUser(
                 id = UUID.randomUUID().toString(),
                 session = session,
                 username = username,
             )
-        }
     }
 }
