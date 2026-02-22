@@ -1,0 +1,103 @@
+{
+  "signaling-layer": {
+    "description": "WebSocket-based message passing between the browser client and the JVM server. All messages are typed `Packet` instances serialized to JSON.",
+    "required_patterns": {
+      "packet-codec": "All messages must be subclasses of `screenshare.common.Packet` and annotated with `@Serializable` + `@SerialName`. Encoding/decoding always uses `Json.encodeToString` / `Json.decodeFromString<Packet>`.",
+      "client-sends-packet": "Client always calls `WebsocketService.sendPacket(packet)` which writes a `Text` WebSocket frame.",
+      "server-receives-packet": "Server receives frames in `Application.module()`, deserializes to `Packet`, dispatches `JoinRoom` directly or delegates to `Room.consumePacket(user, packet)`.",
+      "server-sends-packet": "Server sends to a single peer via `RoomUser.sendPacket(packet)` or to all via `Room.broadcast(packet)`."
+    },
+    "architectural_constraints": {
+      "common-module-only": "New packet types must be defined in the `common` module only, so they are available on both client and server.",
+      "side-enforcement": "`Packet.getSide()` returns `CLIENT` or `SERVER`. The server ignores server-side packets; the client only processes server-side packets.",
+      "no-http-rest": "There are no REST endpoints; all client↔server communication is exclusively over the single WebSocket connection."
+    }
+  },
+  "room-management": {
+    "description": "Server-side in-memory model of active rooms and their participants. `Room` holds a mutable map of `RoomUser` objects and a chat history list.",
+    "required_patterns": {
+      "room-lifecycle": "`Room` is created lazily on first `JoinRoom`, removed when the last user disconnects.",
+      "packet-dispatch": "All client packets (except `JoinRoom`) are routed through `Room.consumePacket(user, packet)` with a `when` expression.",
+      "broadcast": "Notifications to all users use `Room.broadcast(packet)`, which iterates `users.values` and calls `RoomUser.sendPacket`.",
+      "targeted-send": "WebRTC signaling packets (`SendIceCandidate`, `SendDescription`) are forwarded to a single target user by socket ID."
+    },
+    "architectural_constraints": {
+      "in-memory-only": "No database or persistence layer; room state is lost on server restart.",
+      "mutable-maps": "Users are stored in `MutableMap<String, RoomUser>` keyed by socket ID."
+    }
+  },
+  "webrtc-peer-connections": {
+    "description": "Client-side management of `RTCPeerConnection` objects, one per remote peer. All WebRTC API interaction is wrapped inside `RTCPeerConnectionDecorator`.",
+    "required_patterns": {
+      "decorator-pattern": "All interactions with the browser's `RTCPeerConnection` object must go through `RTCPeerConnectionDecorator`. Raw `dynamic` access to WebRTC APIs is prohibited outside the `decorators/` package.",
+      "offer-answer-flow": "The peer that connects first (or calls `recreatePeerConnections`) is the initiator; it creates an offer via `peerConnection.createOffer()`, sets its local description, and sends it via `WebsocketService.sendDescription()`.",
+      "ice-relay": "ICE candidates are exchanged through the server: `onIceCandidateAdd` → `WebsocketService.sendIceCandidate()` → server → `IceCandidateReceived` → `PeerConnections.updateIceCandidate()`.",
+      "track-management": "`PeerConnections.addTracksIfNotPresent()` adds screen and mic tracks to all peer connections before creating offers; it checks for duplicates using `RTCPeerConnectionDecorator.hasTrack()`."
+    },
+    "architectural_constraints": {
+      "google-stun": "ICE servers are hardcoded to `stun:stun1.l.google.com:19302` and `stun:stun2.l.google.com:19302` inside `RTCPeerConnectionDecorator.instantiate()`.",
+      "no-media-server": "There is no SFU/MCU; all media is point-to-point (full mesh topology between peers in the room).",
+      "screen-vs-audio": "Stream type is inferred from track type: a stream with video tracks is treated as screen-share; audio-only streams are treated as mic audio."
+    }
+  },
+  "ui": {
+    "description": "Browser DOM manipulation written in Kotlin/JS. Split into three layers: element references (`Elements`), mutations (`InterfaceMutations`, `UserListMutations`), and event handler registration (`InterfaceHandlers`).",
+    "required_patterns": {
+      "elements-singleton": "All DOM element references are centralized in the `Elements` singleton object, retrieved once at startup via `document.getElementById` wrapped in the typed `getElement<T>()` helper.",
+      "mutation-objects": "DOM modifications are grouped in `object InterfaceMutations` and `object UserListMutations`. Direct DOM manipulation anywhere else in the codebase is avoided.",
+      "handler-registration": "All UI event listener registrations live in `InterfaceHandlers.kt` and are triggered by calling `registerUIHandlers(...)` from `main()`.",
+      "daisyui-classes": "UI styling uses DaisyUI utility classes (e.g., `btn`, `chat`, `chat-bubble`, `badge`, `hidden`, `animate-fade-in`). CSS class toggling is the mechanism for show/hide and state changes."
+    },
+    "architectural_constraints": {
+      "no-virtual-dom": "There is no React, Vue, or other virtual DOM framework. All DOM operations are direct (`document.createElement`, `classList.add/remove`, `innerHTML`, `appendChild`).",
+      "tailwind-daisyui-cdn": "TailwindCSS and DaisyUI are loaded from CDN in `index.html`; there is no local CSS build pipeline.",
+      "language": "UI text is in Brazilian Portuguese (pt-BR); new UI strings should match this convention."
+    }
+  },
+  "client-session": {
+    "description": "The `Session` class aggregates all client-side state and coordinates service objects (`VoiceChat`, `ScreenSharing`, `PeerConnections`, `WebsocketService`). It is a `CoroutineScope` delegate.",
+    "required_patterns": {
+      "single-session": "There is at most one `Session` instance, held in the global `session` variable in `Main.kt`. It is created when the user clicks 'Join Room'.",
+      "coroutine-scope-delegation": "`Session` delegates `CoroutineScope` to the passed-in `coroutineScope`, so all `launch {}` calls inside `Session` use the same dispatcher.",
+      "action-methods": "User-triggered actions (send message, toggle mic, start/stop screen share) are `fun handleX(): Job` that `launch {}` coroutines."
+    },
+    "architectural_constraints": {
+      "global-var": "The global `session` variable can be null before the user joins a room. Code that needs it calls `getSessionOrAlert()` which throws `IllegalStateException` with an alert if null.",
+      "no-di-framework": "There is no dependency injection framework; service objects are created explicitly inside `Session`'s constructor body."
+    }
+  },
+  "media-capture": {
+    "description": "Browser `MediaStream` capture for both screen (via `getDisplayMedia`) and microphone (via `getUserMedia`). Audio level monitoring uses the Web Audio API.",
+    "required_patterns": {
+      "display-media-decorator": "`window.navigator.mediaDevices.getDisplayMedia()` must be called through the extension function in `DisplayMediaDecorator.kt` because the standard Kotlin browser bindings do not expose this method.",
+      "audio-monitoring": "Audio level monitoring (speaking indicator) is implemented using `AudioContext`, `createMediaStreamSource`, and `createAnalyser` via raw `js(...)` interop inside `VoiceChat.kt`.",
+      "track-lifecycle": "When a local screen track ends (user stops sharing via browser UI), the `onended` callback triggers `onStreamEnd()` to clean up and signal the server."
+    },
+    "architectural_constraints": {
+      "no-constraints-abstraction": "Media constraints are constructed inline inside `buildMediaStreamConstraints()` methods in `ScreenSharing` and `VoiceChat`; they use `mapOf<String, Any>` passed as JS-compatible objects.",
+      "dynamic-audio-api": "Web Audio API is not typed in Kotlin Wrappers; it is accessed via `js(\"new AudioContext()\").unsafeCast<dynamic>()`."
+    }
+  },
+  "multiplatform-common": {
+    "description": "The `common` Gradle module targets both JS and JVM. It contains only shared data models and the packet protocol.",
+    "required_patterns": {
+      "kmp-only-apis": "Code in `common` must only use Kotlin standard library and `kotlinx.serialization`. No platform-specific APIs allowed.",
+      "serialization-annotations": "All shared data classes use `@Serializable`. Packet subclasses additionally use `@SerialName` with explicit compact JSON keys (e.g., `\"rid\"`, `\"sid\"`, `\"msg\"`) to minimize payload size."
+    },
+    "architectural_constraints": {
+      "no-ui-no-server-logic": "The `common` module must not contain UI code or server-specific logic.",
+      "ksp-present": "KSP is applied to the `common` module in `build.gradle.kts` but currently used only for potential annotation processing, not for any active code generation visible in source."
+    }
+  },
+  "deployment": {
+    "description": "The application is packaged as a fat JAR (via the `ktor` plugin) in `server-java`, containerized with Docker, and deployed to Fly.io.",
+    "required_patterns": {
+      "client-bundled-into-server": "Before the server JAR is built, the `copyClientToServer` Gradle task copies the Webpack-bundled `clientApp.js` and `index.html` into `server/src/jvmMain/resources/static/`, which Ktor serves as static resources.",
+      "static-resources": "Ktor serves the frontend via `staticResources()` routing; the client app is a single-page application loaded from the root path."
+    },
+    "architectural_constraints": {
+      "single-port": "Both the WebSocket signaling endpoint (`/`) and the static frontend are served on the same HTTP port (8080).",
+      "fly-region": "Fly.io deployment is configured for the `gru` (São Paulo) region."
+    }
+  }
+}

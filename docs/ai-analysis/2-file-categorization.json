@@ -1,0 +1,81 @@
+{
+  "build-config": [
+    "build.gradle.kts",
+    "settings.gradle.kts",
+    "gradle.properties",
+    "libs.versions.toml",
+    "gradle/wrapper/gradle-wrapper.properties",
+    "client/build.gradle.kts",
+    "common/build.gradle.kts",
+    "server/build.gradle.kts",
+    "server-java/build.gradle.kts"
+  ],
+  "entrypoints": [
+    "client/src/jsMain/kotlin/Main.kt",
+    "server/src/jvmMain/kotlin/screenshare/server/Application.kt"
+  ],
+  "shared-protocol": [
+    "common/src/commonMain/kotlin/screenshare/common/Packet.kt",
+    "common/src/commonMain/kotlin/screenshare/common/ChatMessage.kt"
+  ],
+  "shared-models": [
+    "common/src/commonMain/kotlin/screenshare/common/Packet.kt",
+    "common/src/commonMain/kotlin/screenshare/common/ChatMessage.kt"
+  ],
+  "server-routing": [
+    "server/src/jvmMain/kotlin/screenshare/server/Application.kt"
+  ],
+  "server-room-management": [
+    "server/src/jvmMain/kotlin/screenshare/server/Application.kt",
+    "server/src/jvmMain/kotlin/screenshare/server/Room.kt"
+  ],
+  "client-services": [
+    "client/src/jsMain/kotlin/services/WebsocketService.kt",
+    "client/src/jsMain/kotlin/services/Session.kt",
+    "client/src/jsMain/kotlin/services/SessionHandler.kt",
+    "client/src/jsMain/kotlin/services/PeerConnections.kt",
+    "client/src/jsMain/kotlin/services/ScreenSharing.kt",
+    "client/src/jsMain/kotlin/services/VoiceChat.kt"
+  ],
+  "client-websocket": [
+    "client/src/jsMain/kotlin/services/WebsocketService.kt"
+  ],
+  "client-webrtc": [
+    "client/src/jsMain/kotlin/services/PeerConnections.kt",
+    "client/src/jsMain/kotlin/services/ScreenSharing.kt",
+    "client/src/jsMain/kotlin/services/VoiceChat.kt",
+    "client/src/jsMain/kotlin/decorators/RTCPeerConnectionDecorator.kt",
+    "client/src/jsMain/kotlin/decorators/DisplayMediaDecorator.kt"
+  ],
+  "decorators": [
+    "client/src/jsMain/kotlin/decorators/RTCPeerConnectionDecorator.kt",
+    "client/src/jsMain/kotlin/decorators/DisplayMediaDecorator.kt"
+  ],
+  "ui-dom-access": [
+    "client/src/jsMain/kotlin/ui/Elements.kt"
+  ],
+  "ui-mutations": [
+    "client/src/jsMain/kotlin/ui/InterfaceMutations.kt",
+    "client/src/jsMain/kotlin/ui/mutations/UserListMutations.kt"
+  ],
+  "ui-event-handlers": [
+    "client/src/jsMain/kotlin/ui/InterfaceHandlers.kt"
+  ],
+  "packet-handler": [
+    "client/src/jsMain/kotlin/services/SessionHandler.kt"
+  ],
+  "utility-functions": [
+    "client/src/jsMain/kotlin/Util.kt"
+  ],
+  "html-templates": [
+    "client/src/jsMain/resources/index.html"
+  ],
+  "tests": [
+    "common/src/commonTest/kotlin/screenshare/common/MessageSpec.kt"
+  ],
+  "deployment": [
+    "server-java/Dockerfile",
+    "server-java/docker-compose.yml",
+    "server-java/fly.toml"
+  ]
+}
