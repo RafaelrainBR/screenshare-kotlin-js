@@ -65,6 +65,11 @@ class ScreenSharing {
                     "sampleSize" to 32,
                     "sampleRate" to 48000,
                     "echoCancellation" to false,
+                    "noiseSuppression" to false,
+                    "autoGainControl" to false,
+                    "sampleRate" to 48000,
+                    "channelCount" to 2,
+                    "latency" to 0,
                 ),
         )
 }
