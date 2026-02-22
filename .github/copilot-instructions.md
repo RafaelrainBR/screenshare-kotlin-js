@@ -4,6 +4,13 @@
 
 This file enables AI coding assistants to generate features aligned with this project's architecture and style. All patterns described here are derived exclusively from actual, observed conventions in the codebase — not invented best practices.
 
+> **Need more context?** Detailed analysis documents are available in [`docs/ai-analysis/`](../docs/ai-analysis/):
+> - [`1-determine-techstack.md`](../docs/ai-analysis/1-determine-techstack.md) — full tech stack and domain boundaries
+> - [`2-file-categorization.json`](../docs/ai-analysis/2-file-categorization.json) — every file mapped to its category
+> - [`3-architectural-domains.json`](../docs/ai-analysis/3-architectural-domains.json) — architectural domains with required patterns and constraints
+> - [`4-domains/`](../docs/ai-analysis/4-domains/) — deep-dive per domain (signaling, WebRTC, UI, media capture, etc.)
+> - [`5-style-guides/`](../docs/ai-analysis/5-style-guides/) — per-category coding conventions
+
 This project is a **real-time browser-based screen-sharing and voice-chat platform** built with Kotlin Multiplatform. A Ktor/JVM server provides WebSocket signaling; a Kotlin/JS client handles WebRTC, UI, and media capture.
 
 ---
