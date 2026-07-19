@@ -9,6 +9,7 @@ import androidx.compose.material.icons.automirrored.filled.ScreenShare
 import androidx.compose.material.icons.automirrored.filled.StopScreenShare
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MicOff
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -24,6 +25,7 @@ fun Toolbar(
     onToggleMic: () -> Unit,
     onStartScreenShare: () -> Unit,
     onStopScreenShare: () -> Unit,
+    onOpenSettings: () -> Unit,
 ) {
     Row(
         modifier =
@@ -58,6 +60,15 @@ fun Toolbar(
                     } else {
                         MaterialTheme.colorScheme.onSurface
                     },
+            )
+        }
+
+        // Settings
+        IconButton(onClick = onOpenSettings) {
+            Icon(
+                imageVector = Icons.Filled.Settings,
+                contentDescription = "Configurações",
+                tint = MaterialTheme.colorScheme.onSurface,
             )
         }
     }

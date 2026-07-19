@@ -39,8 +39,11 @@ fun App(
                         videoTrack = videoTrack,
                         onSendMessage = { sessionManager.sendMessage(it) },
                         onToggleMic = { sessionManager.toggleMic() },
-                        onStartScreenShare = { sessionManager.startScreenShare() },
+                        onStartScreenShare = { config -> sessionManager.startScreenShare(config) },
                         onStopScreenShare = { sessionManager.stopScreenShare() },
+                        getScreenSources = { sessionManager.getScreenSources() },
+                        getAudioDevices = { sessionManager.getAudioDevices() },
+                        onApplySettings = { sessionManager.applyDeviceSettings(it) },
                     )
                 }
             }

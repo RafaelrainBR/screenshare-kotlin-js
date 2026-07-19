@@ -9,6 +9,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material3.Icon
@@ -17,12 +19,20 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.isShiftPressed
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import screenshare.common.ChatMessage
 
@@ -35,9 +45,25 @@ fun ChatPanel(
     val listState = rememberLazyListState()
     var inputText by remember { mutableStateOf("") }
 
+    fun sendMessage() {
+        val trimmed = inputText.trim()
+        if (trimmed.isNotEmpty()) {
+            onSendMessage(trimmed)
+            inputText = ""
+        }
+    }
+
+    // Smart scroll: only auto-scroll when user is already near the bottom
+    val isNearBottom by remember {
+        derivedStateOf {
+            val lastVisible = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
+            lastVisible >= messages.size - 3
+        }
+    }
+
     LaunchedEffect(messages.size) {
-        if (messages.isNotEmpty()) {
-            listState.scrollToItem(messages.lastIndex)
+        if (isNearBottom || messages.size <= 1) {
+            listState.animateScrollToItem(maxOf(0, messages.lastIndex))
         }
     }
 
@@ -64,18 +90,27 @@ fun ChatPanel(
                 value = inputText,
                 onValueChange = { inputText = it },
                 placeholder = { Text("Mensagem...") },
-                singleLine = true,
-                modifier = Modifier.weight(1f),
+                maxLines = 5,
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+                keyboardActions = KeyboardActions(onSend = { sendMessage() }),
+                modifier =
+                    Modifier
+                        .weight(1f)
+                        .onKeyEvent { event ->
+                            if (event.type == KeyEventType.KeyDown &&
+                                event.key == Key.Enter &&
+                                !event.isShiftPressed
+                            ) {
+                                sendMessage()
+                                true // consume event
+                            } else {
+                                false
+                            }
+                        },
             )
 
             IconButton(
-                onClick = {
-                    val trimmed = inputText.trim()
-                    if (trimmed.isNotEmpty()) {
-                        onSendMessage(trimmed)
-                        inputText = ""
-                    }
-                },
+                onClick = { sendMessage() },
                 enabled = inputText.trim().isNotEmpty(),
             ) {
                 Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Enviar")
