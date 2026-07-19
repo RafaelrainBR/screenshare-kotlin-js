@@ -140,8 +140,14 @@ class WebRtcManagerWasmJs(
         repeat(jsArrayLength(tracks)) { i -> jsSetTrackEnabled(jsArrayGet(tracks, i), !isMuted) }
     }
 
-    override suspend fun startScreenShare(onStreamEnd: () -> Unit): Boolean {
-        jsRequestDisplayMedia()
+    override suspend fun startScreenShare(config: ScreenShareConfig, onStreamEnd: () -> Unit): Boolean {
+        jsRequestDisplayMediaWithConfig(
+            width = config.resolution.width,
+            height = config.resolution.height,
+            fps = config.frameRate.fps,
+            captureAudio = config.captureAudio,
+            displaySurface = config.displaySurface?.name,
+        )
         val result = waitForMediaResult("__screenQueue") ?: return false
         if (!jsMediaResultOk(result)) return false
         val stream = jsMediaResultStream(result)
@@ -157,6 +163,55 @@ class WebRtcManagerWasmJs(
         }
         localScreenStream = null
         recreateAllConnections()
+    }
+
+    override suspend fun enumerateScreenSources(): List<ScreenSource> = emptyList()
+
+    override suspend fun enumerateAudioInputs(): List<AudioDevice> =
+        enumerateDevicesByKind("audioinput")
+
+    override suspend fun enumerateAudioOutputs(): List<AudioDevice> =
+        enumerateDevicesByKind("audiooutput")
+
+    override suspend fun applyDeviceSettings(settings: DeviceSettings) {
+        runCatching {
+            if (settings.micDeviceId != null) {
+                jsRequestUserMediaWithDevice(settings.micDeviceId)
+                val result = waitForMediaResult("__micQueue") ?: return
+                if (!jsMediaResultOk(result)) return
+                val stream = jsMediaResultStream(result)
+                // Stop old mic tracks
+                localMicStream?.let { old ->
+                    val tracks = jsGetAllTracks(old)
+                    repeat(jsArrayLength(tracks)) { i -> jsTrackStop(jsArrayGet(tracks, i)) }
+                }
+                localMicStream = stream
+                startAudioMonitor(stream, "self")
+                recreateAllConnections()
+            }
+        }.onFailure { println("[WebRTC] applyDeviceSettings error: ${it.message}") }
+    }
+
+    private suspend fun enumerateDevicesByKind(kind: String): List<AudioDevice> {
+        jsEnumerateDevices()
+        val deadline = currentTimeMillis() + MEDIA_TIMEOUT_MS
+        while (currentTimeMillis() < deadline) {
+            jsPopDeviceResult()?.let { result ->
+                if (!jsDeviceResultOk(result)) return emptyList()
+                val devices = jsDeviceResultDevices(result)
+                val list = mutableListOf<AudioDevice>()
+                val count = jsArrayLength(devices)
+                for (i in 0 until count) {
+                    val d = jsArrayGet(devices, i)
+                    if (jsDeviceKind(d) == kind) {
+                        list.add(AudioDevice(id = jsDeviceId(d), label = jsDeviceLabel(d).ifEmpty { "$kind-$i" }))
+                    }
+                }
+                return list
+            }
+            delay(POLL_INTERVAL_MS)
+        }
+        return emptyList()
     }
 
     // ─── Private helpers ─────────────────────────────────────────────────────

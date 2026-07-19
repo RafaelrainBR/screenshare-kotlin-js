@@ -6,7 +6,11 @@ import kotlin.js.JsAny
 
 // ─── RTCPeerConnection ────────────────────────────────────────────────────────
 
-@JsFun("() => new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] })")
+@JsFun("""() => new RTCPeerConnection({ iceServers: [
+  { urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302', 'stun:stun2.l.google.com:19302'] },
+  { urls: ['turn:openrelay.metered.ca:80', 'turn:openrelay.metered.ca:443', 'turn:openrelay.metered.ca:443?transport=tcp'],
+    username: 'openrelayproject', credential: 'openrelayproject' }
+]})""")
 internal external fun jsNewPeerConnection(): JsAny
 
 /**
@@ -171,6 +175,71 @@ internal external fun jsRequestUserMedia()
 }""",
 )
 internal external fun jsRequestDisplayMedia()
+
+@JsFun(
+    """(width, height, fps, captureAudio, displaySurface) => {
+    globalThis.__screenQueue = globalThis.__screenQueue || [];
+    const videoConstraints = {
+        cursor: 'always',
+        frameRate: { ideal: fps },
+        width: { ideal: width },
+        height: { ideal: height }
+    };
+    if (displaySurface) videoConstraints.displaySurface = displaySurface.toLowerCase().replace('_', '');
+    const constraints = { video: videoConstraints, audio: !!captureAudio };
+    navigator.mediaDevices.getDisplayMedia(constraints)
+        .then(s  => globalThis.__screenQueue.push({ ok: true,  stream: s }))
+        .catch(() => globalThis.__screenQueue.push({ ok: false, stream: null }));
+}""",
+)
+internal external fun jsRequestDisplayMediaWithConfig(
+    width: Int,
+    height: Int,
+    fps: Int,
+    captureAudio: Boolean,
+    displaySurface: String?,
+)
+
+@JsFun(
+    """(deviceId) => {
+    globalThis.__micQueue = globalThis.__micQueue || [];
+    navigator.mediaDevices.getUserMedia({
+        audio: { deviceId: { exact: deviceId }, echoCancellation: true, noiseSuppression: true, autoGainControl: false, sampleRate: 48000 }
+    })
+    .then(s  => globalThis.__micQueue.push({ ok: true,  stream: s }))
+    .catch(() => globalThis.__micQueue.push({ ok: false, stream: null }));
+}""",
+)
+internal external fun jsRequestUserMediaWithDevice(deviceId: String)
+
+@JsFun(
+    """() => {
+    globalThis.__deviceQueue = globalThis.__deviceQueue || [];
+    navigator.mediaDevices.enumerateDevices()
+        .then(devices => globalThis.__deviceQueue.push({ ok: true, devices: devices }))
+        .catch(() => globalThis.__deviceQueue.push({ ok: false, devices: [] }));
+}""",
+)
+internal external fun jsEnumerateDevices()
+
+/** Pops from globalThis.__deviceQueue, or returns null if queue is empty. */
+@JsFun("() => { const a = globalThis.__deviceQueue; return (a && a.length) ? a.shift() : null; }")
+internal external fun jsPopDeviceResult(): JsAny?
+
+@JsFun("(r) => !!r.ok")
+internal external fun jsDeviceResultOk(r: JsAny): Boolean
+
+@JsFun("(r) => r.devices || []")
+internal external fun jsDeviceResultDevices(r: JsAny): JsAny
+
+@JsFun("(d) => d.deviceId || ''")
+internal external fun jsDeviceId(d: JsAny): String
+
+@JsFun("(d) => d.kind || ''")
+internal external fun jsDeviceKind(d: JsAny): String
+
+@JsFun("(d) => d.label || ''")
+internal external fun jsDeviceLabel(d: JsAny): String
 
 /** Pops from the named globalThis queue (e.g. "__micQueue"), or returns null. */
 @JsFun("(q) => { const a = globalThis[q]; return (a && a.length) ? a.shift() : null; }")
