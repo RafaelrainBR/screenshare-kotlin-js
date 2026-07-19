@@ -11,6 +11,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asComposeImageBitmap
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import com.shepeliev.webrtckmp.VideoStreamTrack
 import dev.onvoid.webrtc.media.FourCC
@@ -45,14 +46,30 @@ actual fun VideoView(
     BoxWithConstraints(modifier = modifier) {
         val constraints = this.constraints
         Canvas(modifier = Modifier.fillMaxSize()) {
+            val containerW = constraints.maxWidth
+            val containerH = constraints.maxHeight
             drawRect(
                 color = Color.Black,
-                size = Size(constraints.maxWidth.toFloat(), constraints.maxHeight.toFloat()),
+                size = Size(containerW.toFloat(), containerH.toFloat()),
             )
-            image.value?.let {
+            image.value?.let { bmp ->
+                val srcW = bmp.width.takeIf { it > 0 } ?: containerW
+                val srcH = bmp.height.takeIf { it > 0 } ?: containerH
+                val srcAspect = srcW.toFloat() / srcH
+                val containerAspect = containerW.toFloat() / containerH
+                val (dstW, dstH) = if (srcAspect > containerAspect) {
+                    // wider than container — letterbox (bars top/bottom)
+                    Pair(containerW, (containerW / srcAspect).toInt())
+                } else {
+                    // taller than container — pillarbox (bars left/right)
+                    Pair((containerH * srcAspect).toInt(), containerH)
+                }
+                val offsetX = (containerW - dstW) / 2
+                val offsetY = (containerH - dstH) / 2
                 drawImage(
-                    image = it.asComposeImageBitmap(),
-                    dstSize = IntSize(constraints.maxWidth, constraints.maxHeight),
+                    image = bmp.asComposeImageBitmap(),
+                    dstOffset = IntOffset(offsetX, offsetY),
+                    dstSize = IntSize(dstW, dstH),
                 )
             }
         }

@@ -2,8 +2,10 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.application
+import androidx.compose.ui.window.rememberWindowState
 import io.ktor.http.URLProtocol
 import screenshare.clientkmp.services.PacketHandler
 import screenshare.clientkmp.services.SessionManager
@@ -14,8 +16,8 @@ import screenshare.clientkmp.ui.App
 fun main(args: Array<String>) =
     application {
         val initialRoomId = args.firstOrNull { it.startsWith("--room=") }?.removePrefix("--room=")
-        val host = args.firstOrNull { it.startsWith("--host=") }?.removePrefix("--host=") ?: "localhost"
-        val isSecure = args.contains("--secure")
+        val host = args.firstOrNull { it.startsWith("--host=") }?.removePrefix("--host=") ?: "screen-share.fly.dev"
+        val isSecure = !args.contains("--insecure")
         val protocol = if (isSecure) URLProtocol.WSS else URLProtocol.WS
         val port = args.firstOrNull { it.startsWith("--port=") }?.removePrefix("--port=")?.toIntOrNull()
             ?: if (isSecure) 443 else 8080
@@ -49,7 +51,11 @@ fun main(args: Array<String>) =
         Window(
             onCloseRequest = ::exitApplication,
             title = "ScreenShare",
+            state = rememberWindowState(width = 1200.dp, height = 750.dp),
         ) {
+            LaunchedEffect(Unit) {
+                window.minimumSize = java.awt.Dimension(960, 620)
+            }
             App(sessionManager, appState)
         }
     }

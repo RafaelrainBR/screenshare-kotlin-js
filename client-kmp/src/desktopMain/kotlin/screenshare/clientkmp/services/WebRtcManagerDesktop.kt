@@ -2,8 +2,10 @@ package screenshare.clientkmp.services
 
 import com.shepeliev.webrtckmp.AudioStreamTrack
 import com.shepeliev.webrtckmp.IceCandidate
+import com.shepeliev.webrtckmp.IceServer
 import com.shepeliev.webrtckmp.MediaDevices
 import com.shepeliev.webrtckmp.MediaStream
+import com.shepeliev.webrtckmp.getDisplayMediaForSource
 import com.shepeliev.webrtckmp.MediaStreamTrackState
 import com.shepeliev.webrtckmp.OfferAnswerOptions
 import com.shepeliev.webrtckmp.PeerConnection
@@ -14,14 +16,22 @@ import com.shepeliev.webrtckmp.VideoStreamTrack
 import com.shepeliev.webrtckmp.WebRtc
 import com.shepeliev.webrtckmp.audioTracks
 import com.shepeliev.webrtckmp.onIceCandidate
+import com.shepeliev.webrtckmp.onIceConnectionStateChange
+import com.shepeliev.webrtckmp.onIceGatheringState
+import com.shepeliev.webrtckmp.onConnectionStateChange
 import com.shepeliev.webrtckmp.onTrack
 import com.shepeliev.webrtckmp.videoTracks
 import dev.onvoid.webrtc.media.MediaDevices as NativeMediaDevices
 import dev.onvoid.webrtc.media.audio.AudioDeviceModule
+import dev.onvoid.webrtc.media.video.desktop.DesktopSource
+import dev.onvoid.webrtc.media.video.desktop.ScreenCapturer
+import dev.onvoid.webrtc.media.video.desktop.WindowCapturer
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import screenshare.common.Packet
 
@@ -34,6 +44,8 @@ class WebRtcManagerDesktop(
 
     private val peers = mutableMapOf<String, PeerConnection>()
     private val peerJobs = mutableMapOf<String, List<Job>>()
+    // Buffers ICE candidates that arrive before setRemoteDescription completes
+    private val pendingCandidates = mutableMapOf<String, MutableList<IceCandidate>>()
     private var localMicStream: MediaStream? = null
     private var localScreenStream: MediaStream? = null
 
@@ -69,15 +81,81 @@ class WebRtcManagerDesktop(
         socketId: String,
         isInitiator: Boolean,
     ) {
-        val pc = PeerConnection(RtcConfiguration())
+        val pc = PeerConnection(RtcConfiguration(
+            iceServers = listOf(
+                // Multiple STUN servers for redundancy
+                IceServer(urls = listOf(
+                    "stun:stun.l.google.com:19302",
+                    "stun:stun1.l.google.com:19302",
+                    "stun:stun2.l.google.com:19302",
+                    "stun:stun3.l.google.com:19302",
+                    "stun:stun4.l.google.com:19302",
+                    "stun:stun.stunprotocol.org:3478",
+                    "stun:stun.ekiga.net",
+                )),
+                // freestun.net — free open TURN server
+                IceServer(
+                    urls = listOf(
+                        "turn:freestun.net:3479",
+                        "turn:freestun.net:3479?transport=tcp",
+                        "turns:freestun.net:5350",
+                    ),
+                    username = "free",
+                    password = "free",
+                ),
+                // openrelay — fallback TURN
+                IceServer(
+                    urls = listOf(
+                        "turn:openrelay.metered.ca:80",
+                        "turn:openrelay.metered.ca:443?transport=tcp",
+                    ),
+                    username = "openrelayproject",
+                    password = "openrelayproject",
+                ),
+            ),
+        ))
         addTracksIfNotPresent(pc)
         peers[socketId] = pc
 
+        println("[WebRTC] createPeerConnection peer=${socketId.take(8)} initiator=$isInitiator")
+
         val iceJob = scope.launch {
+            val candidateCounts = mutableMapOf("host" to 0, "srflx" to 0, "prflx" to 0, "relay" to 0)
             pc.onIceCandidate.collect { ice ->
                 val room = appState.currentRoom ?: return@collect
                 val json = iceToJson(ice)
+                val type = when {
+                    ice.candidate.contains("typ relay") -> "relay(TURN)"
+                    ice.candidate.contains("typ srflx") -> "srflx(STUN)"
+                    ice.candidate.contains("typ prflx") -> "prflx"
+                    else -> "host"
+                }
+                val key = type.substringBefore('(')
+                candidateCounts[key] = (candidateCounts[key] ?: 0) + 1
+                val proto = Regex("\\d+ (udp|tcp)").find(ice.candidate)?.groupValues?.get(1) ?: ""
+                println("[ICE] peer=${socketId.take(8)} local $proto $type")
                 websocketService.sendIceCandidate(room.roomId, json, socketId)
+            }
+        }
+
+        val gatheringJob = scope.launch {
+            pc.onIceGatheringState.collect { state ->
+                println("[ICE] peer=${socketId.take(8)} gathering → $state")
+            }
+        }
+
+        val iceStateJob = scope.launch {
+            pc.onIceConnectionStateChange.collect { state ->
+                println("[ICE] peer=${socketId.take(8)} state → $state")
+                if (state == com.shepeliev.webrtckmp.IceConnectionState.Failed) {
+                    println("[ICE] ⚠ peer=${socketId.take(8)} FALHOU — sem relay(TURN)? Verifique firewall/TURN server")
+                }
+            }
+        }
+
+        val connStateJob = scope.launch {
+            pc.onConnectionStateChange.collect { state ->
+                println("[WebRTC] peer=${socketId.take(8)} connection → $state")
             }
         }
 
@@ -85,8 +163,17 @@ class WebRtcManagerDesktop(
             pc.onTrack.collect { event ->
                 when (event.track) {
                     is VideoStreamTrack -> {
-                        appState.updateRoom { room -> room.copy(currentSharerSocketId = socketId) }
-                        _currentVideoTrack.value = event.track
+                        println("[WebRTC] peer=${socketId.take(8)} onTrack video — aguardando ICE Connected para exibir")
+                        // Aguarda ICE conectar antes de exibir o vídeo
+                        scope.launch {
+                            pc.onIceConnectionStateChange
+                                .filter { it == com.shepeliev.webrtckmp.IceConnectionState.Connected ||
+                                          it == com.shepeliev.webrtckmp.IceConnectionState.Completed }
+                                .first()
+                            println("[WebRTC] peer=${socketId.take(8)} ICE conectado — exibindo vídeo")
+                            appState.updateRoom { room -> room.copy(currentSharerSocketId = socketId) }
+                            _currentVideoTrack.value = event.track
+                        }
                     }
 
                     is AudioStreamTrack -> { /* remote audio plays automatically via WebRTC */ }
@@ -96,7 +183,7 @@ class WebRtcManagerDesktop(
             }
         }
 
-        peerJobs[socketId] = listOf(iceJob, trackJob)
+        peerJobs[socketId] = listOf(iceJob, gatheringJob, iceStateJob, connStateJob, trackJob)
 
         if (isInitiator) {
             scope.launch {
@@ -108,6 +195,7 @@ class WebRtcManagerDesktop(
 
     override fun closePeerConnection(socketId: String) {
         peerJobs.remove(socketId)?.forEach { it.cancel() }
+        pendingCandidates.remove(socketId)
         peers.remove(socketId)?.close()
         if (appState.currentRoom?.currentSharerSocketId == socketId) {
             _currentVideoTrack.value = null
@@ -119,10 +207,21 @@ class WebRtcManagerDesktop(
     }
 
     override suspend fun handleIceCandidate(packet: Packet.IceCandidateReceived) {
-        val pc = peers[packet.senderId] ?: return
-        val ice = jsonToIce(packet.candidate) ?: return
+        val ice = jsonToIce(packet.candidate) ?: run {
+            println("[ICE] peer=${packet.senderId.take(8)} candidato inválido ignorado")
+            return
+        }
+        val pc = peers[packet.senderId]
+        if (pc == null) {
+            // Peer ainda não criado — buffering
+            println("[ICE] peer=${packet.senderId.take(8)} remote candidate buffered (peer não existe ainda)")
+            pendingCandidates.getOrPut(packet.senderId) { mutableListOf() }.add(ice)
+            return
+        }
+        val typ = Regex("typ (\\w+)").find(packet.candidate)?.groupValues?.get(1) ?: "?"
+        println("[ICE] peer=${packet.senderId.take(8)} remote $typ")
         runCatching { pc.addIceCandidate(ice) }
-            .onFailure { println("[WebRTC Desktop] addIceCandidate error for ${packet.senderId}: ${it.message}") }
+            .onFailure { println("[ICE] peer=${packet.senderId.take(8)} addIceCandidate ERRO: ${it.message}") }
     }
 
     override suspend fun handleDescription(packet: Packet.DescriptionReceived) {
@@ -135,6 +234,15 @@ class WebRtcManagerDesktop(
                 }
                 val pc = peers[packet.senderId] ?: return
                 pc.setRemoteDescription(SessionDescription(SessionDescriptionType.Offer, sdp))
+                // Flush any candidates that arrived before setRemoteDescription
+                val pending = pendingCandidates.remove(packet.senderId)
+                if (!pending.isNullOrEmpty()) {
+                    println("[ICE] peer=${packet.senderId.take(8)} flushing ${pending.size} buffered candidates")
+                    pending.forEach { ice ->
+                        runCatching { pc.addIceCandidate(ice) }
+                            .onFailure { println("[ICE] peer=${packet.senderId.take(8)} addIceCandidate (buffered) ERRO: ${it.message}") }
+                    }
+                }
                 val answer = pc.createAnswer(OfferAnswerOptions())
                 pc.setLocalDescription(answer)
                 val room = appState.currentRoom ?: return
@@ -185,9 +293,17 @@ class WebRtcManagerDesktop(
         }
     }
 
-    override suspend fun startScreenShare(onStreamEnd: () -> Unit): Boolean {
+    override suspend fun startScreenShare(config: ScreenShareConfig, onStreamEnd: () -> Unit): Boolean {
         return runCatching {
-            val stream = MediaDevices.getDisplayMedia()
+            // If a specific source was selected in the dialog, capture it directly.
+            // Otherwise fall back to the OS system picker.
+            val stream = if (config.sourceId != null) {
+                val isWindow = config.sourceId.startsWith("window:")
+                val rawId = config.sourceId.substringAfter(':').toLong()
+                getDisplayMediaForSource(rawId, isWindow)
+            } else {
+                MediaDevices.getDisplayMedia()
+            }
             localScreenStream = stream
             _currentVideoTrack.value = stream.videoTracks.firstOrNull()
             // Notify when the screen track ends (user stops sharing via OS UI)
@@ -218,7 +334,84 @@ class WebRtcManagerDesktop(
         recreateAllConnections()
     }
 
+    override suspend fun enumerateScreenSources(): List<ScreenSource> =
+        runCatching {
+            ensureNativeInitialized()
+            val sources = mutableListOf<ScreenSource>()
+            runCatching {
+                ScreenCapturer().getDesktopSources()?.forEach { src: DesktopSource ->
+                    sources.add(ScreenSource(id = "monitor:${src.id}", title = src.title ?: "Tela ${src.id}", isMonitor = true))
+                }
+            }.onFailure { println("[WebRTC Desktop] error enumerateScreenSources (screens): ${it.message}"); it.printStackTrace() }
+            runCatching {
+                WindowCapturer().getDesktopSources()?.forEach { src: DesktopSource ->
+                    sources.add(ScreenSource(id = "window:${src.id}", title = src.title ?: "Janela ${src.id}", isMonitor = false))
+                }
+            }.onFailure { println("[WebRTC Desktop] error enumerateScreenSources (windows): ${it.message}"); it.printStackTrace() }
+            sources
+        }.getOrElse { e ->
+            println("[WebRTC Desktop] error enumerateScreenSources: ${e.message}")
+            emptyList()
+        }
+
+    override suspend fun enumerateAudioInputs(): List<AudioDevice> =
+        runCatching {
+            NativeMediaDevices.getAudioCaptureDevices()?.map { d ->
+                AudioDevice(id = d.descriptor, label = d.name)
+            } ?: emptyList()
+        }.getOrElse { e ->
+            println("[WebRTC Desktop] error enumerateAudioInputs: ${e.message}")
+            emptyList()
+        }
+
+    override suspend fun enumerateAudioOutputs(): List<AudioDevice> =
+        runCatching {
+            NativeMediaDevices.getAudioRenderDevices()?.map { d ->
+                AudioDevice(id = d.descriptor, label = d.name)
+            } ?: emptyList()
+        }.getOrElse { e ->
+            println("[WebRTC Desktop] error enumerateAudioOutputs: ${e.message}")
+            e.printStackTrace()
+            emptyList()
+        }
+
+    override suspend fun applyDeviceSettings(settings: DeviceSettings) {
+        runCatching {
+            // Switch mic device if requested
+            if (settings.micDeviceId != null) {
+                val newStream = MediaDevices.getUserMedia {
+                    audio {
+                        deviceId(settings.micDeviceId)
+                        echoCancellation(true)
+                        noiseSuppression(true)
+                    }
+                }
+                localMicStream?.audioTracks?.forEach { it.stop() }
+                localMicStream = newStream
+                recreateAllConnections()
+            }
+            // Adjust mic gain via track enabled state is basic; advanced volume via WebRTC AudioDeviceModule
+            localMicStream?.audioTracks?.forEach { track ->
+                track.enabled = settings.micVolume > 0f
+            }
+        }.onFailure { println("[WebRTC Desktop] applyDeviceSettings error: ${it.message}") }
+    }
+
     // ─── Private helpers ─────────────────────────────────────────────────────
+
+    /**
+     * Creating and immediately closing a [PeerConnection] forces [WebRtc.peerConnectionFactory]
+     * to initialize, which loads the native WebRTC library. Without this, classes like
+     * [ScreenCapturer] and [WindowCapturer] fail with [UnsatisfiedLinkError] on their
+     * native `initialize()` call when no peer connections have been established yet.
+     */
+    private fun ensureNativeInitialized() {
+        if (peers.isNotEmpty()) return // already bootstrapped via normal usage
+        runCatching {
+            val dummy = PeerConnection(RtcConfiguration())
+            dummy.close()
+        }.onFailure { println("[WebRTC Desktop] ensureNativeInitialized error: ${it.message}") }
+    }
 
     private fun addTracksIfNotPresent(pc: PeerConnection) {
         val existingSenders = pc.getSenders()
