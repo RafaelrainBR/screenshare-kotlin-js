@@ -37,9 +37,22 @@ interface WebRtcManager {
 
     fun toggleMic(isMuted: Boolean)
 
-    suspend fun startScreenShare(onStreamEnd: () -> Unit): Boolean
+    /** Starts screen share using [config] and calls [onStreamEnd] when the track ends. */
+    suspend fun startScreenShare(config: ScreenShareConfig, onStreamEnd: () -> Unit): Boolean
+
+    /** Convenience overload with default config — keeps existing callers compiling. */
+    suspend fun startScreenShare(onStreamEnd: () -> Unit): Boolean = startScreenShare(ScreenShareConfig(), onStreamEnd)
 
     fun stopScreenShare()
+
+    // Device enumeration
+    suspend fun enumerateScreenSources(): List<ScreenSource>
+
+    suspend fun enumerateAudioInputs(): List<AudioDevice>
+
+    suspend fun enumerateAudioOutputs(): List<AudioDevice>
+
+    suspend fun applyDeviceSettings(settings: DeviceSettings)
 }
 
 /** Factory — implemented per-platform via expect/actual. */

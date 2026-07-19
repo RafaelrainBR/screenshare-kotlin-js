@@ -137,7 +137,17 @@ class WebsocketService(
     }
 
     private suspend fun sendPacket(packet: Packet) {
-        println("Sending packet: $packet")
+        println("[WS] >>> ${packetSummary(packet)}")
         session?.send(Frame.Text(Json.encodeToString(packet)))
+    }
+
+    private fun packetSummary(packet: Packet): String = when (packet) {
+        is Packet.SendDescription -> "SendDescription(type=${packet.description["type"]}, room=${packet.roomId}, to=${packet.targetId.take(8)})"
+        is Packet.SendIceCandidate -> {
+            val typ = Regex("typ (\\w+)").find(packet.candidate)?.groupValues?.get(1) ?: "?"
+            "SendIceCandidate(typ=$typ, room=${packet.roomId}, to=${packet.targetId.take(8)})"
+        }
+        is Packet.JoinRoom -> "JoinRoom(room=${packet.roomId}, user=${packet.username})"
+        else -> packet::class.simpleName ?: packet.toString()
     }
 }

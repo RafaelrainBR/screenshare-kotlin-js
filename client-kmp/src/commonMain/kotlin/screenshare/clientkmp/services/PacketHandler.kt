@@ -10,7 +10,7 @@ class PacketHandler(
     private val webRtcManager: WebRtcManager? = null,
 ) {
     suspend fun handle(packet: Packet) {
-        println("Received packet: $packet")
+        println("[WS] <<< ${packetSummary(packet)}")
         runCatching {
             when (packet) {
                 is Packet.UserConnected -> handleUserConnected(packet)
@@ -103,6 +103,15 @@ class PacketHandler(
                 room
             }
         }
+    }
+
+    private fun packetSummary(packet: Packet): String = when (packet) {
+        is Packet.DescriptionReceived -> "DescriptionReceived(type=${packet.description["type"]}, from=${packet.senderId.take(8)})"
+        is Packet.IceCandidateReceived -> {
+            val typ = Regex("typ (\\w+)").find(packet.candidate)?.groupValues?.get(1) ?: "?"
+            "IceCandidateReceived(typ=$typ, from=${packet.senderId.take(8)})"
+        }
+        else -> packet::class.simpleName ?: packet.toString()
     }
 
     private fun systemMessage(content: String) =

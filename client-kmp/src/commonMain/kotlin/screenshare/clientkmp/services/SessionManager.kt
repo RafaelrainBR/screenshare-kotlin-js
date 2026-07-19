@@ -63,16 +63,29 @@ class SessionManager(
         }
     }
 
-    fun startScreenShare() {
+    fun startScreenShare(config: ScreenShareConfig = ScreenShareConfig()) {
         val room = appState.currentRoom ?: return
         coroutineScope.launch {
-            val started =
-                webRtcManager.startScreenShare {
-                    stopScreenShare()
-                }
+            val started = webRtcManager.startScreenShare(config) {
+                stopScreenShare()
+            }
             if (started) {
                 websocketService.startScreenSharing(room.roomId)
             }
+        }
+    }
+
+    suspend fun getScreenSources(): List<ScreenSource> = webRtcManager.enumerateScreenSources()
+
+    suspend fun getAudioDevices(): Pair<List<AudioDevice>, List<AudioDevice>> {
+        val inputs = webRtcManager.enumerateAudioInputs()
+        val outputs = webRtcManager.enumerateAudioOutputs()
+        return Pair(inputs, outputs)
+    }
+
+    fun applyDeviceSettings(settings: DeviceSettings) {
+        coroutineScope.launch {
+            webRtcManager.applyDeviceSettings(settings)
         }
     }
 
