@@ -48,6 +48,7 @@ The project is a Gradle multi-module Kotlin Multiplatform application:
 screenshare/
 ├── common/        Shared data models and serialization (JS + JVM)
 ├── client/        Kotlin/JS browser app (WebRTC, UI, Ktor WebSocket client)
+├── client-kmp/    Kotlin Multiplatform client (Desktop + wasmJs browser)
 ├── server/        Ktor signaling server (WebSockets, room management)
 └── server-java/   Deployment wrapper (fat JAR packaging, Docker, Fly.io)
 ```
@@ -56,6 +57,7 @@ screenshare/
 |---|---|---|
 | **common** | JS + JVM | `@Serializable` packet types for all client ↔ server messages (`JoinRoom`, `SendDescription`, `IceCandidateReceived`, etc.) |
 | **client** | Kotlin/JS (Browser) | Single-page app compiled to `clientApp.js`. Manages WebRTC peer connections, screen capture, voice chat, and the DaisyUI interface. |
+| **client-kmp** | Desktop (JVM) + wasmJs (Browser) | Compose Multiplatform client sharing UI and business logic across targets. Uses [webrtc-kmp](libs/webrtc-kmp) (aschulz90 fork) for native WebRTC on the JVM desktop target. |
 | **server** | JVM (KMP) | Ktor CIO server exposing a WebSocket endpoint for signaling. Handles room lifecycle, user presence, chat history, and ICE/SDP relay. Built with KMP so additional targets (e.g. Kotlin/Native) can be added directly to this module. |
 | **server-java** | JVM | Packages the server into a fat JAR for deployment. |
 
@@ -121,6 +123,59 @@ Open the URL in your browser, enter a username and room ID, and you're ready to 
 ./gradlew :server-java:buildFatJar
 ```
 
+### client-kmp — Desktop (JVM)
+
+The desktop target is a native Compose Multiplatform window with real WebRTC via [webrtc-kmp](libs/webrtc-kmp).  
+The server must be running separately before launching the desktop app.
+
+**1. Start the signaling server:**
+
+```bash
+./gradlew :server-java:run
+```
+
+**2. In another terminal, launch the desktop app:**
+
+```bash
+./gradlew :client-kmp:run
+```
+
+The app connects to `ws://localhost:8080` by default. You can override the server address:
+
+```bash
+./gradlew :client-kmp:run --args="--host=192.168.1.10 --port=8080"
+# Use --secure to switch to WSS (defaults to port 443)
+./gradlew :client-kmp:run --args="--host=screen-share.fly.dev --secure"
+# Pre-fill a room ID
+./gradlew :client-kmp:run --args="--host=localhost --room=myroom"
+```
+
+> [!NOTE]
+> The first run downloads the platform-specific `webrtc-java` native library for your OS/arch
+> (`windows-x86_64`, `linux-x86_64`, `macos-aarch64`, etc.). This happens automatically via Gradle.
+
+### client-kmp — Browser (wasmJs)
+
+The wasmJs target is a Compose-for-Web app running in the browser and using the standard WebRTC browser APIs.  
+The webpack dev server proxies WebSocket connections to the backend, so the server must be running.
+
+**1. Start the signaling server:**
+
+```bash
+./gradlew :server-java:run
+```
+
+**2. In another terminal, start the wasmJs dev server:**
+
+```bash
+./gradlew :client-kmp:wasmJsBrowserDevelopmentRun --continuous
+```
+
+Open **http://localhost:8081** in your browser (the webpack dev server port). The app auto-connects to the server via `window.location`, so no extra configuration is needed.
+
+> [!TIP]
+> Adding `--continuous` enables incremental recompilation on source changes.
+
 ### Run tests
 
 ```bash
@@ -158,7 +213,8 @@ fly deploy
 | Layer | Technology |
 |---|---|
 | Language | [Kotlin 2.3](https://kotlinlang.org) (Multiplatform) |
-| Client | Kotlin/JS, WebRTC, Web Audio API |
+| Client (browser, legacy) | Kotlin/JS, WebRTC, Web Audio API |
+| Client (desktop + browser) | [Compose Multiplatform 1.10](https://www.jetbrains.com/compose-multiplatform/), [webrtc-kmp](https://github.com/aschulz90/webrtc-kmp) |
 | Server | [Ktor 3.4](https://ktor.io) (CIO engine, WebSockets) |
 | Serialization | [kotlinx.serialization](https://github.com/Kotlin/kotlinx.serialization) |
 | UI | [DaisyUI](https://daisyui.com) + [Tailwind CSS](https://tailwindcss.com) |

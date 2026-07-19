@@ -60,3 +60,11 @@ tasks.register<Copy>("copyClientToServer") {
 tasks.named("jvmProcessResources") {
     dependsOn("copyClientToServer")
 }
+
+val clientKmpBuildDir = project(":client-kmp").layout.buildDirectory.dir("dist/wasmJs/productionExecutable")
+
+tasks.register<Copy>("copyClientKmpToServer") {
+    dependsOn(":client-kmp:wasmJsBrowserDistribution")
+    from(clientKmpBuildDir)
+    into("src/jvmMain/resources/static/kmp")
+}

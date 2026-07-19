@@ -1,5 +1,11 @@
 rootProject.name = "screenshare"
 
+includeBuild("libs/webrtc-kmp") {
+    dependencySubstitution {
+        substitute(module("com.shepeliev:webrtc-kmp")).using(project(":webrtc-kmp"))
+    }
+}
+
 pluginManagement {
     repositories {
         google {
@@ -38,6 +44,7 @@ dependencyResolutionManagement {
 }
 
 include(":client")
+include(":client-kmp")
 include(":common")
 include(":server")
 include(":server-java")
