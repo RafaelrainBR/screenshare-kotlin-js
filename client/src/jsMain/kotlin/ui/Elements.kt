@@ -4,6 +4,7 @@ import kotlinx.browser.document
 import org.w3c.dom.HTMLButtonElement
 import org.w3c.dom.HTMLElement
 import org.w3c.dom.HTMLInputElement
+import org.w3c.dom.HTMLSelectElement
 import org.w3c.dom.HTMLVideoElement
 
 object Elements {
@@ -25,6 +26,12 @@ object Elements {
     val shareScreenButton = getElement<HTMLButtonElement>("shareScreenBtn")
     val stopScreenShareButton = getElement<HTMLButtonElement>("stopSharingBtn")
     val fullScreenButton = getElement<HTMLButtonElement>("fullscreenBtn")
+    val screenVolume = getElement<HTMLInputElement>("screenVolume")
+    val inputDevices = getElement<HTMLSelectElement>("inputDevices")
+    val outputDevices = getElement<HTMLSelectElement>("outputDevices")
+    val qualityModal = getElement<HTMLElement>("quality-modal")
+    val confirmShare = getElement<HTMLButtonElement>("confirm-share")
+    val cancelShare = getElement<HTMLButtonElement>("cancel-share")
 }
 
 private inline fun <reified T : HTMLElement> getElement(id: String): T =
