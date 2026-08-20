@@ -3,13 +3,16 @@ package ui.mutations
 import createSafeElement
 import getUsernameInitials
 import kotlinx.browser.document
+import org.w3c.dom.HTMLAudioElement
 import org.w3c.dom.HTMLElement
+import org.w3c.dom.HTMLInputElement
 import org.w3c.dom.HTMLSpanElement
 import sanitizeHTML
 import screenshare.common.SocketUser
 import ui.Elements
 
 object UserListMutations {
+    val userVolumes: MutableMap<String, Int> = mutableMapOf()
     fun updateUserList(
         users: List<SocketUser>,
         localUserName: String,
@@ -100,9 +103,52 @@ object UserListMutations {
         container.appendChild(micIcon)
 
         article.appendChild(container)
+
+        if (!isCurrentUser) {
+            article.appendChild(createVolumeControl(user.socketId))
+        }
+
         article.id = "user-list-${if (isCurrentUser) "self" else user.socketId}"
 
         return article
+    }
+
+    private fun createVolumeControl(userId: String): HTMLElement {
+        val wrapper = document.createSafeElement("div") as HTMLElement
+        wrapper.style.apply {
+            display = "flex"
+            alignItems = "center"
+            columnGap = "0.5rem"
+            marginTop = "0.5rem"
+            paddingLeft = "2.75rem"
+        }
+
+        val volumeIcon = document.createSafeElement("span") as HTMLElement
+        volumeIcon.innerHTML =
+            """
+            <svg class="w-4 h-4 opacity-70" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5L6 9H2v6h4l5 4V5z"/>
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.5 8.5a5 5 0 010 7"/>
+            </svg>
+            """.trimIndent()
+
+        val slider = document.createSafeElement("input") as HTMLInputElement
+        slider.type = "range"
+        slider.min = "0"
+        slider.max = "100"
+        slider.value = (userVolumes[userId] ?: 100).toString()
+        slider.className = "range range-primary range-xs flex-1"
+        slider.setAttribute("aria-label", "Volume do participante")
+        slider.addEventListener("input", {
+            val volume = slider.value.toInt()
+            userVolumes[userId] = volume
+            (document.getElementById("remote-audio-$userId") as? HTMLAudioElement)?.volume = volume / 100.0
+        })
+
+        wrapper.appendChild(volumeIcon)
+        wrapper.appendChild(slider)
+
+        return wrapper
     }
 
     private fun createAvatar(initials: String): HTMLElement {
