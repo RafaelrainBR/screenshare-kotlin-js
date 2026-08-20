@@ -3,294 +3,1053 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Compartilhamento de Tela</title>
-    <link href="https://cdn.jsdelivr.net/npm/daisyui@latest/dist/full.css" rel="stylesheet" type="text/css" />
-    <script src="https://cdn.tailwindcss.com"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <title>Screenshare — compartilhamento de tela P2P</title>
+    <link rel="icon" type="image/x-icon" href="/app1.ico">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Inter+Tight:wght@500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
     <style>
-        /* Estilos customizados para a barra de rolagem (custom-scroll) */
-        body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
-        .custom-scroll::-webkit-scrollbar { width: 6px; height: 6px; }
+        /* ————— Design system próprio. Sem DaisyUI, sem Tailwind. ————— */
+
+        :root {
+            --font-display: 'Inter Tight', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            --font-body: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            --font-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+            --ease: cubic-bezier(0.22, 1, 0.36, 1);
+        }
+
+        /* Temas — aplicam via data-theme OU via :has() do theme-controller (mecanismo próprio) */
+        :root, [data-theme="night"],
+        :root:has(input.theme-controller[value="night"]:checked) {
+            color-scheme: dark;
+            --ground: #0A0B0E;
+            --surface: #101216;
+            --surface-2: #16191F;
+            --hairline: rgba(255, 255, 255, 0.07);
+            --hairline-strong: rgba(255, 255, 255, 0.13);
+            --ink: #EDEEF2;
+            --ink-dim: #A0A6B2;
+            --ink-faint: #666D7C;
+            --accent: #6C7AEE;
+            --accent-hover: #7D89F2;
+            --accent-fg: #FFFFFF;
+            --success: #4ADE80;
+            --error: #F87171;
+        }
+
+        [data-theme="dracula"],
+        :root:has(input.theme-controller[value="dracula"]:checked) {
+            color-scheme: dark;
+            --ground: #0E0F13;
+            --surface: #15161C;
+            --surface-2: #1C1E26;
+            --hairline: rgba(255, 255, 255, 0.08);
+            --hairline-strong: rgba(255, 255, 255, 0.14);
+            --ink: #F2F0F7;
+            --ink-dim: #A6A1C0;
+            --ink-faint: #6D6890;
+            --accent: #BD7CE8;
+            --accent-hover: #C88FEE;
+            --accent-fg: #1A1022;
+            --success: #6EE7B7;
+            --error: #FB7185;
+        }
+
+        [data-theme="garden"],
+        :root:has(input.theme-controller[value="garden"]:checked) {
+            color-scheme: light;
+            --ground: #EDEEF0;
+            --surface: #FAFBFC;
+            --surface-2: #F1F3F5;
+            --hairline: rgba(15, 23, 42, 0.09);
+            --hairline-strong: rgba(15, 23, 42, 0.16);
+            --ink: #191D24;
+            --ink-dim: #4B5361;
+            --ink-faint: #8A92A0;
+            --accent: #3E63DD;
+            --accent-hover: #3556C4;
+            --accent-fg: #FFFFFF;
+            --success: #16803C;
+            --error: #DC2626;
+        }
+
+        [data-theme="coffee"],
+        :root:has(input.theme-controller[value="coffee"]:checked) {
+            color-scheme: dark;
+            --ground: #120F0C;
+            --surface: #1A1613;
+            --surface-2: #221D18;
+            --hairline: rgba(255, 235, 205, 0.08);
+            --hairline-strong: rgba(255, 235, 205, 0.15);
+            --ink: #F0E7DA;
+            --ink-dim: #B3A695;
+            --ink-faint: #7A7062;
+            --accent: #D9A066;
+            --accent-hover: #E2AE79;
+            --accent-fg: #221808;
+            --success: #86C88F;
+            --error: #E5736F;
+        }
+
+        [data-theme="synthwave"],
+        :root:has(input.theme-controller[value="synthwave"]:checked) {
+            color-scheme: dark;
+            --ground: #0E0A17;
+            --surface: #161026;
+            --surface-2: #1E1733;
+            --hairline: rgba(230, 200, 255, 0.09);
+            --hairline-strong: rgba(230, 200, 255, 0.16);
+            --ink: #F2EBFC;
+            --ink-dim: #AB9CC8;
+            --ink-faint: #6F6390;
+            --accent: #E4589B;
+            --accent-hover: #EC6FAB;
+            --accent-fg: #2A0A1C;
+            --success: #4EC9A8;
+            --error: #F26D6D;
+        }
+        /* ————— Reset + base ————— */
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+        html { height: 100%; }
+        body {
+            min-height: 100%;
+            font-family: var(--font-body);
+            font-size: 0.875rem;
+            line-height: 1.5;
+            color: var(--ink);
+            background: var(--ground);
+            -webkit-font-smoothing: antialiased;
+        }
+        h1, h2, h3, h4 { font-family: var(--font-display); letter-spacing: -0.02em; font-weight: 600; }
+        button { font-family: inherit; }
+        svg { display: block; flex-shrink: 0; }
+        ::selection { background: color-mix(in oklab, var(--accent) 32%, transparent); }
+        :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+
+        .custom-scroll::-webkit-scrollbar { width: 8px; height: 8px; }
         .custom-scroll::-webkit-scrollbar-track { background: transparent; }
         .custom-scroll::-webkit-scrollbar-thumb {
-            background: hsl(var(--bc)); /* border color (DaisyUI) */
-            border-radius: 3px;
-            transition: background 0.2s;
+            background: var(--hairline-strong);
+            border-radius: 999px;
+            border: 2px solid transparent;
+            background-clip: content-box;
         }
-        .custom-scroll::-webkit-scrollbar-thumb:hover { background: hsl(var(--nc)); /* neutral color */ }
+        .custom-scroll::-webkit-scrollbar-thumb:hover { background: var(--ink-faint); background-clip: content-box; }
 
-        /* Estilos de animação */
-        @keyframes fade-in { "0%": { opacity: 0, transform: "translateY(10px)" }, "100%": { opacity: 1, transform: "translateY(0)" }}
-        .animate-fade-in { animation: fade-in 0.5s ease forwards; }
-        .pulse-ring { animation: pulse-wave 2s ease-in-out infinite; }
-        @keyframes pulse-wave { 0% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.7); } 70% { box-shadow: 0 0 0 10px rgba(34, 197, 94, 0); } 100% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0); } }
+        /* ————— Utilitárias injetadas pelo Kotlin (contrato) ————— */
+        .hidden { display: none !important; }
+        .w-4 { width: 1rem; } .h-4 { height: 1rem; }
+        .w-5 { width: 1.25rem; } .h-5 { height: 1.25rem; }
+        .w-6 { width: 1.5rem; } .h-6 { height: 1.5rem; }
+        .w-10 { width: 2.25rem; }
+        .w-28 { width: 7rem; }
+        .flex-1 { flex: 1 1 0%; min-width: 0; }
+        .rounded-full { border-radius: 999px; }
+        .text-xs { font-size: 0.75rem; line-height: 1.4; }
+        .font-semibold { font-weight: 600; }
+        .opacity-50 { opacity: 0.5; }
+        .opacity-70 { opacity: 0.7; }
+        .ml-2 { margin-left: 0.5rem; }
+        .bg-primary { background: var(--accent); }
+        .text-primary-content { color: var(--accent-fg); }
+        .bg-base-300 { background: var(--surface-2); }
+        .text-base-content { color: var(--ink); }
+        .text-error { color: var(--error); }
+        .text-success { color: var(--success); }
+        .ring-2.ring-success.ring-offset-2 {
+            box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--success);
+        }
+
+        /* ————— Botões ————— */
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.4rem;
+            height: 2rem;
+            padding: 0 0.75rem;
+            border: 1px solid transparent;
+            border-radius: 6px;
+            font-size: 0.8125rem;
+            font-weight: 500;
+            letter-spacing: -0.01em;
+            white-space: nowrap;
+            cursor: pointer;
+            user-select: none;
+            background: transparent;
+            color: var(--ink);
+            transition: background 0.12s var(--ease), color 0.12s var(--ease),
+                border-color 0.12s var(--ease), opacity 0.12s var(--ease);
+        }
+        .btn:active { transform: translateY(0.5px); }
+        .btn-primary { background: var(--accent); color: var(--accent-fg); }
+        .btn-primary:hover { background: var(--accent-hover); }
+        .btn-error { background: color-mix(in oklab, var(--error) 16%, var(--surface-2)); color: var(--error); border-color: color-mix(in oklab, var(--error) 30%, transparent); }
+        .btn-error:hover { background: color-mix(in oklab, var(--error) 24%, var(--surface-2)); }
+        .btn-ghost { color: var(--ink-dim); }
+        .btn-ghost:hover { background: var(--surface-2); color: var(--ink); }
+        .btn-circle { width: 2rem; padding: 0; }
+        .btn-square { width: 2rem; padding: 0; }
+        .btn-lg { height: 2.5rem; padding: 0 1rem; font-size: 0.875rem; border-radius: 8px; }
+
+        /* ————— Inputs ————— */
+        .input, .select {
+            width: 100%;
+            height: 2.25rem;
+            padding: 0 0.75rem;
+            border: 1px solid var(--hairline-strong);
+            border-radius: 6px;
+            background: var(--surface-2);
+            color: var(--ink);
+            font-family: var(--font-body);
+            font-size: 0.875rem;
+            transition: border-color 0.12s var(--ease), box-shadow 0.12s var(--ease);
+        }
+        .input:hover, .select:hover { border-color: var(--ink-faint); }
+        .input:focus, .select:focus {
+            outline: none;
+            border-color: var(--accent);
+            box-shadow: 0 0 0 3px color-mix(in oklab, var(--accent) 18%, transparent);
+        }
+        .input::placeholder { color: var(--ink-faint); }
+        .select {
+            appearance: none;
+            -webkit-appearance: none;
+            padding-right: 2rem;
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%23888' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+            background-repeat: no-repeat;
+            background-position: right 0.7rem center;
+            cursor: pointer;
+        }
+        .select-sm { height: 2rem; font-size: 0.8125rem; }
+        #roomId, .room-chip-code { font-family: var(--font-mono); font-size: 0.8125rem; }
+
+        input[type="range"].range {
+            -webkit-appearance: none;
+            appearance: none;
+            height: 3px;
+            background: var(--hairline-strong);
+            border-radius: 2px;
+            cursor: pointer;
+        }
+        .range-xs { height: 3px; }
+        .range::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: var(--ink-dim);
+            transition: background 0.12s;
+        }
+        .range-primary::-webkit-slider-thumb { background: var(--accent); }
+        .range::-webkit-slider-thumb:hover { background: var(--ink); }
+        .range::-moz-range-thumb {
+            width: 12px; height: 12px; border: none; border-radius: 50%; background: var(--accent);
+        }
+        .range::-moz-range-track { height: 3px; background: var(--hairline-strong); border-radius: 2px; }
+
+        /* ————— Dropdown (CSS puro, focus-within) ————— */
+        .dropdown { position: relative; display: inline-flex; }
+        .dropdown-content {
+            position: absolute;
+            top: calc(100% + 6px);
+            right: 0;
+            z-index: 60;
+            min-width: 11rem;
+            background: var(--surface);
+            border: 1px solid var(--hairline-strong);
+            border-radius: 10px;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2), 0 24px 48px -16px rgba(0, 0, 0, 0.5);
+            padding: 0.375rem;
+            opacity: 0;
+            transform: translateY(-4px);
+            pointer-events: none;
+            transition: opacity 0.12s var(--ease), transform 0.12s var(--ease);
+        }
+        .dropdown:focus-within .dropdown-content {
+            opacity: 1;
+            transform: none;
+            pointer-events: auto;
+        }
+        .theme-controller {
+            display: flex;
+            align-items: center;
+            width: 100%;
+            height: 2rem;
+            padding: 0 0.625rem;
+            border-radius: 6px;
+            appearance: none;
+            background: transparent;
+            border: none;
+            color: var(--ink-dim);
+            font-family: var(--font-body);
+            font-size: 0.8125rem;
+            cursor: pointer;
+            transition: background 0.12s, color 0.12s;
+        }
+        .theme-controller:hover { background: var(--surface-2); color: var(--ink); }
+        .theme-controller:checked { color: var(--ink); font-weight: 500; }
+        .device-title {
+            font-family: var(--font-mono);
+            font-size: 0.625rem;
+            font-weight: 500;
+            letter-spacing: 0.1em;
+            text-transform: uppercase;
+            color: var(--ink-faint);
+            padding: 0.375rem 0.625rem 0.5rem;
+            border-bottom: 1px solid var(--hairline);
+            margin-bottom: 0.5rem;
+        }
+        .field-label {
+            display: block;
+            font-family: var(--font-mono);
+            font-size: 0.625rem;
+            font-weight: 500;
+            letter-spacing: 0.1em;
+            text-transform: uppercase;
+            color: var(--ink-faint);
+            margin-bottom: 0.4rem;
+        }
+
+        .indicator { position: relative; }
+        .indicator-item {
+            position: absolute;
+            top: 3px;
+            right: 3px;
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            box-shadow: 0 0 0 2px var(--surface);
+        }
+        .indicator-item.badge-error { background: var(--error); }
+        .indicator-item.badge-success { background: var(--success); }
+        /* ————— Join screen: split editorial, não card centrado ————— */
+        #join-screen {
+            min-height: 100vh;
+            display: grid;
+            grid-template-columns: 1.15fr 1fr;
+        }
+        .join-hero {
+            position: relative;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            gap: 3rem;
+            padding: 3rem clamp(1.5rem, 4vw, 4.5rem) 2.25rem;
+            border-right: 1px solid var(--hairline);
+            background: var(--surface);
+            overflow: hidden;
+        }
+        .join-hero::before {
+            content: '';
+            position: absolute;
+            top: -14rem;
+            left: -6rem;
+            width: 34rem;
+            height: 24rem;
+            background: radial-gradient(closest-side, color-mix(in oklab, var(--accent) 10%, transparent), transparent);
+            pointer-events: none;
+        }
+        .join-hero > * { position: relative; }
+        .join-brand {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.625rem;
+            font-family: var(--font-mono);
+            font-size: 0.6875rem;
+            font-weight: 500;
+            letter-spacing: 0.14em;
+            color: var(--ink-dim);
+        }
+        .logo-mark {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 1.625rem;
+            height: 1.625rem;
+            border-radius: 5px;
+            background: var(--accent);
+            color: var(--accent-fg);
+        }
+        .logo-mark svg { width: 0.9375rem; height: 0.9375rem; }
+        .join-title {
+            font-size: clamp(1.875rem, 3.6vw, 2.75rem);
+            font-weight: 600;
+            letter-spacing: -0.03em;
+            line-height: 1.08;
+        }
+        .join-title em { font-style: normal; color: var(--ink-faint); }
+        .join-sub {
+            margin-top: 0.875rem;
+            max-width: 26rem;
+            font-size: 0.9375rem;
+            line-height: 1.55;
+            color: var(--ink-dim);
+        }
+        .spec-list { border-bottom: 1px solid var(--hairline); }
+        .spec-row {
+            display: grid;
+            grid-template-columns: 7rem 1fr;
+            gap: 1.25rem;
+            padding: 0.8rem 0;
+            border-top: 1px solid var(--hairline);
+        }
+        .spec-k {
+            font-family: var(--font-mono);
+            font-size: 0.625rem;
+            font-weight: 500;
+            letter-spacing: 0.1em;
+            text-transform: uppercase;
+            color: var(--ink-faint);
+            padding-top: 0.2rem;
+        }
+        .spec-v { font-size: 0.8125rem; line-height: 1.5; color: var(--ink-dim); }
+        .spec-v strong { color: var(--ink); font-weight: 500; }
+        .join-hero-foot {
+            font-family: var(--font-mono);
+            font-size: 0.625rem;
+            letter-spacing: 0.12em;
+            color: var(--ink-faint);
+        }
+
+        .join-col {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 2.5rem 1.5rem;
+        }
+        .join-form { width: 100%; max-width: 21rem; }
+        .join-form-title { font-size: 1.0625rem; font-weight: 600; }
+        .join-form-sub { margin-top: 0.25rem; font-size: 0.8125rem; color: var(--ink-dim); }
+        .join-fields { margin-top: 1.75rem; display: flex; flex-direction: column; gap: 1.125rem; }
+        .field-hint {
+            margin-top: 0.4rem;
+            font-size: 0.6875rem;
+            color: var(--ink-faint);
+        }
+        #joinBtn { width: 100%; margin-top: 0.375rem; }
+        .join-form-foot {
+            margin-top: 2rem;
+            padding-top: 1rem;
+            border-top: 1px solid var(--hairline);
+            font-family: var(--font-mono);
+            font-size: 0.625rem;
+            letter-spacing: 0.08em;
+            color: var(--ink-faint);
+        }
+
+        @media (max-width: 880px) {
+            #join-screen { grid-template-columns: 1fr; }
+            .join-hero { border-right: none; border-bottom: 1px solid var(--hairline); gap: 1.75rem; padding: 2rem 1.5rem; }
+            .spec-list, .join-hero-foot { display: none; }
+            .join-col { padding: 2rem 1.25rem; }
+        }
+
+        /* ————— App shell ————— */
+        #app-screen { height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+        .topbar {
+            height: 3rem;
+            min-height: 3rem;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 0.75rem;
+            padding: 0 0.625rem 0 1rem;
+            background: var(--surface);
+            border-bottom: 1px solid var(--hairline);
+        }
+        .topbar-left { display: flex; align-items: center; gap: 0.875rem; min-width: 0; }
+        .brand-mini {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-family: var(--font-display);
+            font-size: 0.8125rem;
+            font-weight: 600;
+            letter-spacing: -0.01em;
+        }
+        .brand-mini .logo-mark { width: 1.25rem; height: 1.25rem; border-radius: 4px; }
+        .brand-mini .logo-mark svg { width: 0.75rem; height: 0.75rem; }
+        .room-chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            height: 1.75rem;
+            padding: 0 0.5625rem;
+            border: 1px solid var(--hairline);
+            border-radius: 6px;
+            background: transparent;
+            color: var(--ink-dim);
+            font-family: var(--font-body);
+            font-size: 0.75rem;
+            cursor: pointer;
+            transition: border-color 0.12s var(--ease), color 0.12s var(--ease), background 0.12s var(--ease);
+        }
+        .room-chip:hover { border-color: var(--hairline-strong); color: var(--ink); background: var(--surface-2); }
+        .room-chip.copied { border-color: var(--success); color: var(--success); }
+        .room-chip-label {
+            font-family: var(--font-mono);
+            font-size: 0.5625rem;
+            font-weight: 500;
+            letter-spacing: 0.1em;
+            text-transform: uppercase;
+            color: var(--ink-faint);
+        }
+        .room-chip svg { width: 0.75rem; height: 0.75rem; opacity: 0.7; }
+        .room-chip .icon-check { display: none; }
+        .room-chip.copied .icon-check { display: block; }
+        .room-chip.copied .icon-copy { display: none; }
+        .topbar-actions { display: flex; align-items: center; gap: 0.25rem; }
+        .label-md { display: none; }
+        @media (min-width: 768px) { .label-md { display: inline; } }
+        @media (max-width: 640px) { .brand-mini .word { display: none; } .room-chip { display: none; } }
+        /* ————— Workspace ————— */
+        .workspace { flex: 1; display: flex; min-height: 0; }
+        .stage {
+            flex: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-width: 0;
+            padding: 1.5rem;
+            background: var(--ground);
+        }
+        .video-frame {
+            position: relative;
+            width: 100%;
+            height: 100%;
+            border: 1px solid var(--hairline-strong);
+            border-radius: 10px;
+            background: #000;
+            overflow: hidden;
+        }
+        .video-frame video {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+            display: block;
+        }
+        .glass-chip {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.5rem;
+            height: 2rem;
+            min-width: 2rem;
+            padding: 0 0.625rem;
+            border: 1px solid var(--hairline-strong);
+            border-radius: 7px;
+            background: color-mix(in oklab, var(--surface) 78%, transparent);
+            backdrop-filter: blur(8px);
+            color: var(--ink);
+            cursor: pointer;
+            opacity: 0.82;
+            transition: opacity 0.12s var(--ease);
+        }
+        .glass-chip:hover { opacity: 1; }
+        .glass-chip.fixed-btn { position: absolute; bottom: 1rem; right: 1rem; }
+        .glass-chip.volume { position: absolute; bottom: 1rem; left: 1rem; }
+
+        /* Empty state: monitor com grid de pontos — não um card flutuante genérico */
+        .empty-state { text-align: center; max-width: 24rem; }
+        .monitor {
+            position: relative;
+            width: min(22rem, 78vw);
+            aspect-ratio: 16 / 10;
+            margin: 0 auto 1.375rem;
+            border: 1px solid var(--hairline-strong);
+            border-radius: 10px;
+            background-image: radial-gradient(var(--hairline-strong) 1px, transparent 1px);
+            background-size: 15px 15px;
+            background-position: center;
+        }
+        .monitor svg {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 1.5rem;
+            height: 1.5rem;
+            color: var(--ink-faint);
+            background: var(--ground);
+            padding: 0.375rem;
+            border-radius: 8px;
+            border: 1px solid var(--hairline);
+        }
+        .empty-title { font-size: 0.9375rem; font-weight: 600; }
+        .empty-sub { margin-top: 0.25rem; font-size: 0.8125rem; color: var(--ink-dim); }
+
+        /* ————— Sidebar ————— */
+        .sidebar {
+            width: 20rem;
+            display: flex;
+            flex-direction: column;
+            min-height: 0;
+            background: var(--surface);
+            border-left: 1px solid var(--hairline);
+        }
+        .panel-head {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            height: 2.4rem;
+            min-height: 2.4rem;
+            padding: 0 0.875rem;
+            font-family: var(--font-mono);
+            font-size: 0.625rem;
+            font-weight: 500;
+            letter-spacing: 0.1em;
+            text-transform: uppercase;
+            color: var(--ink-faint);
+            border-bottom: 1px solid var(--hairline);
+        }
+        .panel-head svg { width: 0.8125rem; height: 0.8125rem; opacity: 0.75; }
+        .count-badge {
+            margin-left: auto;
+            font-family: var(--font-mono);
+            font-size: 0.625rem;
+            color: var(--ink-dim);
+            border: 1px solid var(--hairline);
+            border-radius: 999px;
+            min-width: 1.25rem;
+            text-align: center;
+            line-height: 1rem;
+        }
+        #user-list {
+            list-style: none;
+            padding: 0.375rem;
+            max-height: 14rem;
+            overflow-y: auto;
+        }
+        #user-list article {
+            border: 1px solid transparent;
+            border-radius: 7px;
+            margin-bottom: 2px !important;
+            padding: 0.4rem 0.5rem !important;
+            transition: background 0.12s var(--ease), border-color 0.12s var(--ease);
+        }
+        #user-list article:hover { background: var(--surface-2); border-color: var(--hairline); }
+        #user-list .w-6 { width: 1rem; height: 1rem; }
+        .avatar-circle {
+            background: color-mix(in oklab, var(--accent) 20%, var(--surface));
+            border: 1px solid var(--hairline);
+            color: var(--ink);
+        }
+        .chat-area { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+        #chat-messages {
+            flex: 1;
+            padding: 0.875rem;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 0.75rem;
+        }
+        .composer {
+            display: flex;
+            gap: 0.5rem;
+            padding: 0.625rem;
+            border-top: 1px solid var(--hairline);
+        }
+        .composer .input { height: 2rem; font-size: 0.8125rem; }
+
+        /* ————— Chat (grid — classes geradas pelo Kotlin) ————— */
+        .chat { display: grid; grid-template-columns: auto 1fr; column-gap: 0.5rem; row-gap: 0.1875rem; }
+        .chat-end { grid-template-columns: 1fr auto; }
+        .chat-start .chat-image { grid-column: 1; grid-row: 1 / span 2; }
+        .chat-end .chat-image { grid-column: 2; grid-row: 1 / span 2; }
+        .chat-start .chat-header, .chat-start .chat-bubble { grid-column: 2; }
+        .chat-end .chat-header, .chat-end .chat-bubble { grid-column: 1; }
+        .chat-header {
+            display: flex;
+            align-items: baseline;
+            font-size: 0.6875rem;
+            color: var(--ink-faint);
+        }
+        .chat-header time { font-family: var(--font-mono); font-size: 0.625rem; opacity: 0.5; }
+        .chat-image > div {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 1.625rem !important;
+            height: 1.625rem !important;
+            border-radius: 999px;
+            font-size: 0.5625rem;
+        }
+        .chat-bubble {
+            width: fit-content;
+            max-width: 100%;
+            padding: 0.375rem 0.625rem;
+            background: var(--surface-2);
+            border: 1px solid var(--hairline);
+            border-radius: 8px;
+            font-size: 0.8125rem;
+            line-height: 1.45;
+            color: var(--ink);
+            overflow-wrap: anywhere;
+        }
+        .chat-start .chat-bubble { border-bottom-left-radius: 3px; }
+        .chat-end .chat-bubble { border-bottom-right-radius: 3px; }
+        .chat-bubble-primary { background: var(--accent); border-color: transparent; color: var(--accent-fg); }
+
+        @media (max-width: 1023px) {
+            .workspace { flex-direction: column; }
+            .stage { padding: 1rem; }
+            .sidebar { width: 100%; border-left: none; border-top: 1px solid var(--hairline); }
+            #user-list { max-height: 7.5rem; }
+        }
+        /* ————— Modal ————— */
+        #quality-modal {
+            position: fixed;
+            inset: 0;
+            z-index: 50;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 1rem;
+        }
+        .modal-backdrop {
+            position: absolute;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.55);
+            backdrop-filter: blur(2px);
+        }
+        .modal-panel {
+            position: relative;
+            width: 100%;
+            max-width: 23rem;
+            background: var(--surface);
+            border: 1px solid var(--hairline-strong);
+            border-radius: 12px;
+            padding: 1.375rem;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2), 0 32px 64px -16px rgba(0, 0, 0, 0.55);
+            animation: panel-in 0.16s var(--ease) both;
+        }
+        .modal-title { font-size: 0.9375rem; }
+        .modal-desc { margin-top: 0.1875rem; font-size: 0.8125rem; color: var(--ink-dim); }
+        .modal-section { margin-top: 1.125rem; display: flex; flex-direction: column; gap: 0.5rem; }
+        .modal-actions { display: flex; justify-content: flex-end; gap: 0.5rem; margin-top: 1.375rem; }
+
+        .segmented {
+            display: inline-flex;
+            flex-wrap: wrap;
+            gap: 2px;
+            padding: 3px;
+            background: var(--surface-2);
+            border: 1px solid var(--hairline);
+            border-radius: 8px;
+        }
+        .segmented .btn {
+            height: 1.625rem;
+            padding: 0 0.625rem;
+            border-radius: 5px;
+            font-size: 0.75rem;
+            color: var(--ink-dim);
+        }
+        .segmented .btn:hover { background: var(--surface); color: var(--ink); }
+        .segmented .btn-primary, .segmented .btn-primary:hover {
+            background: var(--accent);
+            color: var(--accent-fg);
+        }
+
+        /* ————— Motion ————— */
+        @keyframes fade-in {
+            from { opacity: 0; transform: translateY(5px); }
+            to { opacity: 1; transform: none; }
+        }
+        .animate-fade-in { animation: fade-in 0.2s var(--ease) both; }
+
+        @keyframes panel-in {
+            from { opacity: 0; transform: translateY(6px) scale(0.985); }
+            to { opacity: 1; transform: none; }
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+            *, *::before, *::after {
+                animation-duration: 0.01ms !important;
+                transition-duration: 0.01ms !important;
+            }
+        }
     </style>
 </head>
-<body class="bg-base-300 text-base-content antialiased h-screen flex flex-col overflow-hidden">
+<body>
 
-<div id="join-screen" class="min-h-screen flex items-center justify-center p-4">
-    <div class="card w-full max-w-md shadow-2xl bg-base-100 hover:shadow-primary/50 transition-shadow duration-300 animate-fade-in">
-        <div class="card-body">
-            <div class="text-center">
-                <h1 class="text-3xl font-bold text-primary">Screen Share</h1>
-            </div>
-
-            <form class="space-y-4" onsubmit="return false;">
-                <div class="form-control">
-                    <label class="label"><span class="label-text">Nome de usuário</span></label>
-                    <label class="input-group">
-                        <input type="text" id="username" placeholder="Digite seu nome" class="input input-bordered w-full" />
-                    </label>
-                </div>
-
-                <div class="form-control">
-                    <label class="label"><span class="label-text">Código da sala</span></label>
-                    <label class="input-group">
-                        <input type="text" id="roomId" placeholder="Deixe vazio para criar nova sala" class="input input-bordered w-full" />
-                    </label>
-                </div>
-
-                <button type="button" id="joinBtn" class="btn btn-primary w-full mt-6 shadow-lg shadow-primary/40">
-                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 16l-4-4m0 0l4-4m-4 4h14m-5 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h7a3 3 0 013 3v1"/>
+<div id="join-screen">
+    <div class="join-hero">
+        <div>
+            <div class="join-brand">
+                <span class="logo-mark">
+                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/>
                     </svg>
-                    Entrar na Sala
+                </span>
+            </div>
+        </div>
+
+        <div>
+            <h1 class="join-title">Sua tela,<br/>direto pro <em>outro lado.</em></h1>
+            <p class="join-sub">Compartilhamento de tela e voz em tempo real.</p>
+        </div>
+
+        <div>
+            <div class="spec-list">
+                <div class="spec-row">
+                    <span class="spec-k">SEGURO</span>
+                    <span class="spec-v"><strong>WebRTC ponta a ponta</strong> — vídeo e áudio nunca passam pelo servidor.</span>
+                </div>
+                <div class="spec-row">
+                    <span class="spec-k">LIVRE</span>
+                    <span class="spec-v">Código aberto. Rode quando e como quiser, em qualquer lugar.</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="join-col">
+        <div class="join-form animate-fade-in">
+            <h2 class="join-form-title">Participar de uma sala</h2>
+            <p class="join-form-sub">Você recebe o código de quem criou a sala.</p>
+
+            <form class="join-fields" onsubmit="return false;">
+                <div>
+                    <label class="field-label" for="username">COMO DEVEMOS TE CHAMAR</label>
+                    <input type="text" id="username" placeholder="Como você aparece na sala" class="input" autocomplete="nickname" />
+                </div>
+
+                <div>
+                    <label class="field-label" for="roomId">Código da sala</label>
+                    <input type="text" id="roomId" placeholder="ex: 4f8a2c1e" class="input" />
+                    <p class="field-hint">Vazio cria uma sala nova com código aleatório.</p>
+                </div>
+
+                <button type="button" id="joinBtn" class="btn btn-primary btn-lg">
+                    Entrar na sala
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 8l4 4m0 0l-4 4m4-4H3"/>
+                    </svg>
                 </button>
             </form>
         </div>
     </div>
 </div>
-
-<div id="app-screen" class="hidden flex-1 flex flex-col bg-base-200 overflow-hidden">
-    <div class="navbar bg-base-100 shadow-xl z-50 flex-shrink-0">
-        <div class="flex-1 pl-2">
-            <div class="hidden sm:block">
-                <span class="text-xl opacity-70">Sala:</span>
-                <span class="font-bold text-primary" id="current-room-id"></span>
+<div id="app-screen" class="hidden">
+    <header class="topbar">
+        <div class="topbar-left">
+            <div class="brand-mini">
+                <span class="logo-mark">
+                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/>
+                    </svg>
+                </span>
+                <span class="word">Screenshare</span>
             </div>
+            <button id="copyRoomBtn" type="button" class="room-chip" title="Copiar código da sala" aria-label="Copiar código da sala">
+                <span class="room-chip-label">sala</span>
+                <span id="current-room-id" class="room-chip-code"></span>
+                <svg class="icon-copy" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/>
+                </svg>
+                <svg class="icon-check" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+                </svg>
+            </button>
         </div>
 
-        <div class="flex-none gap-2">
-            <div class="dropdown dropdown-end">
-                <div tabindex="0" role="button" class="btn btn-ghost btn-sm normal-case shadow-lg">
-                    Tema
-                    <svg
-                        width="12px"
-                        height="12px"
-                        class="inline-block h-2 w-2 fill-current opacity-60"
-                        xmlns="http://www.w3.org/2000/svg"
-                        viewBox="0 0 2048 2048"
-                    ><path d="M1799 349l242 241-1017 1017L7 590l242-241 775 775 775-775z"></path>
-                    </svg>
+        <div class="topbar-actions">
+            <div class="dropdown">
+                <button type="button" class="btn btn-ghost">Tema</button>
+                <div class="dropdown-content" tabindex="-1">
+                    <input type="radio" name="theme-dropdown" class="theme-controller" aria-label="Night" value="night" />
+                    <input type="radio" name="theme-dropdown" class="theme-controller" aria-label="Dracula" value="dracula" />
+                    <input type="radio" name="theme-dropdown" class="theme-controller" aria-label="Garden" value="garden" />
+                    <input type="radio" name="theme-dropdown" class="theme-controller" aria-label="Coffee" value="coffee" />
+                    <input type="radio" name="theme-dropdown" class="theme-controller" aria-label="Synthwave" value="synthwave" />
                 </div>
-                <ul tabindex="-1" class="dropdown-content menu p-4 shadow bg-base-100 rounded-box w-80">
-                    <li>
-                        <input
-                        type="radio"
-                        name="theme-dropdown"
-                        class="theme-controller w-full btn btn-sm btn-block btn-ghost justify-start"
-                        aria-label="Dracula"
-                        value="dracula" />
-                    </li>
-                    <li>
-                        <input
-                        type="radio"
-                        name="theme-dropdown"
-                        class="theme-controller w-full btn btn-sm btn-block btn-ghost justify-start"
-                        aria-label="Garden"
-                        value="garden" />
-                    </li>
-                    <li>
-                        <input
-                        type="radio"
-                        name="theme-dropdown"
-                        class="theme-controller w-full btn btn-sm btn-block btn-ghost justify-start"
-                        aria-label="Night"
-                        value="night" />
-                    </li>
-                    <li>
-                        <input
-                        type="radio"
-                        name="theme-dropdown"
-                        class="theme-controller w-full btn btn-sm btn-block btn-ghost justify-start"
-                        aria-label="Coffee"
-                        value="coffee" />
-                    </li>
-                    <li>
-                        <input
-                        type="radio"
-                        name="theme-dropdown"
-                        class="theme-controller w-full btn btn-sm btn-block btn-ghost justify-start"
-                        aria-label="Synthwave"
-                        value="synthwave" />
-                    </li>
-                </ul>
             </div>
-            <button id="shareScreenBtn" class="btn btn-primary btn-sm normal-case shadow-lg">
+
+            <button id="shareScreenBtn" class="btn btn-primary">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"/>
                 </svg>
-                <span class="hidden md:inline">Compartilhar</span>
+                <span class="label-md">Compartilhar</span>
             </button>
-            <button id="stopSharingBtn" class="btn btn-error btn-sm normal-case hidden">
+            <button id="stopSharingBtn" class="btn btn-error hidden">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 10a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1v-4z"/>
                 </svg>
-                <span class="hidden md:inline">Parar</span>
+                <span class="label-md">Parar</span>
             </button>
 
-            <button id="micToggle" class="btn btn-ghost btn-circle indicator">
-                <svg id="micIcon" class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <button id="micToggle" class="btn btn-ghost btn-circle indicator" aria-label="Alternar microfone">
+                <svg id="micIcon" class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path id="micIconPath" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"/>
                     <line id="micSlash" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" x1="4" y1="4" x2="20" y2="20"/>
                 </svg>
                 <span id="micStatus" class="indicator-item badge badge-error badge-xs"></span>
             </button>
 
-            <div class="dropdown dropdown-end">
-                <label tabindex="0" id="deviceSelectBtn" class="btn btn-ghost btn-circle">
-                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <div class="dropdown">
+                <button type="button" id="deviceSelectBtn" class="btn btn-ghost btn-circle" aria-label="Dispositivos de áudio">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/>
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
                     </svg>
-                </label>
-                <ul tabindex="-1" id="deviceDropdown" class="dropdown-content menu p-4 shadow bg-base-100 rounded-box w-80">
-                    <h3 class="text-sm font-semibold mb-3 border-b pb-2 border-base-content/20">Dispositivos de Áudio</h3>
-
-                    <div class="space-y-4">
-                        <div class="form-control">
-                            <label class="label"><span class="label-text">Microfone</span></label>
-                            <select id="inputDevices" class="select select-bordered select-sm">
+                </button>
+                <div class="dropdown-content" id="deviceDropdown" tabindex="-1" style="min-width: 16rem;">
+                    <h3 class="device-title">Dispositivos de áudio</h3>
+                    <div style="padding: 0.25rem 0.5rem 0.5rem; display: flex; flex-direction: column; gap: 0.75rem;">
+                        <div>
+                            <label class="field-label" for="inputDevices">Microfone</label>
+                            <select id="inputDevices" class="select select-sm">
                                 <option disabled selected>Em breve...</option>
                             </select>
                         </div>
-
-                        <div class="form-control">
-                            <label class="label"><span class="label-text">Alto-falante</span></label>
-                            <select id="outputDevices" class="select select-bordered select-sm">
+                        <div>
+                            <label class="field-label" for="outputDevices">Alto-falante</label>
+                            <select id="outputDevices" class="select select-sm">
                                 <option disabled selected>Em breve...</option>
                             </select>
                         </div>
                     </div>
-                </ul>
+                </div>
             </div>
 
-            <button id="toggleSidebarBtn" class="btn btn-ghost btn-circle" onclick="document.getElementById('sidebar-chat').classList.toggle('hidden')">
-                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <button id="toggleSidebarBtn" class="btn btn-ghost btn-circle" aria-label="Alternar painel" onclick="document.getElementById('sidebar-chat').classList.toggle('hidden')">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/>
                 </svg>
             </button>
         </div>
-    </div>
+    </header>
 
-    <div class="flex flex-col lg:flex-row flex-1 overflow-hidden">
-
-        <div class="flex-1 p-4 lg:p-6 relative flex items-center justify-center bg-base-300 overflow-hidden">
-            <div id="no-screen-message" class="hero-content text-center animate-fade-in">
-                <div class="max-w-md">
-                    <div class="mx-auto w-24 h-24 rounded-full bg-base-100 mb-6 flex items-center justify-center">
-                        <svg class="w-12 h-12 text-base-content opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/>
-                        </svg>
-                    </div>
-                    <h3 class="text-2xl font-bold">Nenhuma tela compartilhada</h3>
-                    <p class="py-6 text-base-content opacity-70">Inicie o compartilhamento para visualizar o conteúdo.</p>
+    <div class="workspace">
+        <section class="stage">
+            <div id="no-screen-message" class="empty-state animate-fade-in">
+                <div class="monitor">
+                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/>
+                    </svg>
                 </div>
+                <h3 class="empty-title">Nenhuma tela compartilhada</h3>
+                <p class="empty-sub">Clique em Compartilhar para transmitir, ou aguarde alguém da sala.</p>
             </div>
 
-            <div id="video-container" class="hidden h-full w-full rounded-xl shadow-2xl relative">
-                <video id="screen-video" class="w-full h-full object-contain rounded-xl pointer-events-none" autoplay playsinline></video>
+            <div id="video-container" class="video-frame hidden">
+                <video id="screen-video" autoplay playsinline></video>
 
-                <button id="fullscreenBtn"
-                        class="btn btn-sm btn-circle absolute bottom-6 right-6 bg-base-300 backdrop-blur-sm opacity-70 hover:opacity-100 transition-opacity">
-                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <button id="fullscreenBtn" class="glass-chip fixed-btn" aria-label="Tela cheia">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4"/>
                     </svg>
                 </button>
+
+                <div class="glass-chip volume">
+                    <svg class="w-4 h-4 opacity-70" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5L6 9H2v6h4l5 4V5z"/>
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.5 8.5a5 5 0 010 7"/>
+                    </svg>
+                    <input id="screenVolume" type="range" min="0" max="100" value="100" class="range range-primary range-xs w-28" aria-label="Volume da transmissão" />
+                </div>
+            </div>
+        </section>
+
+        <aside id="sidebar-chat" class="sidebar">
+            <div class="panel-head">
+                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"/>
+                </svg>
+                Participantes
+                <span class="count-badge" id="participant-count">0</span>
+            </div>
+            <ul id="user-list" class="custom-scroll"></ul>
+
+            <div class="panel-head">
+                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/>
+                </svg>
+                Chat
+            </div>
+
+            <div class="chat-area">
+                <div id="chat-messages" class="custom-scroll"></div>
+                <div class="composer">
+                    <input type="text" id="message-input" placeholder="Mensagem..." class="input" />
+                    <button id="send-message-btn" class="btn btn-primary btn-square" aria-label="Enviar mensagem">
+                        <svg class="w-4 h-4" style="transform: rotate(90deg)" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"/>
+                        </svg>
+                    </button>
+                </div>
+            </div>
+        </aside>
+    </div>
+</div>
+
+<div id="quality-modal" class="hidden">
+    <div class="modal-backdrop"></div>
+    <div class="modal-panel">
+        <h3 class="modal-title">Qualidade do compartilhamento</h3>
+        <p class="modal-desc">Resolução e taxa de quadros da captura.</p>
+
+        <div class="modal-section">
+            <span class="field-label">Resolução</span>
+            <div id="resolution-options" class="segmented">
+                <button type="button" class="btn quality-option" data-source="true">Fonte</button>
+                <button type="button" class="btn quality-option" data-width="1280" data-height="720">720p</button>
+                <button type="button" class="btn btn-primary quality-option" data-width="1920" data-height="1080">1080p</button>
+                <button type="button" class="btn quality-option" data-width="2560" data-height="1440">1440p</button>
+                <button type="button" class="btn quality-option" data-width="3840" data-height="2160">4K</button>
             </div>
         </div>
 
-        <div id="sidebar-chat" class="w-full lg:w-96 border-t lg:border-l border-base-content/20 flex flex-col bg-base-100/80 backdrop-blur-sm z-10 h-auto lg:h-full lg:overflow-y-hidden overflow-y-auto">
-
-            <div class="border-b border-base-content/20 flex-shrink-0">
-                <div class="p-3 bg-base-200 flex items-center justify-between text-sm font-semibold">
-                    <span>👥 Participantes</span>
-                    <span class="badge badge-primary" id="participant-count">0</span>
-                </div>
-                <ul id="user-list" class="menu p-2 max-h-48 lg:max-h-64 overflow-y-auto custom-scroll space-y-1"></ul>
+        <div class="modal-section">
+            <span class="field-label">Framerate</span>
+            <div id="framerate-options" class="segmented">
+                <button type="button" class="btn btn-primary quality-option" data-fps="30">30 fps</button>
+                <button type="button" class="btn quality-option" data-fps="60">60 fps</button>
             </div>
+        </div>
 
-            <div class="flex-1 flex flex-col overflow-hidden min-h-0">
-                <div class="p-3 bg-base-200 flex items-center text-sm font-semibold border-b border-base-content/20 flex-shrink-0">
-                    💬 Chat
-                </div>
-
-                <div id="chat-messages" class="flex-1 p-4 overflow-y-auto custom-scroll space-y-3">
-                </div>
-
-                <div class="p-4 border-t border-base-content/20 bg-base-200 flex-shrink-0">
-                    <div class="flex gap-2">
-                        <input type="text" id="message-input"
-                               placeholder="Digite sua mensagem..."
-                               class="input input-bordered input-sm flex-1">
-                        <button id="send-message-btn" class="btn btn-primary btn-sm btn-square">
-                            <svg class="w-5 h-5 rotate-90" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"></path>
-                            </svg>
-                        </button>
-                    </div>
-                </div>
-            </div>
+        <div class="modal-actions">
+            <button type="button" id="cancel-share" class="btn btn-ghost">Cancelar</button>
+            <button type="button" id="confirm-share" class="btn btn-primary">Iniciar</button>
         </div>
     </div>
 </div>
 
-<script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.5.1/socket.io.js"></script>
 <script>
     const roomIdInput = document.getElementById('roomId');
     const urlParams = new URLSearchParams(window.location.search);
     const roomId = urlParams.get('roomId');
     if (roomId) roomIdInput.value = roomId;
 
-    const observerOptions = {
-        threshold: 0.1,
-        rootMargin: '0px 0px -50px 0px'
-    };
-
-    const observer = new IntersectionObserver((entries) => {
-        entries.forEach(entry => {
-            if (entry.isIntersecting) {
-                entry.target.classList.add('revealed');
-            }
-        });
-    }, observerOptions);
-
-    document.querySelectorAll('.animate-fade-in').forEach(el => observer.observe(el));
+    const copyRoomBtn = document.getElementById('copyRoomBtn');
+    copyRoomBtn.addEventListener('click', async () => {
+        const code = document.getElementById('current-room-id').textContent.trim();
+        if (!code) return;
+        try {
+            await navigator.clipboard.writeText(code);
+            copyRoomBtn.classList.add('copied');
+            setTimeout(() => copyRoomBtn.classList.remove('copied'), 1400);
+        } catch (err) {}
+    });
 
     document.getElementById('message-input')?.addEventListener('keypress', (e) => {
-        if (e.key === 'Enter') {
-            document.getElementById('send-message-btn')?.click();
-        }
+        if (e.key === 'Enter') document.getElementById('send-message-btn')?.click();
     });
     document.getElementById('username')?.addEventListener('keypress', (e) => {
-        if (e.key === 'Enter') {
-            document.getElementById('roomId')?.focus();
-        }
+        if (e.key === 'Enter') document.getElementById('roomId')?.focus();
     });
     document.getElementById('roomId')?.addEventListener('keypress', (e) => {
-        if (e.key === 'Enter') {
-            document.getElementById('joinBtn')?.click();
-        }
+        if (e.key === 'Enter') document.getElementById('joinBtn')?.click();
     });
 
-    const video = document.getElementById("screen-video");
+    const video = document.getElementById('screen-video');
+    video.addEventListener('pause', () => { video.play(); });
+    video.addEventListener('click', (e) => { e.preventDefault(); });
 
-    video.addEventListener("pause", (e) => {
-        video.play();
-    });
-    video.addEventListener("click", (e) => {
-        e.preventDefault();
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') document.getElementById('quality-modal')?.classList.add('hidden');
     });
 </script>
 <script src="clientApp.js"></script>
