@@ -81,6 +81,14 @@ class WebsocketService(
         sendPacket(Packet.StopScreenShare(roomId))
     }
 
+    suspend fun startCameraShare(roomId: String) {
+        sendPacket(Packet.StartCameraShare(roomId))
+    }
+
+    suspend fun stopCameraShare(roomId: String) {
+        sendPacket(Packet.StopCameraShare(roomId))
+    }
+
     suspend fun sendChatMessage(
         roomId: String,
         message: String,

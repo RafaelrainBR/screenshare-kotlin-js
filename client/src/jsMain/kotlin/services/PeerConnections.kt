@@ -5,7 +5,6 @@ import decorators.RTCPeerConnectionDecorator
 import decorators.RTCSessionDescription
 import decorators.createRTCIceCandidate
 import decorators.upgradeAudioQualitySdp
-import getSessionOrAlert
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.await
 import kotlinx.coroutines.launch
@@ -16,6 +15,7 @@ import org.w3c.dom.mediacapture.MediaStreamTrack
 class PeerConnections(
     private val voiceChat: VoiceChat,
     private val screenSharing: ScreenSharing,
+    private val cameraSharing: CameraSharing,
 ) {
     val peers: MutableMap<String, RTCPeerConnectionDecorator> = mutableMapOf()
 
@@ -23,6 +23,31 @@ class PeerConnections(
     private val makingOffer = mutableMapOf<String, Boolean>()
     private val ignoreOffer = mutableMapOf<String, Boolean>()
     private val isPolite = mutableMapOf<String, Boolean>()
+
+    // Sinalização local de quais compartilhamentos cada peer está transmitindo.
+    // Usado para decidir, em onTrack, se um track de vídeo é da TELA ou da CÂMERA
+    // (ambos têm video track). Mantidos em sincronia pelos packets Start/Stop.
+    private val screenShareSockets = mutableSetOf<String>()
+    private val cameraShareSockets = mutableSetOf<String>()
+
+    // Contador de tracks de vídeo recebidos por peer. Como o remetente sempre
+    // adiciona a tela ANTES da câmera, o 1º track de vídeo é a tela e o 2º a
+    // câmera quando ambos estão ativos. Zerado ao parar um compartilhamento.
+    private val receivedVideoCount = mutableMapOf<String, Int>()
+
+    fun markScreenSharing(socketId: String, active: Boolean) {
+        if (active) screenShareSockets.add(socketId) else screenShareSockets.remove(socketId)
+        if (!active) receivedVideoCount.remove(socketId)
+    }
+
+    fun markCameraSharing(socketId: String, active: Boolean) {
+        if (active) cameraShareSockets.add(socketId) else cameraShareSockets.remove(socketId)
+        if (!active) receivedVideoCount.remove(socketId)
+    }
+
+    fun isScreenSharing(socketId: String): Boolean = screenShareSockets.contains(socketId)
+
+    fun isCameraSharing(socketId: String): Boolean = cameraShareSockets.contains(socketId)
 
     // Mapeia a resolução/fps escolhidos na UI para um bitrate adequado.
     // 'maintain-resolution' mantém o quadro nítido; o bitrate alto evita a
@@ -75,6 +100,30 @@ class PeerConnections(
                 peerConnection.addTrack(track, voiceChat.localMicStream!!)
             } else {
                 console.log("Mic track already present: ${track.id}")
+            }
+        }
+
+        cameraSharing.localCameraStream?.getTracks()?.forEach { track ->
+            if (!peerConnection.hasTrack(track)) {
+                console.log("Adding camera track: ${track.id}")
+                peerConnection.addTrack(track, cameraSharing.localCameraStream!!)
+
+                if (track.kind == "video") {
+                    // contentHint 'motion' prioriza movimento (padrão de vídeo de
+                    // câmera), diferente do 'detail' usado na tela.
+                    val dynamicTrack = track.unsafeCast<dynamic>()
+                    dynamicTrack.contentHint = "motion"
+
+                    peerConnection.preferVideoCodecs()
+                    peerConnection.applyVideoEncoding(
+                        trackId = track.id,
+                        maxBitrate = 2_500_000,
+                        maxFramerate = 30,
+                        degradationPreference = "maintain-framerate",
+                    )
+                }
+            } else {
+                console.log("Camera track already present: ${track.id}")
             }
         }
     }
@@ -170,13 +219,31 @@ class PeerConnections(
         peerConnection.onTrack { streams ->
             console.log("Received track from [$socketId]: $streams")
             val remoteStream = streams[0]
-            val isScreenStream = remoteStream.getVideoTracks().isNotEmpty()
-            console.log("isScreenStream: $isScreenStream")
-            if (isScreenStream) {
-                screenSharing.handleRemoteScreen(socketId, remoteStream)
-                getSessionOrAlert().currentSharerSocketId = socketId
-            } else {
+            val isVideo = remoteStream.getVideoTracks().isNotEmpty()
+            if (!isVideo) {
                 voiceChat.handleRemoteAudio(socketId, remoteStream)
+                return@onTrack
+            }
+
+            val sharingScreen = screenShareSockets.contains(socketId)
+            val sharingCamera = cameraShareSockets.contains(socketId)
+            val videoIndex = receivedVideoCount[socketId] ?: 0
+            receivedVideoCount[socketId] = videoIndex + 1
+
+            val isCamera =
+                when {
+                    // Câmera sozinha: flag é suficiente (não há track de tela).
+                    sharingCamera && !sharingScreen -> true
+                    // Ambos ativos: o remetente adiciona tela antes de câmera,
+                    // então o 1º track é tela e os seguintes câmera.
+                    sharingCamera && videoIndex > 0 -> true
+                    else -> false
+                }
+
+            if (isCamera) {
+                cameraSharing.handleRemoteCamera(socketId, remoteStream)
+            } else {
+                screenSharing.handleRemoteScreen(socketId, remoteStream)
             }
         }
 
@@ -224,6 +291,9 @@ class PeerConnections(
             peerConnection.close()
             peers.remove(socketId)
         }
+        screenShareSockets.remove(socketId)
+        cameraShareSockets.remove(socketId)
+        receivedVideoCount.remove(socketId)
     }
 
     fun contains(socketId: String): Boolean = peers.containsKey(socketId)

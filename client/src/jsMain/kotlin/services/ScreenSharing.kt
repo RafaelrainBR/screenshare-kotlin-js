@@ -8,7 +8,10 @@ import org.w3c.dom.mediacapture.MediaStream
 import org.w3c.dom.mediacapture.MediaStreamConstraints
 import ui.InterfaceMutations
 
-class ScreenSharing {
+class ScreenSharing(
+    private val resolveUsername: (String) -> String,
+    private val localUsername: String,
+) {
     var localScreenStream: MediaStream? = null
     val remoteScreenStreams: MutableMap<String, MediaStream> = mutableMapOf()
 
@@ -41,22 +44,43 @@ class ScreenSharing {
 
             recreatePeerConnections()
         }
-        InterfaceMutations.updateScreenContainer(localScreenStream!!, isInitiator = true)
+        InterfaceMutations.addOrUpdateScreenTile(
+            tileId = LOCAL_TILE_ID,
+            stream = localScreenStream!!,
+            username = localUsername,
+            isLocal = true,
+        )
+        InterfaceMutations.updateShareControls(isLocalSharing = true)
     }
 
     fun handleRemoteScreen(
         socketId: String,
         stream: MediaStream,
     ) {
+        val previous = remoteScreenStreams[socketId]
+        if (previous != null && previous.id != stream.id) {
+            previous.getTracks().forEach { it.stop() }
+        }
         remoteScreenStreams[socketId] = stream
-        InterfaceMutations.updateScreenContainer(stream, isInitiator = false)
+        InterfaceMutations.addOrUpdateScreenTile(
+            tileId = socketId,
+            stream = stream,
+            username = resolveUsername(socketId),
+            isLocal = false,
+        )
+    }
+
+    fun stopRemoteScreen(socketId: String) {
+        remoteScreenStreams.remove(socketId)?.getTracks()?.forEach { it.stop() }
+        InterfaceMutations.removeScreenTile(socketId)
     }
 
     fun stopScreenSharing(recreatePeerConnections: () -> Unit) {
         localScreenStream?.getTracks()?.forEach { track -> track.stop() }
         localScreenStream = null
         recreatePeerConnections()
-        InterfaceMutations.endScreenSharing()
+        InterfaceMutations.removeScreenTile(LOCAL_TILE_ID)
+        InterfaceMutations.updateShareControls(isLocalSharing = false)
     }
 
     private fun buildMediaStreamConstraints(
@@ -100,5 +124,9 @@ class ScreenSharing {
             video = video,
             audio = audio,
         )
+    }
+
+    companion object {
+        const val LOCAL_TILE_ID = "local"
     }
 }

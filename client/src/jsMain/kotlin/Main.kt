@@ -74,6 +74,12 @@ fun main() {
         onStopScreenShare = {
             getSessionOrAlert().handleStopScreenShare()
         },
+        onStartCameraShare = {
+            getSessionOrAlert().handleStartCameraShare()
+        },
+        onStopCameraShare = {
+            getSessionOrAlert().handleStopCameraShare()
+        },
         onInputDeviceChange = { deviceId ->
             getSessionOrAlert().handleMicInputDeviceChange(deviceId)
         },

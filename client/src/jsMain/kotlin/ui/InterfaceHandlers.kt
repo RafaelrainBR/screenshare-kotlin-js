@@ -20,6 +20,8 @@ fun registerUIHandlers(
     onMicButtonToggle: () -> Unit,
     onStartScreenShare: (width: Int, height: Int, fps: Int, useSourceResolution: Boolean) -> Unit,
     onStopScreenShare: () -> Unit,
+    onStartCameraShare: () -> Unit,
+    onStopCameraShare: () -> Unit,
     onInputDeviceChange: (deviceId: String) -> Unit,
     onOutputDeviceChange: (deviceId: String) -> Unit,
 ) {
@@ -29,8 +31,7 @@ fun registerUIHandlers(
     setupMicToggleButtonHandler(onMicButtonToggle)
     setupShareQualityModal(onStartScreenShare)
     setupStopScreenShareButtonHandler(onStopScreenShare)
-    setupFullScreenButtonHandler()
-    setupScreenVolumeHandler()
+    setupCameraButtons(onStartCameraShare, onStopCameraShare)
     setupDeviceHandlers(onInputDeviceChange, onOutputDeviceChange)
 }
 
@@ -139,17 +140,18 @@ private fun setupStopScreenShareButtonHandler(onStopScreenShare: () -> Unit) {
     })
 }
 
-private fun setupFullScreenButtonHandler() {
-    Elements.fullScreenButton.addEventListener("click", { e ->
+private fun setupCameraButtons(
+    onStartCameraShare: () -> Unit,
+    onStopCameraShare: () -> Unit,
+) {
+    Elements.cameraButton.addEventListener("click", { e ->
         e.preventDefault()
-        Elements.screenVideo.requestFullscreen()
+        onStartCameraShare()
     })
-}
 
-private fun setupScreenVolumeHandler() {
-    Elements.screenVolume.addEventListener("input", {
-        val volume = Elements.screenVolume.value.toInt() / 100.0
-        Elements.screenVideo.volume = volume
+    Elements.stopCameraButton.addEventListener("click", { e ->
+        e.preventDefault()
+        onStopCameraShare()
     })
 }
 

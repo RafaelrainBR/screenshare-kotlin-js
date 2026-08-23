@@ -5,10 +5,14 @@ import kotlinx.browser.document
 import kotlinx.browser.window
 import kotlinx.coroutines.await
 import org.w3c.dom.HTMLAudioElement
+import org.w3c.dom.HTMLButtonElement
 import org.w3c.dom.HTMLDivElement
 import org.w3c.dom.HTMLElement
+import org.w3c.dom.HTMLInputElement
 import org.w3c.dom.HTMLOptionElement
 import org.w3c.dom.HTMLParagraphElement
+import org.w3c.dom.HTMLSpanElement
+import org.w3c.dom.HTMLVideoElement
 import org.w3c.dom.mediacapture.MediaStream
 import org.w3c.dom.url.URL
 import screenshare.common.ChatMessage
@@ -17,6 +21,8 @@ import kotlin.js.Date
 
 object InterfaceMutations {
     var selectedOutputDeviceId: String? = null
+    private var focusedTileId: String? = null
+    val screenVolumes: MutableMap<String, Int> = mutableMapOf()
     fun navigateToRoomScreen(
         roomId: String,
         username: String,
@@ -82,14 +88,315 @@ object InterfaceMutations {
         messageElement.scrollIntoView(js("{ behavior: 'smooth', block: 'end' }"))
     }
 
-    fun endScreenSharing() {
-        Elements.screenVideo.srcObject = null
+    fun addOrUpdateScreenTile(
+        tileId: String,
+        stream: MediaStream,
+        username: String,
+        isLocal: Boolean,
+    ) {
+        val existingTile = document.getElementById("screen-tile-$tileId")
+        if (existingTile != null) {
+            val video = document.getElementById("screen-tile-video-$tileId") as? HTMLVideoElement
+            if (video != null && video.srcObject.asDynamic().id != stream.id) {
+                video.srcObject = stream
+            }
+            val name = document.getElementById("screen-name-$tileId") as? HTMLSpanElement
+            name?.textContent = username
+        } else {
+            val tile = createScreenTile(tileId, stream, username, isLocal)
+            Elements.screensMain.appendChild(tile)
+        }
+        reflowScreens()
+    }
 
-        Elements.videoContainer.classList.add("hidden")
-        Elements.stopScreenShareButton.classList.add("hidden")
+    private fun createScreenTile(
+        tileId: String,
+        stream: MediaStream,
+        username: String,
+        isLocal: Boolean,
+    ): HTMLElement {
+        val tile = document.createElement("div") as HTMLElement
+        tile.id = "screen-tile-$tileId"
+        tile.className = "screen-tile"
+        tile.setAttribute("data-tile-id", tileId)
 
-        Elements.noScreenMessage.classList.remove("hidden")
-        Elements.shareScreenButton.classList.remove("hidden")
+        val video = document.createElement("video") as HTMLVideoElement
+        video.id = "screen-tile-video-$tileId"
+        video.autoplay = true
+        video.muted = isLocal
+        video.setAttribute("playsinline", "")
+        video.srcObject = stream
+        video.addEventListener("pause", { video.play() })
+        video.addEventListener("click", { e -> e.preventDefault() })
+        tile.appendChild(video)
+
+        val top = document.createElement("div") as HTMLElement
+        top.className = "screen-tile-top"
+
+        val badge = document.createElement("span") as HTMLSpanElement
+        badge.className = "screen-tile-badge"
+        badge.textContent = "LIVE"
+
+        val name = document.createElement("span") as HTMLSpanElement
+        name.id = "screen-name-$tileId"
+        name.className = "screen-tile-name"
+        name.textContent = username
+
+        top.appendChild(badge)
+        top.appendChild(name)
+        tile.appendChild(top)
+
+        val controls = document.createElement("div") as HTMLElement
+        controls.className = "screen-tile-controls"
+
+        val fullscreenButton = document.createElement("button") as HTMLButtonElement
+        fullscreenButton.type = "button"
+        fullscreenButton.className = "glass-chip"
+        fullscreenButton.title = "Tela cheia"
+        fullscreenButton.setAttribute("aria-label", "Tela cheia")
+        fullscreenButton.innerHTML =
+            """
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4"/>
+            </svg>
+            """.trimIndent()
+        fullscreenButton.addEventListener("click", { e ->
+            e.preventDefault()
+            e.stopPropagation()
+            if (document.fullscreenElement == tile) {
+                document.exitFullscreen()
+            } else {
+                tile.requestFullscreen()
+            }
+        })
+        controls.appendChild(fullscreenButton)
+
+        val volumeChip = document.createElement("div") as HTMLElement
+        volumeChip.className = "glass-chip"
+        volumeChip.addEventListener("click", { e -> e.stopPropagation() })
+
+        val volumeIcon = document.createElement("span") as HTMLElement
+        volumeIcon.innerHTML =
+            """
+            <svg class="w-4 h-4 opacity-70" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5L6 9H2v6h4l5 4V5z"/>
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.5 8.5a5 5 0 010 7"/>
+            </svg>
+            """.trimIndent()
+
+        val volumeSlider = document.createElement("input") as HTMLInputElement
+        volumeSlider.type = "range"
+        volumeSlider.min = "0"
+        volumeSlider.max = "100"
+        volumeSlider.value = (screenVolumes[tileId] ?: 100).toString()
+        volumeSlider.className = "range range-primary range-xs"
+        volumeSlider.setAttribute("aria-label", "Volume da tela")
+        volumeSlider.addEventListener("input", {
+            val volume = volumeSlider.value.toInt()
+            screenVolumes[tileId] = volume
+            video.volume = volume / 100.0
+        })
+
+        volumeChip.appendChild(volumeIcon)
+        volumeChip.appendChild(volumeSlider)
+        controls.appendChild(volumeChip)
+
+        tile.appendChild(controls)
+
+        tile.addEventListener("click", {
+            setFocusedTile(tileId)
+        })
+
+        return tile
+    }
+
+    fun removeScreenTile(tileId: String) {
+        val tile = document.getElementById("screen-tile-$tileId")
+        if (tile != null) {
+            tile.parentElement?.removeChild(tile)
+        }
+        screenVolumes.remove(tileId)
+        if (focusedTileId == tileId) focusedTileId = null
+        reflowScreens()
+    }
+
+    fun setFocusedTile(tileId: String) {
+        focusedTileId = if (focusedTileId == tileId) null else tileId
+        reflowScreens()
+    }
+
+    fun reflowScreens() {
+        val tiles = Elements.screensStage.querySelectorAll(".screen-tile")
+        val tileCount = tiles.length
+
+        if (tileCount == 0) {
+            focusedTileId = null
+            Elements.screensStage.classList.add("hidden")
+            Elements.noScreenMessage.classList.remove("hidden")
+            return
+        }
+
+        Elements.screensStage.classList.remove("hidden")
+        Elements.noScreenMessage.classList.add("hidden")
+
+        val focusId = focusedTileId?.takeIf { id -> document.getElementById("screen-tile-$id") != null }
+
+        if (focusId == null) {
+            Elements.screensStage.classList.remove("focus-mode")
+            Elements.screensRail.classList.add("hidden")
+            for (i in 0 until tiles.length) {
+                val tile = tiles.item(i) as HTMLElement
+                tile.classList.remove("focused")
+                if (tile.parentElement != Elements.screensMain) {
+                    Elements.screensMain.appendChild(tile)
+                }
+            }
+            return
+        }
+
+        Elements.screensStage.classList.add("focus-mode")
+
+        val focusedTile = document.getElementById("screen-tile-$focusId") as HTMLElement
+        for (i in 0 until tiles.length) {
+            val tile = tiles.item(i) as HTMLElement
+            if (tile != focusedTile) {
+                tile.classList.remove("focused")
+                if (tile.parentElement != Elements.screensRail) {
+                    Elements.screensRail.appendChild(tile)
+                }
+            } else {
+                tile.classList.add("focused")
+                if (tile.parentElement != Elements.screensMain) {
+                    Elements.screensMain.appendChild(tile)
+                }
+            }
+        }
+
+        if (Elements.screensRail.childElementCount > 0) {
+            Elements.screensRail.classList.remove("hidden")
+        } else {
+            Elements.screensRail.classList.add("hidden")
+        }
+    }
+
+    fun updateShareControls(isLocalSharing: Boolean) {
+        if (isLocalSharing) {
+            Elements.stopScreenShareButton.classList.remove("hidden")
+            Elements.shareScreenButton.classList.add("hidden")
+        } else {
+            Elements.stopScreenShareButton.classList.add("hidden")
+            Elements.shareScreenButton.classList.remove("hidden")
+        }
+    }
+
+    fun updateCameraControls(isLocalCameraOn: Boolean) {
+        if (isLocalCameraOn) {
+            Elements.stopCameraButton.classList.remove("hidden")
+            Elements.cameraButton.classList.add("hidden")
+        } else {
+            Elements.stopCameraButton.classList.add("hidden")
+            Elements.cameraButton.classList.remove("hidden")
+        }
+    }
+
+    fun addOrUpdateCameraTile(
+        tileId: String,
+        stream: MediaStream,
+        username: String,
+        isLocal: Boolean,
+    ) {
+        val existingTile = document.getElementById("camera-tile-$tileId")
+        if (existingTile != null) {
+            val video = document.getElementById("camera-tile-video-$tileId") as? HTMLVideoElement
+            if (video != null && video.srcObject.asDynamic().id != stream.id) {
+                video.srcObject = stream
+            }
+            val name = document.getElementById("camera-name-$tileId") as? HTMLSpanElement
+            name?.textContent = username
+        } else {
+            val tile = createCameraTile(tileId, stream, username, isLocal)
+            Elements.screensMain.appendChild(tile)
+        }
+        reflowScreens()
+    }
+
+    private fun createCameraTile(
+        tileId: String,
+        stream: MediaStream,
+        username: String,
+        isLocal: Boolean,
+    ): HTMLElement {
+        val tile = document.createElement("div") as HTMLElement
+        tile.id = "camera-tile-$tileId"
+        tile.className = "screen-tile camera-tile"
+        tile.setAttribute("data-tile-id", tileId)
+
+        val video = document.createElement("video") as HTMLVideoElement
+        video.id = "camera-tile-video-$tileId"
+        video.autoplay = true
+        video.muted = isLocal
+        video.setAttribute("playsinline", "")
+        video.srcObject = stream
+        video.addEventListener("pause", { video.play() })
+        video.addEventListener("click", { e -> e.preventDefault() })
+        tile.appendChild(video)
+
+        val top = document.createElement("div") as HTMLElement
+        top.className = "screen-tile-top"
+
+        val badge = document.createElement("span") as HTMLSpanElement
+        badge.className = "screen-tile-badge camera-badge"
+        badge.textContent = "CAM"
+
+        val name = document.createElement("span") as HTMLSpanElement
+        name.id = "camera-name-$tileId"
+        name.className = "screen-tile-name"
+        name.textContent = username
+
+        top.appendChild(badge)
+        top.appendChild(name)
+        tile.appendChild(top)
+
+        val controls = document.createElement("div") as HTMLElement
+        controls.className = "screen-tile-controls"
+
+        val fullscreenButton = document.createElement("button") as HTMLButtonElement
+        fullscreenButton.type = "button"
+        fullscreenButton.className = "glass-chip"
+        fullscreenButton.title = "Tela cheia"
+        fullscreenButton.setAttribute("aria-label", "Tela cheia")
+        fullscreenButton.innerHTML =
+            """
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4"/>
+            </svg>
+            """.trimIndent()
+        fullscreenButton.addEventListener("click", { e ->
+            e.preventDefault()
+            e.stopPropagation()
+            if (document.fullscreenElement == tile) {
+                document.exitFullscreen()
+            } else {
+                tile.requestFullscreen()
+            }
+        })
+        controls.appendChild(fullscreenButton)
+        tile.appendChild(controls)
+
+        tile.addEventListener("click", {
+            setFocusedTile(tileId)
+        })
+
+        return tile
+    }
+
+    fun removeCameraTile(tileId: String) {
+        val tile = document.getElementById("camera-tile-$tileId")
+        if (tile != null) {
+            tile.parentElement?.removeChild(tile)
+        }
+        if (focusedTileId == tileId) focusedTileId = null
+        reflowScreens()
     }
 
     fun addAudioElementForUser(
@@ -156,7 +463,12 @@ object InterfaceMutations {
                 runCatching { element.asDynamic().setSinkId(deviceId) }
             }
         }
-        runCatching { Elements.screenVideo.asDynamic().setSinkId(deviceId) }
+        val screenTiles = document.getElementsByClassName("screen-tile")
+        for (i in 0 until screenTiles.length) {
+            val tile = screenTiles.item(i) as? HTMLElement ?: continue
+            val video = tile.querySelector("video") ?: continue
+            runCatching { video.asDynamic().setSinkId(deviceId) }
+        }
     }
 
     private fun createDeviceOption(
@@ -167,29 +479,6 @@ object InterfaceMutations {
             value = deviceId
             textContent = label
         }
-
-    fun updateScreenContainer(
-        screenStream: MediaStream,
-        isInitiator: Boolean,
-    ) {
-        with(Elements.screenVideo) {
-            if (srcObject == null || srcObject.asDynamic().id != screenStream.id) {
-                srcObject = screenStream
-                muted = isInitiator
-
-                Elements.videoContainer.classList.remove("hidden")
-                Elements.noScreenMessage.classList.add("hidden")
-
-                if (isInitiator) {
-                    Elements.stopScreenShareButton.classList.remove("hidden")
-                    Elements.shareScreenButton.classList.add("hidden")
-                } else {
-                    Elements.stopScreenShareButton.classList.add("hidden")
-                    Elements.shareScreenButton.classList.add("hidden")
-                }
-            }
-        }
-    }
 
     fun updateAudioControls(isMicMuted: Boolean) {
         val micSlash = document.getElementById("micSlash")!!

@@ -5,7 +5,6 @@ import org.w3c.dom.HTMLButtonElement
 import org.w3c.dom.HTMLElement
 import org.w3c.dom.HTMLInputElement
 import org.w3c.dom.HTMLSelectElement
-import org.w3c.dom.HTMLVideoElement
 
 object Elements {
     val joinScreen = getElement<HTMLElement>("join-screen")
@@ -15,9 +14,10 @@ object Elements {
     val joinButton = getElement<HTMLButtonElement>("joinBtn")
     val chatMessages = getElement<HTMLElement>("chat-messages")
     val currentRoomId = getElement<HTMLElement>("current-room-id")
-    val screenVideo = getElement<HTMLVideoElement>("screen-video")
-    val videoContainer = getElement<HTMLElement>("video-container")
     val noScreenMessage = getElement<HTMLElement>("no-screen-message")
+    val screensStage = getElement<HTMLElement>("screens-stage")
+    val screensMain = getElement<HTMLElement>("screens-main")
+    val screensRail = getElement<HTMLElement>("screens-rail")
     val userList = getElement<HTMLElement>("user-list")
     val userCount = getElement<HTMLElement>("participant-count")
     val sendMessageButton = getElement<HTMLButtonElement>("send-message-btn")
@@ -25,8 +25,8 @@ object Elements {
     val micToggle = getElement<HTMLButtonElement>("micToggle")
     val shareScreenButton = getElement<HTMLButtonElement>("shareScreenBtn")
     val stopScreenShareButton = getElement<HTMLButtonElement>("stopSharingBtn")
-    val fullScreenButton = getElement<HTMLButtonElement>("fullscreenBtn")
-    val screenVolume = getElement<HTMLInputElement>("screenVolume")
+    val cameraButton = getElement<HTMLButtonElement>("cameraBtn")
+    val stopCameraButton = getElement<HTMLButtonElement>("stopCameraBtn")
     val inputDevices = getElement<HTMLSelectElement>("inputDevices")
     val outputDevices = getElement<HTMLSelectElement>("outputDevices")
     val qualityModal = getElement<HTMLElement>("quality-modal")

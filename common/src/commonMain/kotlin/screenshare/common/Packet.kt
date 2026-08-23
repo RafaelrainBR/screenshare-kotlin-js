@@ -86,6 +86,20 @@ sealed class Packet {
         val roomId: String,
     ) : Packet()
 
+    @Serializable
+    @SerialName("start-camera-share")
+    data class StartCameraShare(
+        @SerialName("rid")
+        val roomId: String,
+    ) : Packet()
+
+    @Serializable
+    @SerialName("stop-camera-share")
+    data class StopCameraShare(
+        @SerialName("rid")
+        val roomId: String,
+    ) : Packet()
+
     // Server messages
     @Serializable
     @SerialName("user-connected")
@@ -183,6 +197,24 @@ sealed class Packet {
         val socketId: String,
     ) : Packet()
 
+    @Serializable
+    @SerialName("camera-share-started")
+    data class CameraShareStarted(
+        @SerialName("rid")
+        val roomId: String,
+        @SerialName("sid")
+        val senderId: String,
+    ) : Packet()
+
+    @Serializable
+    @SerialName("camera-share-stopped")
+    data class CameraShareStopped(
+        @SerialName("rid")
+        val roomId: String,
+        @SerialName("sid")
+        val senderId: String,
+    ) : Packet()
+
     fun getSide(): PacketSide =
         when (this) {
             is JoinRoom,
@@ -194,6 +226,8 @@ sealed class Packet {
             is StopScreenShare,
             is SendMuted,
             is SendUnmuted,
+            is StartCameraShare,
+            is StopCameraShare,
             -> CLIENT
 
             is UserConnected,
@@ -206,6 +240,8 @@ sealed class Packet {
             is ScreenShareStopped,
             is UserMuted,
             is UserUnmuted,
+            is CameraShareStarted,
+            is CameraShareStopped,
             -> SERVER
         }
 }

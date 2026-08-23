@@ -11,14 +11,26 @@ import kotlin.js.Date
 class Session(
     var localUsername: String,
     var localRoomId: String,
-    var currentSharerSocketId: String? = null,
     var userList: List<SocketUser> = emptyList(),
     val websocketService: WebsocketService,
     coroutineScope: CoroutineScope,
 ) : CoroutineScope by coroutineScope {
     val voiceChat = VoiceChat()
-    val screenSharing = ScreenSharing()
-    val peerConnections = PeerConnections(voiceChat, screenSharing)
+    val screenSharing =
+        ScreenSharing(
+            resolveUsername = { socketId ->
+                userList.firstOrNull { it.socketId == socketId }?.username ?: socketId.takeLast(6)
+            },
+            localUsername = localUsername,
+        )
+    val cameraSharing =
+        CameraSharing(
+            resolveUsername = { socketId ->
+                userList.firstOrNull { it.socketId == socketId }?.username ?: socketId.takeLast(6)
+            },
+            localUsername = localUsername,
+        )
+    val peerConnections = PeerConnections(voiceChat, screenSharing, cameraSharing)
 
     init {
         launch {
@@ -104,6 +116,28 @@ class Session(
         launch {
             screenSharing.stopScreenSharing(recreatePeerConnections = { recreatePeerConnections() })
             websocketService.stopScreenSharing(localRoomId)
+        }
+
+    fun handleStartCameraShare() =
+        launch {
+            runCatching {
+                cameraSharing.setupLocalCameraStream(
+                    recreatePeerConnections = { recreatePeerConnections() },
+                    onStreamEnd = {
+                        handleStopCameraShare()
+                    },
+                )
+                websocketService.startCameraShare(localRoomId)
+            }.onFailure { error ->
+                console.error("Error getting camera", error)
+                window.alert("Permissao de câmera necessária")
+            }
+        }
+
+    fun handleStopCameraShare() =
+        launch {
+            cameraSharing.stopCameraSharing(recreatePeerConnections = { recreatePeerConnections() })
+            websocketService.stopCameraShare(localRoomId)
         }
 
     fun handleMicInputDeviceChange(deviceId: String) =

@@ -7,6 +7,8 @@ import kotlinx.coroutines.cancel
 import org.slf4j.LoggerFactory
 import screenshare.common.ChatMessage
 import screenshare.common.Packet
+import screenshare.common.Packet.CameraShareStarted
+import screenshare.common.Packet.CameraShareStopped
 import screenshare.common.Packet.ChatMessageReceived
 import screenshare.common.Packet.DescriptionReceived
 import screenshare.common.Packet.IceCandidateReceived
@@ -115,6 +117,14 @@ class Room(
 
             is Packet.SendUnmuted -> {
                 handleToggleMute(socketId = user.id, isMuted = false)
+            }
+
+            is Packet.StartCameraShare -> {
+                broadcast(CameraShareStarted(roomId = id, senderId = user.id))
+            }
+
+            is Packet.StopCameraShare -> {
+                broadcast(CameraShareStopped(roomId = id, senderId = user.id))
             }
 
             else -> {}
