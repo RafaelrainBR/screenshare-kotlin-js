@@ -1,7 +1,9 @@
 package screenshare.server
 
-import io.ktor.websocket.Frame.Text
-import kotlinx.serialization.json.Json
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import org.slf4j.LoggerFactory
 import screenshare.common.ChatMessage
 import screenshare.common.Packet
@@ -20,10 +22,12 @@ import screenshare.common.Packet.UserDisconnected
 import screenshare.common.Packet.UserList
 import screenshare.common.PacketSide.CLIENT
 import screenshare.common.SocketUser
+import java.util.concurrent.ConcurrentHashMap
 
 class Room(
     val id: String,
-    private val users: MutableMap<String, RoomUser> = mutableMapOf(),
+    private val users: MutableMap<String, RoomUser> = ConcurrentHashMap(),
+    private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
 ) {
     private val logger = LoggerFactory.getLogger(Room::class.java)
 
@@ -35,7 +39,12 @@ class Room(
     val allUsers: List<RoomUser>
         get() = users.values.toList()
 
+    fun close() {
+        scope.cancel()
+    }
+
     suspend fun addUser(user: RoomUser) {
+        user.start(scope) { removeUser(user) }
         users[user.id] = user
         sendMessageHistory(user)
         notifyUserJoin(user)
@@ -128,7 +137,7 @@ class Room(
 
     private suspend fun broadcast(packet: Packet) {
         users.values.forEach { user ->
-            user.session.send(Text(Json.encodeToString(packet)))
+            user.sendPacket(packet)
         }
     }
 
