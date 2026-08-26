@@ -30,6 +30,11 @@ class Session(
                 roomId = localRoomId,
                 username = localUsername,
             )
+            runCatching {
+                InterfaceMutations.populateAudioDevices()
+            }.onFailure { error ->
+                console.error("Error populating audio devices", error)
+            }
             InterfaceMutations.addMessageToChat(
                 ChatMessage(
                     username = "Sistema",
@@ -53,7 +58,14 @@ class Session(
         launch {
             if (voiceChat.localMicStream == null) {
                 runCatching {
-                    voiceChat.setupLocalMic(recreatePeerConnections = { recreatePeerConnections() })
+                    voiceChat.setupLocalMic(
+                        recreatePeerConnections = { recreatePeerConnections() },
+                        onMicTrackReplaced = { oldTrackId, newTrack ->
+                            if (newTrack != null) {
+                                peerConnections.replaceMicTrack(oldTrackId, newTrack)
+                            }
+                        },
+                    )
                 }.onFailure { error ->
                     console.error("Error getting microphone", error)
                     window.alert("Permissao de mic necessária")
@@ -68,9 +80,18 @@ class Session(
             )
         }
 
-    fun handleStartScreenShare() =
+    fun handleStartScreenShare(
+        width: Int,
+        height: Int,
+        fps: Int,
+        useSourceResolution: Boolean,
+    ) =
         launch {
             screenSharing.setupLocalScreenStream(
+                width = width,
+                height = height,
+                frameRate = fps,
+                useSourceResolution = useSourceResolution,
                 onStreamEnd = {
                     handleStopScreenShare()
                 },
@@ -84,6 +105,33 @@ class Session(
             screenSharing.stopScreenSharing(recreatePeerConnections = { recreatePeerConnections() })
             websocketService.stopScreenSharing(localRoomId)
         }
+
+    fun handleMicInputDeviceChange(deviceId: String) =
+        launch {
+            if (deviceId.isBlank()) return@launch
+
+            runCatching {
+                voiceChat.setupLocalMic(
+                    recreatePeerConnections = { recreatePeerConnections() },
+                    deviceId = deviceId,
+                    onMicTrackReplaced = { oldTrackId, newTrack ->
+                        if (newTrack != null) {
+                            peerConnections.replaceMicTrack(oldTrackId, newTrack)
+                        }
+                    },
+                )
+                if (voiceChat.isMicMuted) {
+                    voiceChat.localMicStream?.getTracks()?.forEach { track -> track.enabled = false }
+                }
+            }.onFailure { error ->
+                console.error("Error switching microphone device", error)
+                window.alert("Erro ao trocar o microfone")
+            }
+        }
+
+    fun handleSpeakerOutputDeviceChange(deviceId: String) {
+        InterfaceMutations.setOutputDevice(deviceId)
+    }
 
     private fun recreatePeerConnections() {
         peerConnections.recreatePeerConnections(

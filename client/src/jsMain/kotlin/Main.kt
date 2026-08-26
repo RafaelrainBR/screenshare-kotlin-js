@@ -68,11 +68,17 @@ fun main() {
         onMicButtonToggle = {
             getSessionOrAlert().handleMicButtonToggle()
         },
-        onStartScreenShare = {
-            getSessionOrAlert().handleStartScreenShare()
+        onStartScreenShare = { width, height, fps, useSourceResolution ->
+            getSessionOrAlert().handleStartScreenShare(width, height, fps, useSourceResolution)
         },
         onStopScreenShare = {
             getSessionOrAlert().handleStopScreenShare()
+        },
+        onInputDeviceChange = { deviceId ->
+            getSessionOrAlert().handleMicInputDeviceChange(deviceId)
+        },
+        onOutputDeviceChange = { deviceId ->
+            getSessionOrAlert().handleSpeakerOutputDeviceChange(deviceId)
         },
     )
 }

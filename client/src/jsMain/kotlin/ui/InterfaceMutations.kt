@@ -3,16 +3,20 @@ package ui
 import getUsernameInitials
 import kotlinx.browser.document
 import kotlinx.browser.window
+import kotlinx.coroutines.await
 import org.w3c.dom.HTMLAudioElement
 import org.w3c.dom.HTMLDivElement
 import org.w3c.dom.HTMLElement
+import org.w3c.dom.HTMLOptionElement
 import org.w3c.dom.HTMLParagraphElement
 import org.w3c.dom.mediacapture.MediaStream
 import org.w3c.dom.url.URL
 import screenshare.common.ChatMessage
+import ui.mutations.UserListMutations
 import kotlin.js.Date
 
 object InterfaceMutations {
+    var selectedOutputDeviceId: String? = null
     fun navigateToRoomScreen(
         roomId: String,
         username: String,
@@ -97,9 +101,72 @@ object InterfaceMutations {
                 id = "remote-audio-$userId"
                 srcObject = stream
                 autoplay = true
+                volume = UserListMutations.userVolumes[userId]?.div(100.0) ?: 1.0
             }
         document.body?.appendChild(audioElement)
+
+        if (!selectedOutputDeviceId.isNullOrBlank()) {
+            runCatching { audioElement.asDynamic().setSinkId(selectedOutputDeviceId) }
+        }
     }
+
+    suspend fun populateAudioDevices() {
+        val previousInput = Elements.inputDevices.value
+        val previousOutput = Elements.outputDevices.value
+
+        val devices = window.navigator.mediaDevices.enumerateDevices().await()
+        val inputSelect = Elements.inputDevices
+        val outputSelect = Elements.outputDevices
+
+        inputSelect.innerHTML = ""
+        outputSelect.innerHTML = ""
+
+        devices.forEach { device ->
+            when (device.asDynamic().kind as String) {
+                "audioinput" -> {
+                    inputSelect.appendChild(
+                        createDeviceOption(device.deviceId, device.label.ifBlank { "Microfone" }),
+                    )
+                }
+
+                "audiooutput" -> {
+                    outputSelect.appendChild(
+                        createDeviceOption(device.deviceId, device.label.ifBlank { "Alto-falante" }),
+                    )
+                }
+
+                else -> {}
+            }
+        }
+
+        if (devices.any { it.deviceId == previousInput }) Elements.inputDevices.value = previousInput
+        if (devices.any { it.deviceId == previousOutput }) Elements.outputDevices.value = previousOutput
+    }
+
+    fun setOutputDevice(deviceId: String) {
+        selectedOutputDeviceId = deviceId
+        applyOutputDeviceToElements(deviceId)
+    }
+
+    private fun applyOutputDeviceToElements(deviceId: String) {
+        val audioElements = document.getElementsByTagName("audio")
+        for (i in 0 until audioElements.length) {
+            val element = audioElements.item(i) ?: continue
+            if (element.id.startsWith("remote-audio-")) {
+                runCatching { element.asDynamic().setSinkId(deviceId) }
+            }
+        }
+        runCatching { Elements.screenVideo.asDynamic().setSinkId(deviceId) }
+    }
+
+    private fun createDeviceOption(
+        deviceId: String,
+        label: String,
+    ): HTMLOptionElement =
+        (document.createElement("option") as HTMLOptionElement).apply {
+            value = deviceId
+            textContent = label
+        }
 
     fun updateScreenContainer(
         screenStream: MediaStream,
@@ -108,6 +175,7 @@ object InterfaceMutations {
         with(Elements.screenVideo) {
             if (srcObject == null || srcObject.asDynamic().id != screenStream.id) {
                 srcObject = screenStream
+                muted = isInitiator
 
                 Elements.videoContainer.classList.remove("hidden")
                 Elements.noScreenMessage.classList.add("hidden")

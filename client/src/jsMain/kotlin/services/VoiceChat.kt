@@ -1,9 +1,11 @@
 package services
 
+import kotlin.js.json
 import kotlinx.browser.window
 import kotlinx.coroutines.await
 import org.w3c.dom.mediacapture.MediaStream
 import org.w3c.dom.mediacapture.MediaStreamConstraints
+import org.w3c.dom.mediacapture.MediaStreamTrack
 import ui.InterfaceMutations
 import ui.mutations.UserListMutations
 
@@ -14,6 +16,7 @@ class VoiceChat {
     var isAudioMuted = true
 
     var localMicStream: MediaStream? = null
+    var selectedInputDeviceId: String? = null
     val remoteAudioStreams: MutableMap<String, MediaStream> = mutableMapOf()
 
     fun handleRemoteAudio(
@@ -33,14 +36,36 @@ class VoiceChat {
         }
     }
 
-    suspend fun setupLocalMic(recreatePeerConnections: suspend () -> Unit) {
-        localMicStream =
+    suspend fun setupLocalMic(
+        recreatePeerConnections: suspend () -> Unit,
+        deviceId: String? = null,
+        onMicTrackReplaced: ((oldTrackId: String?, newTrack: MediaStreamTrack?) -> Unit)? = null,
+    ) {
+        val effectiveDeviceId = deviceId ?: selectedInputDeviceId
+        selectedInputDeviceId = effectiveDeviceId
+
+        val oldTrack = localMicStream?.getAudioTracks()?.firstOrNull()
+        val newStream =
             window.navigator.mediaDevices
-                .getUserMedia(buildMediaStreamConstraints())
+                .getUserMedia(buildMediaStreamConstraints(effectiveDeviceId))
                 .await()
-        val audioTrack = localMicStream?.getAudioTracks()?.firstOrNull()
+        val audioTrack = newStream.getAudioTracks().firstOrNull()
+
+        // Replace the track on the same RTP sender (before stopping the old
+        // one) so switching devices never leaves the previous mic playing.
+        onMicTrackReplaced?.invoke(oldTrack?.id, audioTrack)
+
+        localMicStream?.getTracks()?.forEach { track -> track.stop() }
+        localMicStream = newStream
+
         if (audioTrack != null) {
             recreatePeerConnections()
+        }
+
+        runCatching {
+            InterfaceMutations.populateAudioDevices()
+        }.onFailure { error ->
+            console.error("Error refreshing audio devices", error)
         }
 
         monitorAudioLevel(
@@ -62,19 +87,29 @@ class VoiceChat {
         broadcastMuted(isMicMuted)
     }
 
-    private fun buildMediaStreamConstraints(): MediaStreamConstraints =
-        MediaStreamConstraints(
-            audio =
-                mapOf(
-                    "echoCancellation" to true,
-                    "noiseSuppression" to true,
-                    "autoGainControl" to false,
-                    "sampleRate" to 48000,
-                    "sampleSize" to 16,
-                    "channelCount" to 2,
-                    "latency" to 0,
-                ),
-        )
+    private fun buildMediaStreamConstraints(deviceId: String?): MediaStreamConstraints {
+        // IMPORTANTE: usar kotlin.js.json (objeto JS plano), NÃO um Map do
+        // Kotlin. O browser lê audio.echoCancellation / audio.noiseSuppression /
+        // audio.autoGainControl como propriedades próprias do objeto; um Map do
+        // Kotlin não as expõe e o Chrome cai nos DEFAULTS (AGC/NS/eco ON),
+        // o que processa o áudio e corta frequências (som "abafado/anti-ruído").
+        val audio: dynamic =
+            json(
+                "echoCancellation" to false,
+                "noiseSuppression" to false,
+                "autoGainControl" to false,
+                "sampleRate" to 48000,
+                "sampleSize" to 16,
+                "channelCount" to 2,
+                "latency" to 0,
+            )
+
+        if (!deviceId.isNullOrBlank()) {
+            audio["deviceId"] = json("exact" to deviceId)
+        }
+
+        return MediaStreamConstraints(audio = audio)
+    }
 }
 
 private fun monitorAudioLevel(

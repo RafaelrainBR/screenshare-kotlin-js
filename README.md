@@ -153,6 +153,34 @@ fly deploy
 > [!NOTE]
 > The Fly.io configuration uses a shared CPU with 256 MB RAM, auto-stop/start, and force HTTPS. Adjust `fly.toml` to match your needs.
 
+#### Beta / canary environment
+
+A **separate** Fly app (`screen-share-beta`) is provided for testing new features
+without affecting production. It is fully isolated from the production app
+(`screen-share`) and serves its own bundled client (the client connects to the
+WebSocket using `window.location`, so each app talks to its own host).
+
+Deploy the beta from the branch you want to test (e.g. `beta`):
+
+```bash
+# One-shot: creates the app + allocates an IP on first run, then deploys
+./server-java/deploy-beta.sh
+
+# Or step-by-step (manual):
+cd server-java
+fly apps create screen-share-beta      # first time only
+fly ips allocate-v4 -c fly.beta.toml   # first time only
+fly deploy -c fly.beta.toml            # every deploy
+```
+
+The beta app will be available at `https://screen-share-beta.fly.dev`.
+
+> [!IMPORTANT]
+> Fly app names are globally unique. If `screen-share-beta` is taken, pick a
+> different unique name and update both the `app` field in
+> [fly.beta.toml](server-java/fly.beta.toml) and `APP_NAME` in
+> [deploy-beta.sh](server-java/deploy-beta.sh).
+
 ## Tech stack
 
 | Layer | Technology |

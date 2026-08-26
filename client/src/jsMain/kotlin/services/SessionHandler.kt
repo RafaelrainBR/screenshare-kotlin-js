@@ -43,7 +43,9 @@ fun handlePacket(
 
             is Packet.ScreenShareStarted -> {}
 
-            is Packet.ScreenShareStopped -> {}
+            is Packet.ScreenShareStopped -> {
+                handleScreenShareStopped(session, packet)
+            }
 
             is Packet.UserMuted, is Packet.UserUnmuted -> {
                 handleUserMuted(packet)
@@ -187,6 +189,17 @@ private fun handleDescriptionReceived(
     }.onFailure {
         println("Failed to set remote description from packet [$packet]: ${it.message}")
     }
+}
+
+private fun handleScreenShareStopped(
+    session: Session,
+    packet: Packet.ScreenShareStopped,
+) {
+    if (session.currentSharerSocketId != packet.senderId) return
+
+    session.screenSharing.remoteScreenStreams.remove(packet.senderId)?.getTracks()?.forEach { it.stop() }
+    session.currentSharerSocketId = null
+    InterfaceMutations.endScreenSharing()
 }
 
 private fun handleUserMuted(packet: Packet) {
