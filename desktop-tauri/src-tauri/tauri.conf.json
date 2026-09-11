@@ -1,0 +1,51 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Screenshare",
+  "version": "0.1.0",
+  "identifier": "com.rafaelrain.screenshare",
+  "build": {
+    "beforeDevCommand": "node scripts/build-frontend.mjs --dev",
+    "beforeBuildCommand": "node scripts/build-frontend.mjs",
+    "devUrl": "http://localhost:8081/?serverUrl=ws%3A%2F%2Flocalhost%3A8080",
+    "frontendDist": "../../client/build/dist/js/productionExecutable"
+  },
+  "app": {
+    "security": {
+      "capabilities": ["main"],
+      "csp": {
+        "default-src": "'self'",
+        "connect-src": "'self' ipc: http://ipc.localhost ws://localhost:8080 wss://screen-share.fly.dev https://fonts.googleapis.com https://fonts.gstatic.com",
+        "font-src": "'self' https://fonts.gstatic.com data:",
+        "img-src": "'self' data: blob:",
+        "media-src": "'self' blob:",
+        "script-src": "'self'",
+        "style-src": "'self' 'unsafe-inline' https://fonts.googleapis.com"
+      }
+    },
+    "windows": [
+      {
+        "label": "main",
+        "title": "Screenshare",
+        "url": "index.html?serverUrl=wss%3A%2F%2Fscreen-share.fly.dev",
+        "width": 1280,
+        "height": 800,
+        "minWidth": 960,
+        "minHeight": 640,
+        "center": true,
+        "resizable": true,
+        "fullscreen": false
+      }
+    ]
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["nsis"],
+    "shortDescription": "P2P screen sharing using the canonical Kotlin client",
+    "windows": {
+      "webviewInstallMode": {
+        "type": "downloadBootstrapper",
+        "silent": true
+      }
+    }
+  }
+}

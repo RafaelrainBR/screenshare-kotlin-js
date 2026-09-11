@@ -44,3 +44,9 @@ bin/
 
 ### Mac OS ###
 .DS_Store
+
+# Tauri desktop build outputs and npm dependencies
+desktop-tauri/node_modules/
+desktop-tauri/src-tauri/gen/
+desktop-tauri/src-tauri/target/
+.smoke-edge*/

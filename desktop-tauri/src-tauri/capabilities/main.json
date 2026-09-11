@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "main",
+  "description": "The main window may invoke the narrowly scoped system-audio commands.",
+  "windows": ["main"],
+  "permissions": ["core:default"]
+}

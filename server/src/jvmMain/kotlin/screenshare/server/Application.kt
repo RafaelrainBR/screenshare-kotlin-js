@@ -70,6 +70,7 @@ fun Application.module() {
                     if (roomUser != null && room != null) {
                         room.removeUser(roomUser)
                         if (room.isEmpty) {
+                            room.close()
                             rooms.remove(room.id)
                         }
                     }
