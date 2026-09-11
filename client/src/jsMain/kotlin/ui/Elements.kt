@@ -25,6 +25,7 @@ object Elements {
     val micToggle = getElement<HTMLButtonElement>("micToggle")
     val shareScreenButton = getElement<HTMLButtonElement>("shareScreenBtn")
     val stopScreenShareButton = getElement<HTMLButtonElement>("stopSharingBtn")
+    val changeDesktopAudioButton = getElement<HTMLButtonElement>("changeDesktopAudioBtn")
     val cameraButton = getElement<HTMLButtonElement>("cameraBtn")
     val stopCameraButton = getElement<HTMLButtonElement>("stopCameraBtn")
     val inputDevices = getElement<HTMLSelectElement>("inputDevices")
@@ -32,12 +33,18 @@ object Elements {
     val qualityModal = getElement<HTMLElement>("quality-modal")
     val confirmShare = getElement<HTMLButtonElement>("confirm-share")
     val cancelShare = getElement<HTMLButtonElement>("cancel-share")
+    val desktopWizardStepOne = getElement<HTMLElement>("desktop-wizard-step-one")
+    val desktopWizardStepTwo = getElement<HTMLElement>("desktop-wizard-step-two")
+    val desktopAudioSourceGrid = getElement<HTMLElement>("desktop-audio-source-grid")
+    val desktopAudioPickerState = getElement<HTMLElement>("desktop-audio-picker-state")
+    val desktopAudioRefresh = getElement<HTMLButtonElement>("desktop-audio-refresh")
+    val desktopAudioThumbnail = getElement<HTMLElement>("desktop-audio-thumbnail")
+    val desktopBackToAudioModes = getElement<HTMLButtonElement>("desktop-back-to-audio-modes")
 }
 
 private inline fun <reified T : HTMLElement> getElement(id: String): T =
     runCatching {
         document.getElementById(id) as T
     }.getOrElse {
-        println("Failed to get element with id '$id' and type ${T::class.simpleName}: ${it.message}")
         throw IllegalStateException("Element with id '$id' not found or is not of type ${T::class.simpleName}")
     }

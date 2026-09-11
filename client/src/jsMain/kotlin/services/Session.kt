@@ -15,6 +15,11 @@ class Session(
     val websocketService: WebsocketService,
     coroutineScope: CoroutineScope,
 ) : CoroutineScope by coroutineScope {
+    private var disposed = false
+    // Incremented synchronously by every user action. A delayed display picker
+    // result is therefore unable to publish a share after stop, room exit, or
+    // a newer replacement request.
+    private var screenShareGeneration = 0
     val voiceChat = VoiceChat()
     val screenSharing =
         ScreenSharing(
@@ -22,6 +27,7 @@ class Session(
                 userList.firstOrNull { it.socketId == socketId }?.username ?: socketId.takeLast(6)
             },
             localUsername = localUsername,
+            coroutineScope = this,
         )
     val cameraSharing =
         CameraSharing(
@@ -44,8 +50,8 @@ class Session(
             )
             runCatching {
                 InterfaceMutations.populateAudioDevices()
-            }.onFailure { error ->
-                console.error("Error populating audio devices", error)
+            }.onFailure {
+                console.warn("Não foi possível atualizar os dispositivos de áudio")
             }
             InterfaceMutations.addMessageToChat(
                 ChatMessage(
@@ -78,8 +84,8 @@ class Session(
                             }
                         },
                     )
-                }.onFailure { error ->
-                    console.error("Error getting microphone", error)
+                }.onFailure {
+                    console.warn("Não foi possível acessar o microfone")
                     window.alert("Permissao de mic necessária")
                     return@launch
                 }
@@ -97,26 +103,49 @@ class Session(
         height: Int,
         fps: Int,
         useSourceResolution: Boolean,
-    ) =
+        desktopAudioMode: ScreenSharing.DesktopAudioMode = ScreenSharing.DesktopAudioMode.NONE,
+        audioSourceProcessId: Int? = null,
+    ) {
+        val generation = ++screenShareGeneration
         launch {
-            screenSharing.setupLocalScreenStream(
-                width = width,
-                height = height,
-                frameRate = fps,
-                useSourceResolution = useSourceResolution,
-                onStreamEnd = {
-                    handleStopScreenShare()
-                },
-                recreatePeerConnections = { recreatePeerConnections() },
-            )
+            if (disposed) return@launch
+            if (screenSharing.localScreenStream != null) {
+                screenSharing.stopScreenSharing(recreatePeerConnections = { recreatePeerConnections() })
+                websocketService.stopScreenSharing(localRoomId)
+            }
+            runCatching {
+                screenSharing.setupLocalScreenStream(
+                    width = width,
+                    height = height,
+                    frameRate = fps,
+                    useSourceResolution = useSourceResolution,
+                    desktopAudioMode = desktopAudioMode,
+                    audioSourceProcessId = audioSourceProcessId,
+                    onStreamEnd = { handleStopScreenShare() },
+                    recreatePeerConnections = { recreatePeerConnections() },
+                )
+            }.onFailure {
+                // The OS picker is allowed to be cancelled. No native worker
+                // has started yet, so simply return the user to their local
+                // audio selection instead of leaving a partial share behind.
+                InterfaceMutations.reopenDesktopShareWizard()
+                return@launch
+            }
+            if (disposed || generation != screenShareGeneration) {
+                screenSharing.stopScreenSharing(recreatePeerConnections = { recreatePeerConnections() })
+                return@launch
+            }
             websocketService.startScreenSharing(localRoomId)
         }
+    }
 
-    fun handleStopScreenShare() =
+    fun handleStopScreenShare() {
+        ++screenShareGeneration
         launch {
             screenSharing.stopScreenSharing(recreatePeerConnections = { recreatePeerConnections() })
             websocketService.stopScreenSharing(localRoomId)
         }
+    }
 
     fun handleStartCameraShare() =
         launch {
@@ -128,8 +157,8 @@ class Session(
                     },
                 )
                 websocketService.startCameraShare(localRoomId)
-            }.onFailure { error ->
-                console.error("Error getting camera", error)
+            }.onFailure {
+                console.warn("Não foi possível acessar a câmera")
                 window.alert("Permissao de câmera necessária")
             }
         }
@@ -157,14 +186,25 @@ class Session(
                 if (voiceChat.isMicMuted) {
                     voiceChat.localMicStream?.getTracks()?.forEach { track -> track.enabled = false }
                 }
-            }.onFailure { error ->
-                console.error("Error switching microphone device", error)
+            }.onFailure {
+                console.warn("Não foi possível trocar o microfone")
                 window.alert("Erro ao trocar o microfone")
             }
         }
 
     fun handleSpeakerOutputDeviceChange(deviceId: String) {
         InterfaceMutations.setOutputDevice(deviceId)
+    }
+
+    /** Releases local capture without attempting room signaling during page exit. */
+    fun dispose() {
+        if (disposed) return
+        disposed = true
+        ++screenShareGeneration
+        screenSharing.stopScreenSharing(recreatePeerConnections = {})
+        cameraSharing.stopCameraSharing(recreatePeerConnections = {})
+        voiceChat.stopLocalMic()
+        peerConnections.closeAll()
     }
 
     private fun recreatePeerConnections() {

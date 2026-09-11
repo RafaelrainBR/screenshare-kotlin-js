@@ -89,11 +89,11 @@ class RTCPeerConnectionDecorator(
         }
         params.degradationPreference = degradationPreference
         runCatching { sender.setParameters(params) }
-            .onFailure { error -> console.error("setParameters failed: ", error) }
+            .onFailure { console.warn("Não foi possível aplicar a configuração de vídeo") }
     }
 
     /**
-     * Prefere codecs na ordem: VP9 > H264 (perfil base) > VP8 > AV1.
+     * Prefere codecs na ordem: VP9 > H264 > VP8 > AV1.
      * Deve ser chamado DEPOIS de adicionar o track e ANTES de createOffer().
      * VP9 oferece a melhor qualidade a menor bitrate para conteúdo de tela/filme
      * no Chrome moderno; H264 fica como fallback de compatibilidade/hardware.
@@ -105,32 +105,36 @@ class RTCPeerConnectionDecorator(
         val sender =
             getSenders().firstOrNull { s -> (s.track?.kind as? String) == "video" } ?: return
         val transceiver = sender.transceiver ?: return
-        val capabilities: dynamic = windowRTCPeerConnection.getCapabilities("video") ?: return
+        // getCapabilities belongs to RTCRtpSender, not RTCPeerConnection.
+        val capabilities: dynamic = js("RTCRtpSender.getCapabilities('video')") ?: return
         val allCodecs: Array<dynamic> = capabilities.codecs as Array<dynamic>
         val order = listOf("vp9", "h264", "vp8", "av1")
-        val preferred =
-            order.mapNotNull { id ->
-                allCodecs.firstOrNull { codec ->
-                    val mime = (codec.mimeType as String).lowercase()
-                    when (id) {
-                        "h264" -> mime.contains("h264") && mime.contains("profile-level-id=42e01f")
-                        else -> mime.contains(id)
-                    }
+        val primary =
+            order.flatMap { id ->
+                allCodecs.filter { codec ->
+                    (codec.mimeType as String).lowercase().endsWith(id)
                 }
             }
+        // Keep retransmission and redundancy codecs. Removing RTX/RED/ULPFEC
+        // makes fullscreen video visibly corrupt as soon as packets are lost.
+        val auxiliary =
+            allCodecs.filter { codec ->
+                val mime = (codec.mimeType as String).lowercase()
+                mime.endsWith("rtx") || mime.endsWith("red") || mime.endsWith("ulpfec")
+            }
+        val preferred = (primary + auxiliary).distinct()
         if (preferred.isNotEmpty()) {
             runCatching { transceiver.setCodecPreferences(preferred) }
-                .onFailure { error -> console.error("setCodecPreferences failed: ", error) }
+                .onFailure { console.warn("Não foi possível aplicar a preferência de codec") }
         }
     }
 
     fun onTrack(block: (streams: Array<MediaStream>) -> Unit) {
         windowRTCPeerConnection.addEventListener("track") { event ->
-            console.log("received track event ", event)
             try {
                 block(event.streams as Array<MediaStream>)
-            } catch (e: Throwable) {
-                console.error("Error in onTrack handler: ", e)
+            } catch (_: Throwable) {
+                console.warn("Não foi possível processar uma faixa de mídia remota")
             }
         }
     }
@@ -146,8 +150,6 @@ class RTCPeerConnectionDecorator(
 
     fun onIceCandidateAdd(block: (Json?) -> Unit) {
         windowRTCPeerConnection.onicecandidate = { event: dynamic ->
-            console.log("new ice event ${JSON.stringify(event)}")
-            console.log("new ice candidate ${JSON.stringify(event.candidate)}")
             block(event.candidate.unsafeCast<Json?>())
         }
     }
@@ -178,7 +180,7 @@ class RTCPeerConnectionDecorator(
         pendingCandidates.clear()
         toAdd.forEach { candidate ->
             runCatching { windowRTCPeerConnection.addIceCandidate(candidate) }
-                .onFailure { error -> console.error("addIceCandidate after SRD failed: ", error) }
+                .onFailure { console.warn("Não foi possível aplicar uma atualização de conexão") }
         }
     }
 
@@ -210,7 +212,6 @@ class RTCPeerConnectionDecorator(
         ): RTCPeerConnectionDecorator {
             val peerConnection = instantiate(turnUrl, turnUsername, turnCredential)
             peerConnection.oniceconnectionstatechange = {
-                console.log("ICE connection state: ${peerConnection.iceConnectionState}")
             }
             return RTCPeerConnectionDecorator(peerConnection)
         }

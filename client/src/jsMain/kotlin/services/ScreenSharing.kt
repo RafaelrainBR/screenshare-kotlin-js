@@ -1,9 +1,13 @@
 package services
 
 import decorators.getDisplayMedia
+import platform.DesktopCaptureBridge
+import platform.nativeSystemAudioSupported
 import kotlin.js.json
 import kotlinx.browser.window
 import kotlinx.coroutines.await
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.launch
 import org.w3c.dom.mediacapture.MediaStream
 import org.w3c.dom.mediacapture.MediaStreamConstraints
 import ui.InterfaceMutations
@@ -11,6 +15,7 @@ import ui.InterfaceMutations
 class ScreenSharing(
     private val resolveUsername: (String) -> String,
     private val localUsername: String,
+    private val coroutineScope: CoroutineScope,
 ) {
     var localScreenStream: MediaStream? = null
     val remoteScreenStreams: MutableMap<String, MediaStream> = mutableMapOf()
@@ -18,12 +23,17 @@ class ScreenSharing(
     var lastShareWidth: Int = 1920
     var lastShareHeight: Int = 1080
     var lastShareFrameRate: Int = 30
+    private var hasNativeSystemAudio = false
+
+    enum class DesktopAudioMode { NONE, SYSTEM, PROCESS }
 
     suspend fun setupLocalScreenStream(
         width: Int,
         height: Int,
         frameRate: Int,
         useSourceResolution: Boolean,
+        desktopAudioMode: DesktopAudioMode = DesktopAudioMode.NONE,
+        audioSourceProcessId: Int? = null,
         onStreamEnd: () -> Unit,
         recreatePeerConnections: () -> Unit,
     ) {
@@ -31,15 +41,54 @@ class ScreenSharing(
         lastShareHeight = height
         lastShareFrameRate = frameRate
 
-        localScreenStream =
+        val displayStream =
             window.navigator.mediaDevices
                 .getDisplayMedia(buildMediaStreamConstraints(width, height, frameRate, useSourceResolution))
                 .await()
-        val videoTrack = localScreenStream?.getVideoTracks()?.firstOrNull()
+        localScreenStream = displayStream
+
+        // On desktop, the optional Rust path replaces (never duplicates) the
+        // WebView display-audio track. Browser behavior stays exactly unchanged.
+        // The WebView picker remains the consent boundary. Its optional audio
+        // checkbox does not define the native route: the explicit local mode
+        // does, but only after getDisplayMedia has returned successfully.
+        if (desktopAudioMode != DesktopAudioMode.NONE && nativeSystemAudioSupported(
+                isDesktop = DesktopCaptureBridge.isAvailable,
+                bridgeAvailable = DesktopCaptureBridge.isAvailable,
+                generatorAvailable = jsTypeOf(window.asDynamic().MediaStreamTrackGenerator) != "undefined",
+            )
+        ) {
+            runCatching {
+                val nativeTrack = when (desktopAudioMode) {
+                    DesktopAudioMode.SYSTEM -> DesktopCaptureBridge.startSystemAudio()
+                    DesktopAudioMode.PROCESS -> DesktopCaptureBridge.startProcessAudio(requireNotNull(audioSourceProcessId))
+                    DesktopAudioMode.NONE -> error("unreachable")
+                }
+                // The Windows picker is authoritative only for video.  Never
+                // publish its optional audio alongside, or instead of, the
+                // deliberate local audio choice.
+                displayStream.getAudioTracks().forEach { it.stop() }
+                localScreenStream = createMediaStream(displayStream.getVideoTracks().first(), nativeTrack)
+                hasNativeSystemAudio = true
+            }.onFailure {
+                // Native failures are recoverable, but must not silently fall
+                // back to an unrelated audio track selected in the OS picker.
+                displayStream.getAudioTracks().forEach { it.stop() }
+                localScreenStream = createMediaStream(displayStream.getVideoTracks().first())
+                console.warn("O áudio local não pôde ser iniciado; o vídeo continua ativo")
+            }
+        }
+        val publishedStream = localScreenStream
+        val videoTrack = publishedStream?.getVideoTracks()?.firstOrNull()
         if (videoTrack != null) {
             videoTrack.onended = {
-                localScreenStream = null
-                onStreamEnd()
+                // A stopped/replaced stream can report `ended` after the next
+                // share has already started. It must not tear down that share.
+                if (localScreenStream === publishedStream) {
+                    stopNativeSystemAudio()
+                    localScreenStream = null
+                    onStreamEnd()
+                }
             }
 
             recreatePeerConnections()
@@ -76,12 +125,31 @@ class ScreenSharing(
     }
 
     fun stopScreenSharing(recreatePeerConnections: () -> Unit) {
-        localScreenStream?.getTracks()?.forEach { track -> track.stop() }
+        val stream = localScreenStream
+        // Detach the browser callback before stopping tracks. This makes an
+        // explicit stop and an audio-source replacement single-shot.
+        stream?.getVideoTracks()?.forEach { it.onended = null }
         localScreenStream = null
+        stream?.getTracks()?.forEach { track -> track.stop() }
+        stopNativeSystemAudio()
         recreatePeerConnections()
         InterfaceMutations.removeScreenTile(LOCAL_TILE_ID)
         InterfaceMutations.updateShareControls(isLocalSharing = false)
     }
+
+    private fun stopNativeSystemAudio() {
+        if (!hasNativeSystemAudio) return
+        hasNativeSystemAudio = false
+        // The bridge operation is idempotent and intentionally detached from the
+        // browser track's synchronous `onended` callback.
+        coroutineScope.launch { runCatching { DesktopCaptureBridge.stopAudio() } }
+    }
+
+    private fun createMediaStream(videoTrack: org.w3c.dom.mediacapture.MediaStreamTrack): MediaStream =
+        js("new MediaStream([videoTrack])")
+
+    private fun createMediaStream(videoTrack: org.w3c.dom.mediacapture.MediaStreamTrack, audioTrack: org.w3c.dom.mediacapture.MediaStreamTrack): MediaStream =
+        js("new MediaStream([videoTrack, audioTrack])")
 
     private fun buildMediaStreamConstraints(
         width: Int,

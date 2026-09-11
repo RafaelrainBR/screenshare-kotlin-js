@@ -18,11 +18,13 @@ import org.w3c.dom.url.URL
 import screenshare.common.ChatMessage
 import ui.mutations.UserListMutations
 import kotlin.js.Date
+import platform.DesktopCaptureBridge
 
 object InterfaceMutations {
     var selectedOutputDeviceId: String? = null
     private var focusedTileId: String? = null
     val screenVolumes: MutableMap<String, Int> = mutableMapOf()
+    private val screenLastAudibleVolumes: MutableMap<String, Int> = mutableMapOf()
     fun navigateToRoomScreen(
         roomId: String,
         username: String,
@@ -175,27 +177,67 @@ object InterfaceMutations {
         volumeChip.className = "glass-chip"
         volumeChip.addEventListener("click", { e -> e.stopPropagation() })
 
-        val volumeIcon = document.createElement("span") as HTMLElement
-        volumeIcon.innerHTML =
-            """
-            <svg class="w-4 h-4 opacity-70" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5L6 9H2v6h4l5 4V5z"/>
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.5 8.5a5 5 0 010 7"/>
-            </svg>
-            """.trimIndent()
+        val volumeIcon = document.createElement("button") as HTMLButtonElement
+        volumeIcon.type = "button"
+        volumeIcon.className = "screen-volume-toggle"
 
         val volumeSlider = document.createElement("input") as HTMLInputElement
         volumeSlider.type = "range"
         volumeSlider.min = "0"
         volumeSlider.max = "100"
-        volumeSlider.value = (screenVolumes[tileId] ?: 100).toString()
+        val initialVolume = screenVolumes[tileId] ?: 100
+        volumeSlider.value = initialVolume.toString()
         volumeSlider.className = "range range-primary range-xs"
         volumeSlider.setAttribute("aria-label", "Volume da tela")
+
+        fun updateVolumeIcon(volume: Int) {
+            val muted = volume == 0
+            volumeIcon.title = if (muted) "Ativar áudio da tela" else "Silenciar áudio da tela"
+            volumeIcon.setAttribute("aria-label", volumeIcon.title)
+            volumeIcon.setAttribute("aria-pressed", muted.toString())
+            volumeIcon.innerHTML =
+                if (muted) {
+                    """
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5L6 9H2v6h4l5 4V5z"/>
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 9l5 5m0-5l-5 5"/>
+                    </svg>
+                    """.trimIndent()
+                } else {
+                    """
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5L6 9H2v6h4l5 4V5z"/>
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.5 8.5a5 5 0 010 7"/>
+                    </svg>
+                    """.trimIndent()
+                }
+        }
+
+        fun applyScreenVolume(volume: Int) {
+            val boundedVolume = volume.coerceIn(0, 100)
+            if (boundedVolume > 0) screenLastAudibleVolumes[tileId] = boundedVolume
+            screenVolumes[tileId] = boundedVolume
+            volumeSlider.value = boundedVolume.toString()
+            video.volume = boundedVolume / 100.0
+            updateVolumeIcon(boundedVolume)
+        }
+
         volumeSlider.addEventListener("input", {
-            val volume = volumeSlider.value.toInt()
-            screenVolumes[tileId] = volume
-            video.volume = volume / 100.0
+            applyScreenVolume(volumeSlider.value.toInt())
         })
+        volumeIcon.addEventListener("click", { event ->
+            event.preventDefault()
+            event.stopPropagation()
+            val currentVolume = volumeSlider.value.toInt()
+            val nextVolume = if (currentVolume == 0) {
+                screenLastAudibleVolumes[tileId]?.takeIf { it > 0 } ?: 100
+            } else {
+                screenLastAudibleVolumes[tileId] = currentVolume
+                0
+            }
+            applyScreenVolume(nextVolume)
+        })
+        applyScreenVolume(initialVolume)
 
         volumeChip.appendChild(volumeIcon)
         volumeChip.appendChild(volumeSlider)
@@ -216,6 +258,7 @@ object InterfaceMutations {
             tile.parentElement?.removeChild(tile)
         }
         screenVolumes.remove(tileId)
+        screenLastAudibleVolumes.remove(tileId)
         if (focusedTileId == tileId) focusedTileId = null
         reflowScreens()
     }
@@ -283,10 +326,18 @@ object InterfaceMutations {
         if (isLocalSharing) {
             Elements.stopScreenShareButton.classList.remove("hidden")
             Elements.shareScreenButton.classList.add("hidden")
+            if (DesktopCaptureBridge.isAvailable) {
+                Elements.changeDesktopAudioButton.classList.remove("hidden")
+            }
         } else {
             Elements.stopScreenShareButton.classList.add("hidden")
             Elements.shareScreenButton.classList.remove("hidden")
+            Elements.changeDesktopAudioButton.classList.add("hidden")
         }
+    }
+
+    fun reopenDesktopShareWizard() {
+        if (DesktopCaptureBridge.isAvailable) Elements.qualityModal.classList.remove("hidden")
     }
 
     fun updateCameraControls(isLocalCameraOn: Boolean) {

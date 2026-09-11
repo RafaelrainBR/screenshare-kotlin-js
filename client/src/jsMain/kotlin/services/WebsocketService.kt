@@ -117,7 +117,6 @@ class WebsocketService(
         coroutineScope: CoroutineScope,
     ) {
         coroutineScope.launch {
-            println("Listening for incoming messages...")
             try {
                 session.incoming.consumeEach { frame ->
                     when (frame) {
@@ -129,7 +128,6 @@ class WebsocketService(
                         }
 
                         is Close -> {
-                            println("Websocket closed: ${frame.readReason()}")
                             this@WebsocketService.session = null
                             onClose()
                         }
@@ -140,21 +138,16 @@ class WebsocketService(
                     }
                 }
                 close()
-            } catch (e: Exception) {
-                println("Websocket connection error: ${e.message}")
-                println(e)
+            } catch (_: Exception) {
                 try {
                     close()
-                } catch (closeException: Exception) {
-                    println("Error during websocket closure: ${closeException.message}")
-                }
+                } catch (_: Exception) {}
                 onClose()
             }
         }
     }
 
     private suspend fun sendPacket(packet: Packet) {
-        println("Sending packet: $packet")
         session?.send(Text(Json.encodeToString(packet)))
     }
 }

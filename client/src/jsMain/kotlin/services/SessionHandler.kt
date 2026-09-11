@@ -14,7 +14,6 @@ fun handlePacket(
     packet: Packet,
     coroutineScope: CoroutineScope,
 ) {
-    println("Received packet: $packet")
     runCatching {
         when (packet) {
             is Packet.UserConnected -> {
@@ -61,14 +60,10 @@ fun handlePacket(
                 handleUserMuted(packet)
             }
 
-            else -> {
-                println("Unknown packet type: ${packet::class.simpleName}")
-            }
+            else -> Unit
         }
-    }.onFailure { error ->
-        println("Error handling packet [$packet]: ${error.message}")
-        println(error.stackTraceToString())
-        println(error)
+    }.onFailure {
+        console.warn("Não foi possível processar uma atualização da sala")
     }
 }
 
@@ -163,9 +158,7 @@ private fun handleIceCandidateReceived(
             senderId = packet.senderId,
             candidate = packet.candidate,
         )
-    }.onFailure {
-        println("Failed to add ICE candidate: ${it.message}")
-    }
+    }.onFailure { console.warn("Não foi possível aplicar uma atualização de conexão") }
 }
 
 private fun handleDescriptionReceived(
@@ -204,9 +197,7 @@ private fun handleDescriptionReceived(
                 descriptionJson = descriptionJson,
             )
         }
-    }.onFailure {
-        println("Failed to set remote description from packet [$packet]: ${it.message}")
-    }
+    }.onFailure { console.warn("Não foi possível atualizar a conexão de mídia") }
 }
 
 private fun handleScreenShareStarted(
