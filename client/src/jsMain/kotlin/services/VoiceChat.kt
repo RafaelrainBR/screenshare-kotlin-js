@@ -64,8 +64,8 @@ class VoiceChat {
 
         runCatching {
             InterfaceMutations.populateAudioDevices()
-        }.onFailure { error ->
-            console.error("Error refreshing audio devices", error)
+        }.onFailure {
+            console.warn("Não foi possível atualizar os dispositivos de áudio")
         }
 
         monitorAudioLevel(
@@ -85,6 +85,11 @@ class VoiceChat {
 
         InterfaceMutations.updateAudioControls(isMicMuted = isMicMuted)
         broadcastMuted(isMicMuted)
+    }
+
+    fun stopLocalMic() {
+        localMicStream?.getTracks()?.forEach { it.stop() }
+        localMicStream = null
     }
 
     private fun buildMediaStreamConstraints(deviceId: String?): MediaStreamConstraints {

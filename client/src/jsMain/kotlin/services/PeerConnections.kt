@@ -5,7 +5,6 @@ import decorators.RTCPeerConnectionDecorator
 import decorators.RTCSessionDescription
 import decorators.createRTCIceCandidate
 import decorators.upgradeAudioQualitySdp
-import getSessionOrAlert
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.await
 import kotlinx.coroutines.launch
@@ -16,6 +15,7 @@ import org.w3c.dom.mediacapture.MediaStreamTrack
 class PeerConnections(
     private val voiceChat: VoiceChat,
     private val screenSharing: ScreenSharing,
+    private val cameraSharing: CameraSharing,
 ) {
     val peers: MutableMap<String, RTCPeerConnectionDecorator> = mutableMapOf()
 
@@ -23,6 +23,31 @@ class PeerConnections(
     private val makingOffer = mutableMapOf<String, Boolean>()
     private val ignoreOffer = mutableMapOf<String, Boolean>()
     private val isPolite = mutableMapOf<String, Boolean>()
+
+    // Sinalização local de quais compartilhamentos cada peer está transmitindo.
+    // Usado para decidir, em onTrack, se um track de vídeo é da TELA ou da CÂMERA
+    // (ambos têm video track). Mantidos em sincronia pelos packets Start/Stop.
+    private val screenShareSockets = mutableSetOf<String>()
+    private val cameraShareSockets = mutableSetOf<String>()
+
+    // Contador de tracks de vídeo recebidos por peer. Como o remetente sempre
+    // adiciona a tela ANTES da câmera, o 1º track de vídeo é a tela e o 2º a
+    // câmera quando ambos estão ativos. Zerado ao parar um compartilhamento.
+    private val receivedVideoCount = mutableMapOf<String, Int>()
+
+    fun markScreenSharing(socketId: String, active: Boolean) {
+        if (active) screenShareSockets.add(socketId) else screenShareSockets.remove(socketId)
+        if (!active) receivedVideoCount.remove(socketId)
+    }
+
+    fun markCameraSharing(socketId: String, active: Boolean) {
+        if (active) cameraShareSockets.add(socketId) else cameraShareSockets.remove(socketId)
+        if (!active) receivedVideoCount.remove(socketId)
+    }
+
+    fun isScreenSharing(socketId: String): Boolean = screenShareSockets.contains(socketId)
+
+    fun isCameraSharing(socketId: String): Boolean = cameraShareSockets.contains(socketId)
 
     // Mapeia a resolução/fps escolhidos na UI para um bitrate adequado.
     // 'maintain-resolution' mantém o quadro nítido; o bitrate alto evita a
@@ -44,15 +69,14 @@ class PeerConnections(
     private fun addTracksIfNotPresent(peerConnection: RTCPeerConnectionDecorator) {
         screenSharing.localScreenStream?.getTracks()?.forEach { track ->
             if (!peerConnection.hasTrack(track)) {
-                console.log("Adding screen track: ${track.id}")
                 peerConnection.addTrack(track, screenSharing.localScreenStream!!)
 
                 if (track.kind == "video") {
-                    // contentHint 'detail' melhora a nitidez de conteúdo estático
-                    // de alto detalhe (traço de anime/texto): o encoder prioriza
-                    // linhas/esquinas, reduzindo ringing e banding.
+                    // Screen share is also used for video players. `motion` avoids
+                    // treating every fullscreen movie frame as a static desktop,
+                    // which can cause severe macroblocking when motion increases.
                     val dynamicTrack = track.unsafeCast<dynamic>()
-                    dynamicTrack.contentHint = "detail"
+                    dynamicTrack.contentHint = "motion"
 
                     // Prefere codec (VP9) e controla bitrate/fps ANTES de createOffer.
                     peerConnection.preferVideoCodecs()
@@ -61,20 +85,36 @@ class PeerConnections(
                         trackId = track.id,
                         maxBitrate = bitrate,
                         maxFramerate = fps,
-                        degradationPreference = "maintain-resolution",
+                        degradationPreference = "balanced",
                     )
                 }
-            } else {
-                console.log("Screen track already present: ${track.id}")
             }
         }
 
         voiceChat.localMicStream?.getTracks()?.forEach { track ->
             if (!peerConnection.hasTrack(track)) {
-                console.log("Adding mic track: ${track.id}")
                 peerConnection.addTrack(track, voiceChat.localMicStream!!)
-            } else {
-                console.log("Mic track already present: ${track.id}")
+            }
+        }
+
+        cameraSharing.localCameraStream?.getTracks()?.forEach { track ->
+            if (!peerConnection.hasTrack(track)) {
+                peerConnection.addTrack(track, cameraSharing.localCameraStream!!)
+
+                if (track.kind == "video") {
+                    // contentHint 'motion' prioriza movimento (padrão de vídeo de
+                    // câmera), diferente do 'detail' usado na tela.
+                    val dynamicTrack = track.unsafeCast<dynamic>()
+                    dynamicTrack.contentHint = "motion"
+
+                    peerConnection.preferVideoCodecs()
+                    peerConnection.applyVideoEncoding(
+                        trackId = track.id,
+                        maxBitrate = 2_500_000,
+                        maxFramerate = 30,
+                        degradationPreference = "maintain-framerate",
+                    )
+                }
             }
         }
     }
@@ -85,8 +125,6 @@ class PeerConnections(
         isInitiator: Boolean,
         coroutineScope: CoroutineScope,
     ) {
-        console.log("Recreating peer connections for ${peers.size} peers")
-
         // Only add the new tracks; the browser's onnegotiationneeded handler
         // will fire automatically and send the renegotiation offer.
         peers.forEach { (_, peerConnection) ->
@@ -137,8 +175,8 @@ class PeerConnections(
                         targetId = socketId,
                         description = mapOf("type" to offer["type"] as String, "sdp" to sdp),
                     )
-                }.onFailure { error ->
-                    console.error("Error creating offer for $socketId", error)
+                }.onFailure {
+                    console.warn("Não foi possível renegociar a conexão")
                 }
                 makingOffer[socketId] = false
             }
@@ -160,23 +198,40 @@ class PeerConnections(
                         targetId = socketId,
                         description = mapOf("type" to offer["type"] as String, "sdp" to sdp),
                     )
-                }.onFailure { error ->
-                    console.error("Error creating initial offer for $socketId", error)
+                }.onFailure {
+                    console.warn("Não foi possível iniciar a conexão de mídia")
                 }
                 makingOffer[socketId] = false
             }
         }
 
         peerConnection.onTrack { streams ->
-            console.log("Received track from [$socketId]: $streams")
             val remoteStream = streams[0]
-            val isScreenStream = remoteStream.getVideoTracks().isNotEmpty()
-            console.log("isScreenStream: $isScreenStream")
-            if (isScreenStream) {
-                screenSharing.handleRemoteScreen(socketId, remoteStream)
-                getSessionOrAlert().currentSharerSocketId = socketId
-            } else {
+            val isVideo = remoteStream.getVideoTracks().isNotEmpty()
+            if (!isVideo) {
                 voiceChat.handleRemoteAudio(socketId, remoteStream)
+                return@onTrack
+            }
+
+            val sharingScreen = screenShareSockets.contains(socketId)
+            val sharingCamera = cameraShareSockets.contains(socketId)
+            val videoIndex = receivedVideoCount[socketId] ?: 0
+            receivedVideoCount[socketId] = videoIndex + 1
+
+            val isCamera =
+                when {
+                    // Câmera sozinha: flag é suficiente (não há track de tela).
+                    sharingCamera && !sharingScreen -> true
+                    // Ambos ativos: o remetente adiciona tela antes de câmera,
+                    // então o 1º track é tela e os seguintes câmera.
+                    sharingCamera && videoIndex > 0 -> true
+                    else -> false
+                }
+
+            if (isCamera) {
+                cameraSharing.handleRemoteCamera(socketId, remoteStream)
+            } else {
+                screenSharing.handleRemoteScreen(socketId, remoteStream)
             }
         }
 
@@ -184,7 +239,6 @@ class PeerConnections(
         // transitória), faz ICE restart reenviando um novo offer. Evita forçar
         // o usuário a recarregar a página.
         peerConnection.onConnectionStateChange { state ->
-            console.log("Connection state [$socketId]: $state")
             if (state == "failed") {
                 coroutineScope.launch {
                     runCatching {
@@ -197,8 +251,8 @@ class PeerConnections(
                             targetId = socketId,
                             description = mapOf("type" to offer["type"] as String, "sdp" to sdp),
                         )
-                    }.onFailure { error ->
-                        console.error("ICE restart failed for $socketId", error)
+                    }.onFailure {
+                        console.warn("Não foi possível recuperar a conexão de mídia")
                     }
                     makingOffer[socketId] = false
                 }
@@ -224,6 +278,20 @@ class PeerConnections(
             peerConnection.close()
             peers.remove(socketId)
         }
+        screenShareSockets.remove(socketId)
+        cameraShareSockets.remove(socketId)
+        receivedVideoCount.remove(socketId)
+    }
+
+    fun closeAll() {
+        peers.values.forEach { it.close() }
+        peers.clear()
+        makingOffer.clear()
+        ignoreOffer.clear()
+        isPolite.clear()
+        screenShareSockets.clear()
+        cameraShareSockets.clear()
+        receivedVideoCount.clear()
     }
 
     fun contains(socketId: String): Boolean = peers.containsKey(socketId)
@@ -252,18 +320,15 @@ class PeerConnections(
         descriptionJson: Json,
     ) {
         peers[senderId]?.let { peerConnection ->
-            console.log("Setting remote description: ${JSON.stringify(descriptionJson)}")
 
             // Handle glare: if we're mid-negotiation (not stable), an incoming
             // offer may collide with our own offer. The polite peer rolls back.
             if (peerConnection.signalingState != "stable") {
                 val polite = isPolite[senderId] ?: true
                 if (!polite) {
-                    console.log("Ignoring colliding offer (impolite peer)")
                     ignoreOffer[senderId] = true
                     return@let
                 }
-                console.log("Rolling back to handle colliding offer (polite peer)")
                 peerConnection.rollback().await()
             }
 
@@ -293,7 +358,6 @@ class PeerConnections(
         descriptionJson: Json,
     ) {
         peers[senderId]?.let { peerConnection ->
-            console.log("Setting remote description: ${JSON.stringify(descriptionJson)}")
             peerConnection.setRemoteDescription(RTCSessionDescription(descriptionJson))
         }
     }

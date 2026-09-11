@@ -14,7 +14,6 @@ fun handlePacket(
     packet: Packet,
     coroutineScope: CoroutineScope,
 ) {
-    println("Received packet: $packet")
     runCatching {
         when (packet) {
             is Packet.UserConnected -> {
@@ -41,24 +40,30 @@ fun handlePacket(
                 handleDescriptionReceived(session, packet, coroutineScope)
             }
 
-            is Packet.ScreenShareStarted -> {}
+            is Packet.ScreenShareStarted -> {
+                handleScreenShareStarted(session, packet)
+            }
 
             is Packet.ScreenShareStopped -> {
                 handleScreenShareStopped(session, packet)
+            }
+
+            is Packet.CameraShareStarted -> {
+                handleCameraShareStarted(session, packet)
+            }
+
+            is Packet.CameraShareStopped -> {
+                handleCameraShareStopped(session, packet)
             }
 
             is Packet.UserMuted, is Packet.UserUnmuted -> {
                 handleUserMuted(packet)
             }
 
-            else -> {
-                println("Unknown packet type: ${packet::class.simpleName}")
-            }
+            else -> Unit
         }
-    }.onFailure { error ->
-        println("Error handling packet [$packet]: ${error.message}")
-        println(error.stackTraceToString())
-        println(error)
+    }.onFailure {
+        console.warn("Não foi possível processar uma atualização da sala")
     }
 }
 
@@ -86,6 +91,18 @@ private fun handleUserConnected(
             isInitiator = true,
             coroutineScope = coroutineScope,
         )
+
+        // Um novo participante precisa saber o estado de compartilhamento atual
+        // para rotear os tracks de vídeo (tela vs câmera). Re-transmite os
+        // sinais Start do que está ativo; peers já conectados deduplicam.
+        session.launch {
+            if (session.screenSharing.localScreenStream != null) {
+                session.websocketService.startScreenSharing(session.localRoomId)
+            }
+            if (session.cameraSharing.localCameraStream != null) {
+                session.websocketService.startCameraShare(session.localRoomId)
+            }
+        }
     }
 }
 
@@ -104,12 +121,8 @@ private fun handleUserDisconnected(
     )
 
     session.peerConnections.closePeerConnection(packet.socketId)
-
-    val currentSharer = session.currentSharerSocketId
-    if (packet.socketId == currentSharer) {
-        InterfaceMutations.endScreenSharing()
-        session.currentSharerSocketId = null
-    }
+    session.screenSharing.stopRemoteScreen(packet.socketId)
+    session.cameraSharing.stopRemoteCamera(packet.socketId)
 }
 
 private fun handleChatMessageReceived(
@@ -145,9 +158,7 @@ private fun handleIceCandidateReceived(
             senderId = packet.senderId,
             candidate = packet.candidate,
         )
-    }.onFailure {
-        println("Failed to add ICE candidate: ${it.message}")
-    }
+    }.onFailure { console.warn("Não foi possível aplicar uma atualização de conexão") }
 }
 
 private fun handleDescriptionReceived(
@@ -186,20 +197,88 @@ private fun handleDescriptionReceived(
                 descriptionJson = descriptionJson,
             )
         }
-    }.onFailure {
-        println("Failed to set remote description from packet [$packet]: ${it.message}")
-    }
+    }.onFailure { console.warn("Não foi possível atualizar a conexão de mídia") }
+}
+
+private fun handleScreenShareStarted(
+    session: Session,
+    packet: Packet.ScreenShareStarted,
+) {
+    val wasSharing = session.peerConnections.isScreenSharing(packet.senderId)
+    session.peerConnections.markScreenSharing(packet.senderId, true)
+    if (wasSharing) return
+
+    InterfaceMutations.addMessageToChat(
+        message =
+            ChatMessage(
+                username = "Sistema",
+                content = "${screenShareAuthorName(session, packet.senderId)} começou a compartilhar a tela",
+                timestamp = Date().getTime().toLong(),
+            ),
+        localUsername = session.localUsername,
+    )
 }
 
 private fun handleScreenShareStopped(
     session: Session,
     packet: Packet.ScreenShareStopped,
 ) {
-    if (session.currentSharerSocketId != packet.senderId) return
+    session.peerConnections.markScreenSharing(packet.senderId, false)
+    session.screenSharing.stopRemoteScreen(packet.senderId)
+    InterfaceMutations.addMessageToChat(
+        message =
+            ChatMessage(
+                username = "Sistema",
+                content = "${screenShareAuthorName(session, packet.senderId)} parou de compartilhar a tela",
+                timestamp = Date().getTime().toLong(),
+            ),
+        localUsername = session.localUsername,
+    )
+}
 
-    session.screenSharing.remoteScreenStreams.remove(packet.senderId)?.getTracks()?.forEach { it.stop() }
-    session.currentSharerSocketId = null
-    InterfaceMutations.endScreenSharing()
+private fun handleCameraShareStarted(
+    session: Session,
+    packet: Packet.CameraShareStarted,
+) {
+    val wasSharing = session.peerConnections.isCameraSharing(packet.senderId)
+    session.peerConnections.markCameraSharing(packet.senderId, true)
+    if (wasSharing) return
+
+    InterfaceMutations.addMessageToChat(
+        message =
+            ChatMessage(
+                username = "Sistema",
+                content = "${screenShareAuthorName(session, packet.senderId)} ativou a câmera",
+                timestamp = Date().getTime().toLong(),
+            ),
+        localUsername = session.localUsername,
+    )
+}
+
+private fun handleCameraShareStopped(
+    session: Session,
+    packet: Packet.CameraShareStopped,
+) {
+    session.peerConnections.markCameraSharing(packet.senderId, false)
+    session.cameraSharing.stopRemoteCamera(packet.senderId)
+    InterfaceMutations.addMessageToChat(
+        message =
+            ChatMessage(
+                username = "Sistema",
+                content = "${screenShareAuthorName(session, packet.senderId)} desativou a câmera",
+                timestamp = Date().getTime().toLong(),
+            ),
+        localUsername = session.localUsername,
+    )
+}
+
+private fun screenShareAuthorName(
+    session: Session,
+    socketId: String,
+): String {
+    val isLocal = session.userList.firstOrNull { it.username == session.localUsername }?.socketId == socketId
+    if (isLocal) return "Você"
+    return session.userList.firstOrNull { it.socketId == socketId }?.username ?: socketId.takeLast(6)
 }
 
 private fun handleUserMuted(packet: Packet) {

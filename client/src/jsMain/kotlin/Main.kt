@@ -1,9 +1,11 @@
-import io.ktor.http.URLProtocol
 import kotlinx.browser.window
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import platform.DesktopCaptureBridge
+import platform.DesktopEnvironment
+import platform.resolveWebSocketEndpoint
 import screenshare.common.ChatMessage
 import services.Session
 import services.WebsocketService
@@ -15,23 +17,21 @@ import kotlin.js.Date
 var session: Session? = null
 
 fun main() {
-    println("Hello, World!")
-
     val websocketService =
         with(window.location) {
-            println("Connecting to WebSocket at $href")
-            val port =
-                @Suppress("UselessCallOnNotNull")
-                if (port.isNullOrBlank()) {
-                    if (protocol == "https:") "443" else "80"
-                } else {
-                    port
-                }
+            val endpoint =
+                resolveWebSocketEndpoint(
+                    locationProtocol = protocol,
+                    locationHostname = hostname,
+                    locationPort = port,
+                    isDesktop = DesktopEnvironment.isAvailable,
+                    desktopServerUrl = DesktopEnvironment.serverUrl,
+                )
 
             WebsocketService(
-                urlProtocol = if (protocol == "https:") URLProtocol.WSS else URLProtocol.WS,
-                host = hostname,
-                port = port.toInt(),
+                urlProtocol = endpoint.protocol,
+                host = endpoint.host,
+                port = endpoint.port,
                 handler = ::handlePacket,
                 onClose = {
                     InterfaceMutations.addMessageToChat(
@@ -52,6 +52,14 @@ fun main() {
         websocketService.connect(websocketCoroutineScope)
     }
 
+    // `pagehide` also fires for a WebView shutdown. Do not send room packets
+    // here: the transport may already be gone, but always release local media
+    // and the optional native-audio bridge.
+    window.addEventListener("pagehide", {
+        session?.dispose()
+        DesktopCaptureBridge.stopAudioOnPageExit()
+    })
+
     registerUIHandlers(
         joinRoom = { username, roomId ->
             session =
@@ -68,11 +76,21 @@ fun main() {
         onMicButtonToggle = {
             getSessionOrAlert().handleMicButtonToggle()
         },
-        onStartScreenShare = { width, height, fps, useSourceResolution ->
-            getSessionOrAlert().handleStartScreenShare(width, height, fps, useSourceResolution)
+        onStartScreenShare = { width, height, fps, useSourceResolution, audioMode, processId ->
+            getSessionOrAlert().handleStartScreenShare(width, height, fps, useSourceResolution, audioMode, processId)
+        },
+        onChangeDesktopAudio = {
+            val button = kotlinx.browser.document.getElementById("shareScreenBtn") as org.w3c.dom.HTMLButtonElement
+            button.click()
         },
         onStopScreenShare = {
             getSessionOrAlert().handleStopScreenShare()
+        },
+        onStartCameraShare = {
+            getSessionOrAlert().handleStartCameraShare()
+        },
+        onStopCameraShare = {
+            getSessionOrAlert().handleStopCameraShare()
         },
         onInputDeviceChange = { deviceId ->
             getSessionOrAlert().handleMicInputDeviceChange(deviceId)

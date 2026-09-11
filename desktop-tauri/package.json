@@ -1,0 +1,16 @@
+{
+  "name": "screenshare-desktop",
+  "private": true,
+  "version": "0.1.0",
+  "scripts": {
+    "dev": "..\\gradlew.bat --project-dir .. desktopDev",
+    "build": "..\\gradlew.bat --project-dir .. desktopBuild",
+    "tauri": "tauri",
+    "build-bridge": "esbuild src/desktopBridge.ts --bundle --format=iife --platform=browser --target=es2022 --outfile=dist/desktopBridge.js"
+  },
+  "devDependencies": {
+    "@tauri-apps/api": "2.11.1",
+    "@tauri-apps/cli": "2.11.4",
+    "esbuild": "0.25.0"
+  }
+}

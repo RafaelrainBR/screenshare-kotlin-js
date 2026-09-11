@@ -26,3 +26,19 @@ subprojects {
         }
     }
 }
+
+val npmCommand = if (System.getProperty("os.name").startsWith("Windows")) "npm.cmd" else "npm"
+
+tasks.register<Exec>("desktopBuild") {
+    group = "desktop"
+    description = "Builds the Kotlin/JS client and the Windows Tauri application."
+    workingDir(layout.projectDirectory.dir("desktop-tauri"))
+    commandLine(npmCommand, "run", "tauri", "--", "build")
+}
+
+tasks.register<Exec>("desktopDev") {
+    group = "desktop"
+    description = "Runs the Tauri shell with the Kotlin/JS development server."
+    workingDir(layout.projectDirectory.dir("desktop-tauri"))
+    commandLine(npmCommand, "run", "tauri", "--", "dev")
+}
