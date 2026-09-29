@@ -59,13 +59,11 @@ new MutationObserver(() => {
 }).observe(qualityModal, { attributes: true, attributeFilter: ['class'] });
 
 const context = document.getElementById('participant-context');
-let contextTile = null;
 let contextFocus = null;
 function closeContext() {
   if (context.classList.contains('hidden')) return;
   context.classList.add('hidden');
   context.replaceChildren();
-  contextTile = null;
   contextFocus?.focus();
   contextFocus = null;
 }
@@ -74,7 +72,6 @@ function openContext(tile, x, y) {
   const name = tile.dataset.username || 'Participante';
   const video = tile.classList.contains('screen-tile');
   const self = owner === 'self';
-  contextTile = tile;
   contextFocus = document.activeElement;
   context.innerHTML = '<h3></h3>'
     + (self ? '<div class="context-note">Use o microfone no dock para alterar seu áudio.</div>'
