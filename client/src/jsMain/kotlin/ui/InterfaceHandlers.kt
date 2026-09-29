@@ -47,6 +47,7 @@ fun registerUIHandlers(
     onStopCameraShare: () -> Unit,
     onInputDeviceChange: (deviceId: String) -> Unit,
     onOutputDeviceChange: (deviceId: String) -> Unit,
+    onCameraDeviceChange: (deviceId: String) -> Unit,
 ) {
     setupJoinButtonHandler(joinRoom)
     setupSendMessageButtonHandler(sendChatMessage)
@@ -55,7 +56,8 @@ fun registerUIHandlers(
     setupChangeDesktopAudioButton(onChangeDesktopAudio)
     setupStopScreenShareButtonHandler(onStopScreenShare)
     setupCameraButtons(onStartCameraShare, onStopCameraShare)
-    setupDeviceHandlers(onInputDeviceChange, onOutputDeviceChange)
+    setupDeviceHandlers(onInputDeviceChange, onOutputDeviceChange, onCameraDeviceChange)
+    Elements.outputToggle.addEventListener("click", { InterfaceMutations.toggleOutputMute() })
 }
 
 private fun setupJoinButtonHandler(joinRoom: (username: String, roomId: String) -> Unit) =
@@ -69,9 +71,14 @@ private fun setupJoinButtonHandler(joinRoom: (username: String, roomId: String) 
                 ?: generateRandomRoomId().take(8)
 
         if (username.isBlank()) {
-            window.alert("Please enter a username.")
+            Elements.usernameInput.setAttribute("aria-invalid", "true")
+            document.getElementById("join-error")?.classList?.remove("hidden")
+            Elements.usernameInput.focus()
             return@addEventListener
         }
+
+        Elements.usernameInput.removeAttribute("aria-invalid")
+        document.getElementById("join-error")?.classList?.add("hidden")
 
         Elements.currentRoomId.textContent = roomId
 
@@ -114,7 +121,7 @@ private fun setupShareQualityModal(
     Elements.confirmShare.addEventListener("click", { e ->
         e.preventDefault()
         if (selectedAudioMode == ScreenSharing.DesktopAudioMode.PROCESS && selectedAudioSource == null) {
-            window.alert("Escolha um aplicativo para o áudio antes de continuar.")
+            InterfaceMutations.showError("Escolha um aplicativo para o áudio antes de continuar.")
             return@addEventListener
         }
         stopAudioSourceRefresh()
@@ -163,6 +170,7 @@ private fun resetDesktopAudioWizard() {
     stopAudioSourceRefresh()
     selectedAudioMode = ScreenSharing.DesktopAudioMode.NONE
     selectedAudioSource = null
+    Elements.confirmShare.disabled = false
     Elements.desktopWizardStepOne.classList.remove("hidden")
     Elements.desktopWizardStepTwo.classList.add("hidden")
     Elements.desktopAudioThumbnail.classList.add("hidden")
@@ -192,6 +200,7 @@ private fun bindAudioMode(id: String, mode: ScreenSharing.DesktopAudioMode) {
         for (index in 0 until options.length) (options.item(index) as HTMLElement).classList.remove("selected")
         button.classList.add("selected")
         if (mode == ScreenSharing.DesktopAudioMode.PROCESS) openAudioSourceStep() else {
+            Elements.confirmShare.disabled = false
             stopAudioSourceRefresh()
             Elements.desktopWizardStepOne.classList.remove("hidden")
             Elements.desktopWizardStepTwo.classList.add("hidden")
@@ -206,6 +215,7 @@ private fun openAudioSourceStep() {
     Elements.desktopAudioSourceGrid.innerHTML = ""
     Elements.desktopAudioThumbnail.classList.add("hidden")
     Elements.desktopAudioPickerState.textContent = "Carregando aplicativos…"
+    Elements.confirmShare.disabled = true
     renderedAudioSourcesSignature = ""
     val generation = ++desktopAudioRefreshGeneration
     refreshAudioSources(generation = generation)
@@ -256,6 +266,7 @@ private fun renderAudioSources(sources: List<DesktopCaptureSource>) {
     Elements.desktopAudioSourceGrid.innerHTML = ""
     sources.forEach { source -> Elements.desktopAudioSourceGrid.appendChild(createAudioSourceTile(source)) }
     selectedAudioSource = sources.firstOrNull { it.id == selectedId && it.processId == selectedProcessId }
+    Elements.confirmShare.disabled = selectedAudioSource == null
     if (selectedId != null && selectedAudioSource == null) {
         Elements.desktopAudioThumbnail.classList.add("hidden")
     }
@@ -281,6 +292,7 @@ private fun createAudioSourceTile(source: DesktopCaptureSource): HTMLElement {
     loadThumbnailInto(source, preview)
     button.onclick = {
         selectedAudioSource = source
+        Elements.confirmShare.disabled = false
         val tiles = Elements.desktopAudioSourceGrid.getElementsByClassName("audio-source-tile")
         for (index in 0 until tiles.length) (tiles.item(index) as HTMLElement).classList.remove("selected")
         button.classList.add("selected")
@@ -378,6 +390,7 @@ private fun setupCameraButtons(
 private fun setupDeviceHandlers(
     onInputDeviceChange: (deviceId: String) -> Unit,
     onOutputDeviceChange: (deviceId: String) -> Unit,
+    onCameraDeviceChange: (deviceId: String) -> Unit,
 ) {
     Elements.inputDevices.addEventListener("change", {
         onInputDeviceChange(Elements.inputDevices.value)
@@ -385,5 +398,9 @@ private fun setupDeviceHandlers(
 
     Elements.outputDevices.addEventListener("change", {
         onOutputDeviceChange(Elements.outputDevices.value)
+    })
+
+    Elements.cameraDevices.addEventListener("change", {
+        onCameraDeviceChange(Elements.cameraDevices.value)
     })
 }

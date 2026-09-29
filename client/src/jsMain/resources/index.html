@@ -1,1235 +1,168 @@
-<!DOCTYPE html>
-<html lang="pt-BR" data-theme="night">
+<!doctype html>
+<html lang="pt-BR">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Screenshare — compartilhamento de tela P2P</title>
-    <link rel="icon" type="image/x-icon" href="/app1.ico">
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Inter+Tight:wght@500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
-    <style>
-        /* ————— Design system próprio. Sem DaisyUI, sem Tailwind. ————— */
-
-        :root {
-            --font-display: 'Inter Tight', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-            --font-body: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-            --font-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
-            --ease: cubic-bezier(0.22, 1, 0.36, 1);
-        }
-
-        /* Temas — aplicam via data-theme OU via :has() do theme-controller (mecanismo próprio) */
-        :root, [data-theme="night"],
-        :root:has(input.theme-controller[value="night"]:checked) {
-            color-scheme: dark;
-            --ground: #0A0B0E;
-            --surface: #101216;
-            --surface-2: #16191F;
-            --hairline: rgba(255, 255, 255, 0.07);
-            --hairline-strong: rgba(255, 255, 255, 0.13);
-            --ink: #EDEEF2;
-            --ink-dim: #A0A6B2;
-            --ink-faint: #666D7C;
-            --accent: #6C7AEE;
-            --accent-hover: #7D89F2;
-            --accent-fg: #FFFFFF;
-            --success: #4ADE80;
-            --error: #F87171;
-        }
-
-        [data-theme="dracula"],
-        :root:has(input.theme-controller[value="dracula"]:checked) {
-            color-scheme: dark;
-            --ground: #0E0F13;
-            --surface: #15161C;
-            --surface-2: #1C1E26;
-            --hairline: rgba(255, 255, 255, 0.08);
-            --hairline-strong: rgba(255, 255, 255, 0.14);
-            --ink: #F2F0F7;
-            --ink-dim: #A6A1C0;
-            --ink-faint: #6D6890;
-            --accent: #BD7CE8;
-            --accent-hover: #C88FEE;
-            --accent-fg: #1A1022;
-            --success: #6EE7B7;
-            --error: #FB7185;
-        }
-
-        [data-theme="garden"],
-        :root:has(input.theme-controller[value="garden"]:checked) {
-            color-scheme: light;
-            --ground: #EDEEF0;
-            --surface: #FAFBFC;
-            --surface-2: #F1F3F5;
-            --hairline: rgba(15, 23, 42, 0.09);
-            --hairline-strong: rgba(15, 23, 42, 0.16);
-            --ink: #191D24;
-            --ink-dim: #4B5361;
-            --ink-faint: #8A92A0;
-            --accent: #3E63DD;
-            --accent-hover: #3556C4;
-            --accent-fg: #FFFFFF;
-            --success: #16803C;
-            --error: #DC2626;
-        }
-
-        [data-theme="coffee"],
-        :root:has(input.theme-controller[value="coffee"]:checked) {
-            color-scheme: dark;
-            --ground: #120F0C;
-            --surface: #1A1613;
-            --surface-2: #221D18;
-            --hairline: rgba(255, 235, 205, 0.08);
-            --hairline-strong: rgba(255, 235, 205, 0.15);
-            --ink: #F0E7DA;
-            --ink-dim: #B3A695;
-            --ink-faint: #7A7062;
-            --accent: #D9A066;
-            --accent-hover: #E2AE79;
-            --accent-fg: #221808;
-            --success: #86C88F;
-            --error: #E5736F;
-        }
-
-        [data-theme="synthwave"],
-        :root:has(input.theme-controller[value="synthwave"]:checked) {
-            color-scheme: dark;
-            --ground: #0E0A17;
-            --surface: #161026;
-            --surface-2: #1E1733;
-            --hairline: rgba(230, 200, 255, 0.09);
-            --hairline-strong: rgba(230, 200, 255, 0.16);
-            --ink: #F2EBFC;
-            --ink-dim: #AB9CC8;
-            --ink-faint: #6F6390;
-            --accent: #E4589B;
-            --accent-hover: #EC6FAB;
-            --accent-fg: #2A0A1C;
-            --success: #4EC9A8;
-            --error: #F26D6D;
-        }
-        /* ————— Reset + base ————— */
-        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-        html { height: 100%; }
-        body {
-            min-height: 100%;
-            font-family: var(--font-body);
-            font-size: 0.875rem;
-            line-height: 1.5;
-            color: var(--ink);
-            background: var(--ground);
-            -webkit-font-smoothing: antialiased;
-        }
-        h1, h2, h3, h4 { font-family: var(--font-display); letter-spacing: -0.02em; font-weight: 600; }
-        button { font-family: inherit; }
-        svg { display: block; flex-shrink: 0; }
-        ::selection { background: color-mix(in oklab, var(--accent) 32%, transparent); }
-        :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
-
-        .custom-scroll::-webkit-scrollbar { width: 8px; height: 8px; }
-        .custom-scroll::-webkit-scrollbar-track { background: transparent; }
-        .custom-scroll::-webkit-scrollbar-thumb {
-            background: var(--hairline-strong);
-            border-radius: 999px;
-            border: 2px solid transparent;
-            background-clip: content-box;
-        }
-        .custom-scroll::-webkit-scrollbar-thumb:hover { background: var(--ink-faint); background-clip: content-box; }
-
-        /* ————— Utilitárias injetadas pelo Kotlin (contrato) ————— */
-        .hidden { display: none !important; }
-        .w-4 { width: 1rem; } .h-4 { height: 1rem; }
-        .w-5 { width: 1.25rem; } .h-5 { height: 1.25rem; }
-        .w-6 { width: 1.5rem; } .h-6 { height: 1.5rem; }
-        .w-10 { width: 2.25rem; }
-        .w-28 { width: 7rem; }
-        .flex-1 { flex: 1 1 0%; min-width: 0; }
-        .rounded-full { border-radius: 999px; }
-        .text-xs { font-size: 0.75rem; line-height: 1.4; }
-        .font-semibold { font-weight: 600; }
-        .opacity-50 { opacity: 0.5; }
-        .opacity-70 { opacity: 0.7; }
-        .ml-2 { margin-left: 0.5rem; }
-        .bg-primary { background: var(--accent); }
-        .text-primary-content { color: var(--accent-fg); }
-        .bg-base-300 { background: var(--surface-2); }
-        .text-base-content { color: var(--ink); }
-        .text-error { color: var(--error); }
-        .text-success { color: var(--success); }
-        .ring-2.ring-success.ring-offset-2 {
-            box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--success);
-        }
-
-        /* ————— Botões ————— */
-        .btn {
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            gap: 0.4rem;
-            height: 2rem;
-            padding: 0 0.75rem;
-            border: 1px solid transparent;
-            border-radius: 6px;
-            font-size: 0.8125rem;
-            font-weight: 500;
-            letter-spacing: -0.01em;
-            white-space: nowrap;
-            cursor: pointer;
-            user-select: none;
-            background: transparent;
-            color: var(--ink);
-            transition: background 0.12s var(--ease), color 0.12s var(--ease),
-                border-color 0.12s var(--ease), opacity 0.12s var(--ease);
-        }
-        .btn:active { transform: translateY(0.5px); }
-        .btn-primary { background: var(--accent); color: var(--accent-fg); }
-        .btn-primary:hover { background: var(--accent-hover); }
-        .btn-error { background: color-mix(in oklab, var(--error) 16%, var(--surface-2)); color: var(--error); border-color: color-mix(in oklab, var(--error) 30%, transparent); }
-        .btn-error:hover { background: color-mix(in oklab, var(--error) 24%, var(--surface-2)); }
-        .btn-ghost { color: var(--ink-dim); }
-        .btn-ghost:hover { background: var(--surface-2); color: var(--ink); }
-        .btn-circle { width: 2rem; padding: 0; }
-        .btn-square { width: 2rem; padding: 0; }
-        .btn-lg { height: 2.5rem; padding: 0 1rem; font-size: 0.875rem; border-radius: 8px; }
-
-        /* ————— Inputs ————— */
-        .input, .select {
-            width: 100%;
-            height: 2.25rem;
-            padding: 0 0.75rem;
-            border: 1px solid var(--hairline-strong);
-            border-radius: 6px;
-            background: var(--surface-2);
-            color: var(--ink);
-            font-family: var(--font-body);
-            font-size: 0.875rem;
-            transition: border-color 0.12s var(--ease), box-shadow 0.12s var(--ease);
-        }
-        .input:hover, .select:hover { border-color: var(--ink-faint); }
-        .input:focus, .select:focus {
-            outline: none;
-            border-color: var(--accent);
-            box-shadow: 0 0 0 3px color-mix(in oklab, var(--accent) 18%, transparent);
-        }
-        .input::placeholder { color: var(--ink-faint); }
-        .select {
-            appearance: none;
-            -webkit-appearance: none;
-            padding-right: 2rem;
-            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%23888' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
-            background-repeat: no-repeat;
-            background-position: right 0.7rem center;
-            cursor: pointer;
-        }
-        .select-sm { height: 2rem; font-size: 0.8125rem; }
-        #roomId, .room-chip-code { font-family: var(--font-mono); font-size: 0.8125rem; }
-
-        input[type="range"].range {
-            -webkit-appearance: none;
-            appearance: none;
-            height: 3px;
-            background: var(--hairline-strong);
-            border-radius: 2px;
-            cursor: pointer;
-        }
-        .range-xs { height: 3px; }
-        .range::-webkit-slider-thumb {
-            -webkit-appearance: none;
-            width: 12px;
-            height: 12px;
-            border-radius: 50%;
-            background: var(--ink-dim);
-            transition: background 0.12s;
-        }
-        .range-primary::-webkit-slider-thumb { background: var(--accent); }
-        .range::-webkit-slider-thumb:hover { background: var(--ink); }
-        .range::-moz-range-thumb {
-            width: 12px; height: 12px; border: none; border-radius: 50%; background: var(--accent);
-        }
-        .range::-moz-range-track { height: 3px; background: var(--hairline-strong); border-radius: 2px; }
-
-        /* ————— Dropdown (CSS puro, focus-within) ————— */
-        .dropdown { position: relative; display: inline-flex; }
-        .dropdown-content {
-            position: absolute;
-            top: calc(100% + 6px);
-            right: 0;
-            z-index: 60;
-            min-width: 11rem;
-            background: var(--surface);
-            border: 1px solid var(--hairline-strong);
-            border-radius: 10px;
-            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2), 0 24px 48px -16px rgba(0, 0, 0, 0.5);
-            padding: 0.375rem;
-            opacity: 0;
-            transform: translateY(-4px);
-            pointer-events: none;
-            transition: opacity 0.12s var(--ease), transform 0.12s var(--ease);
-        }
-        .dropdown:focus-within .dropdown-content {
-            opacity: 1;
-            transform: none;
-            pointer-events: auto;
-        }
-        .theme-controller {
-            display: flex;
-            align-items: center;
-            width: 100%;
-            height: 2rem;
-            padding: 0 0.625rem;
-            border-radius: 6px;
-            appearance: none;
-            background: transparent;
-            border: none;
-            color: var(--ink-dim);
-            font-family: var(--font-body);
-            font-size: 0.8125rem;
-            cursor: pointer;
-            transition: background 0.12s, color 0.12s;
-        }
-        .theme-controller:hover { background: var(--surface-2); color: var(--ink); }
-        .theme-controller:checked { color: var(--ink); font-weight: 500; }
-        .device-title {
-            font-family: var(--font-mono);
-            font-size: 0.625rem;
-            font-weight: 500;
-            letter-spacing: 0.1em;
-            text-transform: uppercase;
-            color: var(--ink-faint);
-            padding: 0.375rem 0.625rem 0.5rem;
-            border-bottom: 1px solid var(--hairline);
-            margin-bottom: 0.5rem;
-        }
-        .field-label {
-            display: block;
-            font-family: var(--font-mono);
-            font-size: 0.625rem;
-            font-weight: 500;
-            letter-spacing: 0.1em;
-            text-transform: uppercase;
-            color: var(--ink-faint);
-            margin-bottom: 0.4rem;
-        }
-
-        .indicator { position: relative; }
-        .indicator-item {
-            position: absolute;
-            top: 3px;
-            right: 3px;
-            width: 6px;
-            height: 6px;
-            border-radius: 50%;
-            box-shadow: 0 0 0 2px var(--surface);
-        }
-        .indicator-item.badge-error { background: var(--error); }
-        .indicator-item.badge-success { background: var(--success); }
-        /* ————— Join screen: split editorial, não card centrado ————— */
-        #join-screen {
-            min-height: 100vh;
-            display: grid;
-            grid-template-columns: 1.15fr 1fr;
-        }
-        .join-hero {
-            position: relative;
-            display: flex;
-            flex-direction: column;
-            justify-content: space-between;
-            gap: 3rem;
-            padding: 3rem clamp(1.5rem, 4vw, 4.5rem) 2.25rem;
-            border-right: 1px solid var(--hairline);
-            background: var(--surface);
-            overflow: hidden;
-        }
-        .join-hero::before {
-            content: '';
-            position: absolute;
-            top: -14rem;
-            left: -6rem;
-            width: 34rem;
-            height: 24rem;
-            background: radial-gradient(closest-side, color-mix(in oklab, var(--accent) 10%, transparent), transparent);
-            pointer-events: none;
-        }
-        .join-hero > * { position: relative; }
-        .join-brand {
-            display: inline-flex;
-            align-items: center;
-            gap: 0.625rem;
-            font-family: var(--font-mono);
-            font-size: 0.6875rem;
-            font-weight: 500;
-            letter-spacing: 0.14em;
-            color: var(--ink-dim);
-        }
-        .logo-mark {
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            width: 1.625rem;
-            height: 1.625rem;
-            border-radius: 5px;
-            background: var(--accent);
-            color: var(--accent-fg);
-        }
-        .logo-mark svg { width: 0.9375rem; height: 0.9375rem; }
-        .join-title {
-            font-size: clamp(1.875rem, 3.6vw, 2.75rem);
-            font-weight: 600;
-            letter-spacing: -0.03em;
-            line-height: 1.08;
-        }
-        .join-title em { font-style: normal; color: var(--ink-faint); }
-        .join-sub {
-            margin-top: 0.875rem;
-            max-width: 26rem;
-            font-size: 0.9375rem;
-            line-height: 1.55;
-            color: var(--ink-dim);
-        }
-        .spec-list { border-bottom: 1px solid var(--hairline); }
-        .spec-row {
-            display: grid;
-            grid-template-columns: 7rem 1fr;
-            gap: 1.25rem;
-            padding: 0.8rem 0;
-            border-top: 1px solid var(--hairline);
-        }
-        .spec-k {
-            font-family: var(--font-mono);
-            font-size: 0.625rem;
-            font-weight: 500;
-            letter-spacing: 0.1em;
-            text-transform: uppercase;
-            color: var(--ink-faint);
-            padding-top: 0.2rem;
-        }
-        .spec-v { font-size: 0.8125rem; line-height: 1.5; color: var(--ink-dim); }
-        .spec-v strong { color: var(--ink); font-weight: 500; }
-        .join-hero-foot {
-            font-family: var(--font-mono);
-            font-size: 0.625rem;
-            letter-spacing: 0.12em;
-            color: var(--ink-faint);
-        }
-
-        .join-col {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            padding: 2.5rem 1.5rem;
-        }
-        .join-form { width: 100%; max-width: 21rem; }
-        .join-form-title { font-size: 1.0625rem; font-weight: 600; }
-        .join-form-sub { margin-top: 0.25rem; font-size: 0.8125rem; color: var(--ink-dim); }
-        .join-fields { margin-top: 1.75rem; display: flex; flex-direction: column; gap: 1.125rem; }
-        .field-hint {
-            margin-top: 0.4rem;
-            font-size: 0.6875rem;
-            color: var(--ink-faint);
-        }
-        #joinBtn { width: 100%; margin-top: 0.375rem; }
-        .join-form-foot {
-            margin-top: 2rem;
-            padding-top: 1rem;
-            border-top: 1px solid var(--hairline);
-            font-family: var(--font-mono);
-            font-size: 0.625rem;
-            letter-spacing: 0.08em;
-            color: var(--ink-faint);
-        }
-
-        @media (max-width: 880px) {
-            #join-screen { grid-template-columns: 1fr; }
-            .join-hero { border-right: none; border-bottom: 1px solid var(--hairline); gap: 1.75rem; padding: 2rem 1.5rem; }
-            .spec-list, .join-hero-foot { display: none; }
-            .join-col { padding: 2rem 1.25rem; }
-        }
-
-        /* ————— App shell ————— */
-        #app-screen { height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
-        .topbar {
-            height: 3rem;
-            min-height: 3rem;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            gap: 0.75rem;
-            padding: 0 0.625rem 0 1rem;
-            background: var(--surface);
-            border-bottom: 1px solid var(--hairline);
-        }
-        .topbar-left { display: flex; align-items: center; gap: 0.875rem; min-width: 0; }
-        .brand-mini {
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-            font-family: var(--font-display);
-            font-size: 0.8125rem;
-            font-weight: 600;
-            letter-spacing: -0.01em;
-        }
-        .brand-mini .logo-mark { width: 1.25rem; height: 1.25rem; border-radius: 4px; }
-        .brand-mini .logo-mark svg { width: 0.75rem; height: 0.75rem; }
-        .room-chip {
-            display: inline-flex;
-            align-items: center;
-            gap: 0.5rem;
-            height: 1.75rem;
-            padding: 0 0.5625rem;
-            border: 1px solid var(--hairline);
-            border-radius: 6px;
-            background: transparent;
-            color: var(--ink-dim);
-            font-family: var(--font-body);
-            font-size: 0.75rem;
-            cursor: pointer;
-            transition: border-color 0.12s var(--ease), color 0.12s var(--ease), background 0.12s var(--ease);
-        }
-        .room-chip:hover { border-color: var(--hairline-strong); color: var(--ink); background: var(--surface-2); }
-        .room-chip.copied { border-color: var(--success); color: var(--success); }
-        .room-chip-label {
-            font-family: var(--font-mono);
-            font-size: 0.5625rem;
-            font-weight: 500;
-            letter-spacing: 0.1em;
-            text-transform: uppercase;
-            color: var(--ink-faint);
-        }
-        .room-chip svg { width: 0.75rem; height: 0.75rem; opacity: 0.7; }
-        .room-chip .icon-check { display: none; }
-        .room-chip.copied .icon-check { display: block; }
-        .room-chip.copied .icon-copy { display: none; }
-        .topbar-actions { display: flex; align-items: center; gap: 0.25rem; }
-        .label-md { display: none; }
-        @media (min-width: 768px) { .label-md { display: inline; } }
-        @media (max-width: 640px) { .brand-mini .word { display: none; } .room-chip { display: none; } }
-        /* ————— Workspace ————— */
-        .workspace { flex: 1; display: flex; min-height: 0; }
-        .stage {
-            flex: 1;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            min-width: 0;
-            padding: 1.5rem;
-            background: var(--ground);
-        }
-        .video-frame {
-            position: relative;
-            width: 100%;
-            height: 100%;
-            border: 1px solid var(--hairline-strong);
-            border-radius: 10px;
-            background: #000;
-            overflow: hidden;
-        }
-        .video-frame video {
-            width: 100%;
-            height: 100%;
-            object-fit: contain;
-            display: block;
-        }
-        .glass-chip {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 0.5rem;
-            height: 2rem;
-            min-width: 2rem;
-            padding: 0 0.625rem;
-            border: 1px solid var(--hairline-strong);
-            border-radius: 7px;
-            background: color-mix(in oklab, var(--surface) 78%, transparent);
-            backdrop-filter: blur(8px);
-            color: var(--ink);
-            cursor: pointer;
-            opacity: 0.82;
-            transition: opacity 0.12s var(--ease);
-        }
-        .glass-chip:hover { opacity: 1; }
-        .screen-volume-toggle {
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            padding: 0;
-            border: 0;
-            background: transparent;
-            color: inherit;
-            cursor: pointer;
-            opacity: 0.72;
-        }
-        .screen-volume-toggle:hover,
-        .screen-volume-toggle:focus-visible { opacity: 1; }
-
-        /* Empty state: monitor com grid de pontos — não um card flutuante genérico */
-        .empty-state { text-align: center; max-width: 24rem; }
-        .monitor {
-            position: relative;
-            width: min(22rem, 78vw);
-            aspect-ratio: 16 / 10;
-            margin: 0 auto 1.375rem;
-            border: 1px solid var(--hairline-strong);
-            border-radius: 10px;
-            background-image: radial-gradient(var(--hairline-strong) 1px, transparent 1px);
-            background-size: 15px 15px;
-            background-position: center;
-        }
-        .monitor svg {
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            width: 1.5rem;
-            height: 1.5rem;
-            color: var(--ink-faint);
-            background: var(--ground);
-            padding: 0.375rem;
-            border-radius: 8px;
-            border: 1px solid var(--hairline);
-        }
-        .empty-title { font-size: 0.9375rem; font-weight: 600; }
-        .empty-sub { margin-top: 0.25rem; font-size: 0.8125rem; color: var(--ink-dim); }
-
-        /* ————— Sidebar ————— */
-        .sidebar {
-            width: 20rem;
-            display: flex;
-            flex-direction: column;
-            min-height: 0;
-            background: var(--surface);
-            border-left: 1px solid var(--hairline);
-        }
-        .panel-head {
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-            height: 2.4rem;
-            min-height: 2.4rem;
-            padding: 0 0.875rem;
-            font-family: var(--font-mono);
-            font-size: 0.625rem;
-            font-weight: 500;
-            letter-spacing: 0.1em;
-            text-transform: uppercase;
-            color: var(--ink-faint);
-            border-bottom: 1px solid var(--hairline);
-        }
-        .panel-head svg { width: 0.8125rem; height: 0.8125rem; opacity: 0.75; }
-        .count-badge {
-            margin-left: auto;
-            font-family: var(--font-mono);
-            font-size: 0.625rem;
-            color: var(--ink-dim);
-            border: 1px solid var(--hairline);
-            border-radius: 999px;
-            min-width: 1.25rem;
-            text-align: center;
-            line-height: 1rem;
-        }
-        #user-list {
-            list-style: none;
-            padding: 0.375rem;
-            max-height: 14rem;
-            overflow-y: auto;
-        }
-        #user-list article {
-            border: 1px solid transparent;
-            border-radius: 7px;
-            margin-bottom: 2px !important;
-            padding: 0.4rem 0.5rem !important;
-            transition: background 0.12s var(--ease), border-color 0.12s var(--ease);
-        }
-        #user-list article:hover { background: var(--surface-2); border-color: var(--hairline); }
-        #user-list .w-6 { width: 1rem; height: 1rem; }
-        .avatar-circle {
-            background: color-mix(in oklab, var(--accent) 20%, var(--surface));
-            border: 1px solid var(--hairline);
-            color: var(--ink);
-        }
-        .chat-area { flex: 1; display: flex; flex-direction: column; min-height: 0; }
-        #chat-messages {
-            flex: 1;
-            padding: 0.875rem;
-            overflow-y: auto;
-            display: flex;
-            flex-direction: column;
-            gap: 0.75rem;
-        }
-        .composer {
-            display: flex;
-            gap: 0.5rem;
-            padding: 0.625rem;
-            border-top: 1px solid var(--hairline);
-        }
-        .composer .input { height: 2rem; font-size: 0.8125rem; }
-
-        /* ————— Chat (grid — classes geradas pelo Kotlin) ————— */
-        .chat { display: grid; grid-template-columns: auto 1fr; column-gap: 0.5rem; row-gap: 0.1875rem; }
-        .chat-end { grid-template-columns: 1fr auto; }
-        .chat-start .chat-image { grid-column: 1; grid-row: 1 / span 2; }
-        .chat-end .chat-image { grid-column: 2; grid-row: 1 / span 2; }
-        .chat-start .chat-header, .chat-start .chat-bubble { grid-column: 2; }
-        .chat-end .chat-header, .chat-end .chat-bubble { grid-column: 1; }
-        .chat-header {
-            display: flex;
-            align-items: baseline;
-            font-size: 0.6875rem;
-            color: var(--ink-faint);
-        }
-        .chat-header time { font-family: var(--font-mono); font-size: 0.625rem; opacity: 0.5; }
-        .chat-image > div {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            width: 1.625rem !important;
-            height: 1.625rem !important;
-            border-radius: 999px;
-            font-size: 0.5625rem;
-        }
-        .chat-bubble {
-            width: fit-content;
-            max-width: 100%;
-            padding: 0.375rem 0.625rem;
-            background: var(--surface-2);
-            border: 1px solid var(--hairline);
-            border-radius: 8px;
-            font-size: 0.8125rem;
-            line-height: 1.45;
-            color: var(--ink);
-            overflow-wrap: anywhere;
-        }
-        .chat-start .chat-bubble { border-bottom-left-radius: 3px; }
-        .chat-end .chat-bubble { border-bottom-right-radius: 3px; }
-        .chat-bubble-primary { background: var(--accent); border-color: transparent; color: var(--accent-fg); }
-
-        @media (max-width: 1023px) {
-            .workspace { flex-direction: column; }
-            .stage { padding: 1rem; }
-            .sidebar { width: 100%; border-left: none; border-top: 1px solid var(--hairline); }
-            #user-list { max-height: 7.5rem; }
-        }
-        /* ————— Modal ————— */
-        #quality-modal {
-            position: fixed;
-            inset: 0;
-            z-index: 50;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            padding: 1rem;
-        }
-        .modal-backdrop {
-            position: absolute;
-            inset: 0;
-            background: rgba(0, 0, 0, 0.55);
-            backdrop-filter: blur(2px);
-        }
-        .modal-panel {
-            position: relative;
-            width: 100%;
-            max-width: 32rem;
-            max-height: calc(100vh - 2rem);
-            max-height: calc(100dvh - 2rem);
-            overflow-y: auto;
-            overscroll-behavior: contain;
-            box-sizing: border-box;
-            background: var(--surface);
-            border: 1px solid var(--hairline-strong);
-            border-radius: 12px;
-            padding: 1.375rem;
-            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2), 0 32px 64px -16px rgba(0, 0, 0, 0.55);
-            animation: panel-in 0.16s var(--ease) both;
-        }
-        .modal-title { font-size: 0.9375rem; }
-        .modal-desc { margin-top: 0.1875rem; font-size: 0.8125rem; color: var(--ink-dim); }
-        .modal-section { margin-top: 1.125rem; display: flex; flex-direction: column; gap: 0.5rem; }
-        .modal-actions {
-            position: sticky;
-            bottom: -1.375rem;
-            z-index: 2;
-            display: flex;
-            justify-content: flex-end;
-            gap: 0.5rem;
-            margin: 1.375rem -1.375rem -1.375rem;
-            padding: .75rem 1.375rem 1.375rem;
-            border-top: 1px solid var(--hairline);
-            background: color-mix(in oklab, var(--surface) 94%, transparent);
-            backdrop-filter: blur(8px);
-        }
-        .wizard-kicker { color: var(--accent); font: 500 0.6875rem var(--font-mono); letter-spacing: .08em; text-transform: uppercase; }
-        .audio-mode-grid { display: grid; gap: .5rem; margin-top: .75rem; }
-        .audio-mode-card, .audio-source-tile { width: 100%; text-align: left; border: 1px solid var(--hairline-strong); background: var(--surface-2); color: var(--ink); border-radius: 8px; padding: .875rem; cursor: pointer; transition: border-color .14s var(--ease), background .14s var(--ease), transform .14s var(--ease); }
-        .audio-mode-card:hover, .audio-source-tile:hover { border-color: var(--accent); background: color-mix(in oklab, var(--surface-2) 85%, var(--accent)); transform: translateY(-1px); }
-        .audio-mode-card.selected { border-color: var(--accent); box-shadow: 0 0 0 2px color-mix(in oklab, var(--accent) 28%, transparent); }
-        .audio-mode-card strong { display: block; font-size: .875rem; }
-        .audio-mode-card span { display: block; margin-top: .2rem; color: var(--ink-dim); font-size: .75rem; line-height: 1.45; }
-        .audio-source-toolbar { display: flex; align-items: center; justify-content: space-between; gap: .75rem; }
-        .audio-source-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .5rem; max-height: min(18rem, 34dvh); overflow-y: auto; padding: .125rem .25rem .125rem .125rem; }
-        .audio-source-tile { display: flex; flex-direction: column; gap: .5rem; min-height: 7rem; padding: .5rem; font-size: .8125rem; line-height: 1.35; overflow: hidden; }
-        .audio-source-tile.selected { border-color: var(--accent); box-shadow: 0 0 0 2px color-mix(in oklab, var(--accent) 30%, transparent); }
-        .audio-source-preview { display: flex; align-items: center; justify-content: center; width: 100%; aspect-ratio: 16 / 9; overflow: hidden; border-radius: 5px; background: #16191f; color: var(--ink-dim); font-size: .6875rem; text-align: center; }
-        .audio-source-preview canvas { width: 100%; height: 100%; object-fit: contain; display: block; }
-        .audio-source-title { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-        .wizard-note { margin-top: .75rem; padding: .625rem .75rem; border: 1px solid var(--hairline); border-radius: 7px; color: var(--ink-dim); font-size: .75rem; line-height: 1.5; }
-        #desktop-audio-thumbnail canvas { width: 100%; height: auto; display: block; }
-        @media (max-width: 34rem) { .audio-source-grid { grid-template-columns: 1fr; } }
-        @media (max-height: 44rem) {
-            #quality-modal { padding: .5rem; align-items: flex-start; }
-            .modal-panel {
-                max-height: calc(100vh - 1rem);
-                max-height: calc(100dvh - 1rem);
-                padding: 1rem;
-            }
-            .modal-section { margin-top: .75rem; gap: .375rem; }
-            .audio-mode-grid { gap: .375rem; margin-top: .375rem; }
-            .audio-mode-card { padding: .625rem .75rem; }
-            .audio-mode-card span { line-height: 1.3; }
-            .wizard-note { margin-top: .375rem; padding: .5rem .625rem; }
-            .modal-actions {
-                bottom: -1rem;
-                margin: 1rem -1rem -1rem;
-                padding: .625rem 1rem 1rem;
-            }
-        }
-
-        .segmented {
-            display: inline-flex;
-            flex-wrap: wrap;
-            gap: 2px;
-            padding: 3px;
-            background: var(--surface-2);
-            border: 1px solid var(--hairline);
-            border-radius: 8px;
-        }
-        .segmented .btn {
-            height: 1.625rem;
-            padding: 0 0.625rem;
-            border-radius: 5px;
-            font-size: 0.75rem;
-            color: var(--ink-dim);
-        }
-        .segmented .btn:hover { background: var(--surface); color: var(--ink); }
-        .segmented .btn-primary, .segmented .btn-primary:hover {
-            background: var(--accent);
-            color: var(--accent-fg);
-        }
-
-        /* ————— Multi-tela: tiles, grid, foco e trilha ————— */
-        .screen-stage {
-            width: 100%;
-            height: 100%;
-            display: flex;
-            flex-direction: column;
-            gap: 0.5rem;
-        }
-        .screens-main {
-            flex: 1;
-            min-height: 0;
-            display: grid;
-            gap: 0.5rem;
-            grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-            grid-auto-rows: 1fr;
-        }
-        .screens-main .screen-tile { height: 100%; }
-        .screen-stage.focus-mode .screens-main { display: block; position: relative; overflow: hidden; }
-        .screen-stage.focus-mode .screens-main .screen-tile { aspect-ratio: auto; width: 100%; height: 100%; }
-        .screens-rail {
-            flex: 0 0 7.5rem;
-            display: flex;
-            gap: 0.5rem;
-            overflow-x: auto;
-        }
-        .screens-rail .screen-tile { width: 13rem; min-width: 13rem; height: 100%; }
-        .screen-tile {
-            position: relative;
-            border: 1px solid var(--hairline-strong);
-            border-radius: 10px;
-            background: #000;
-            overflow: hidden;
-            cursor: pointer;
-            transition: border-color 0.12s var(--ease), box-shadow 0.12s var(--ease);
-        }
-        .screen-tile.focused {
-            border-color: var(--accent);
-            box-shadow: 0 0 0 2px color-mix(in oklab, var(--accent) 35%, transparent);
-        }
-        .screen-tile video {
-            width: 100%;
-            height: 100%;
-            object-fit: contain;
-            display: block;
-        }
-        .screen-tile-top {
-            position: absolute;
-            top: 0.5rem;
-            left: 0.5rem;
-            z-index: 1;
-            display: flex;
-            align-items: center;
-            gap: 0.375rem;
-            pointer-events: none;
-        }
-        .screen-tile-badge {
-            display: inline-flex;
-            align-items: center;
-            height: 1.125rem;
-            padding: 0 0.375rem;
-            border-radius: 4px;
-            background: color-mix(in oklab, var(--error) 85%, transparent);
-            color: #fff;
-            font-family: var(--font-mono);
-            font-size: 0.5625rem;
-            font-weight: 600;
-            letter-spacing: 0.08em;
-        }
-        .screen-tile-badge.camera-badge {
-            background: color-mix(in oklab, var(--accent) 80%, transparent);
-        }
-        .screen-tile-name {
-            font-size: 0.6875rem;
-            color: #fff;
-            text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
-        }
-        .screen-tile-controls {
-            position: absolute;
-            bottom: 0.5rem;
-            right: 0.5rem;
-            z-index: 1;
-            display: flex;
-            align-items: center;
-            gap: 0.375rem;
-            opacity: 0;
-            transition: opacity 0.12s var(--ease);
-        }
-        .screen-tile:hover .screen-tile-controls,
-        .screen-tile:focus-within .screen-tile-controls { opacity: 1; }
-        .screen-tile-controls .range { width: 5rem; }
-
-        /* ————— Motion ————— */
-        @keyframes fade-in {
-            from { opacity: 0; transform: translateY(5px); }
-            to { opacity: 1; transform: none; }
-        }
-        .animate-fade-in { animation: fade-in 0.2s var(--ease) both; }
-
-        @keyframes panel-in {
-            from { opacity: 0; transform: translateY(6px) scale(0.985); }
-            to { opacity: 1; transform: none; }
-        }
-
-        @media (prefers-reduced-motion: reduce) {
-            *, *::before, *::after {
-                animation-duration: 0.01ms !important;
-                transition-duration: 0.01ms !important;
-            }
-        }
-    </style>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Screenshare</title>
+  <link rel="icon" href="/app1.ico">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Inter+Tight:wght@500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="ui.css">
 </head>
 <body>
-
-<div id="join-screen">
-    <div class="join-hero">
-        <div>
-            <div class="join-brand">
-                <span class="logo-mark">
-                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/>
-                    </svg>
-                </span>
-            </div>
-        </div>
-
-        <div>
-            <h1 class="join-title">Sua tela,<br/>direto pro <em>outro lado.</em></h1>
-            <p class="join-sub">Compartilhamento de tela e voz em tempo real.</p>
-        </div>
-
-        <div>
-            <div class="spec-list">
-                <div class="spec-row">
-                    <span class="spec-k">SEGURO</span>
-                    <span class="spec-v"><strong>WebRTC ponta a ponta</strong> — vídeo e áudio nunca passam pelo servidor.</span>
-                </div>
-                <div class="spec-row">
-                    <span class="spec-k">LIVRE</span>
-                    <span class="spec-v">Código aberto. Rode quando e como quiser, em qualquer lugar.</span>
-                </div>
-            </div>
-        </div>
+  <main id="join-screen">
+    <div class="join-form">
+      <h1>Participar de uma sala</h1>
+      <p>Use um código recebido ou deixe vazio para criar uma sala.</p>
+      <form class="join-fields" id="join-form">
+        <label for="username">Seu nome</label>
+        <input class="input" id="username" autocomplete="nickname" placeholder="Como você aparece na sala" required>
+        <span class="field-error hidden" id="join-error" role="alert">Informe seu nome para entrar.</span>
+        <label for="roomId">Código da sala</label>
+        <input class="input" id="roomId" placeholder="ex: 4f8a2c1e">
+        <span class="field-hint">Código opcional ao criar uma sala.</span>
+        <button type="submit" id="joinBtn" class="btn btn-primary btn-lg">Entrar na sala</button>
+      </form>
     </div>
+  </main>
 
-    <div class="join-col">
-        <div class="join-form animate-fade-in">
-            <h2 class="join-form-title">Participar de uma sala</h2>
-            <p class="join-form-sub">Você recebe o código de quem criou a sala.</p>
-
-            <form class="join-fields" onsubmit="return false;">
-                <div>
-                    <label class="field-label" for="username">COMO DEVEMOS TE CHAMAR</label>
-                    <input type="text" id="username" placeholder="Como você aparece na sala" class="input" autocomplete="nickname" />
-                </div>
-
-                <div>
-                    <label class="field-label" for="roomId">Código da sala</label>
-                    <input type="text" id="roomId" placeholder="ex: 4f8a2c1e" class="input" />
-                    <p class="field-hint">Vazio cria uma sala nova com código aleatório.</p>
-                </div>
-
-                <button type="button" id="joinBtn" class="btn btn-primary btn-lg">
-                    Entrar na sala
-                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 8l4 4m0 0l-4 4m4-4H3"/>
-                    </svg>
-                </button>
-            </form>
+  <div id="app-screen" class="hidden">
+    <div class="workspace" id="workspace">
+      <section class="stage" aria-label="Telas e câmeras compartilhadas">
+        <div id="screens-stage" class="screen-stage no-video">
+          <div id="screens-main" class="screens-main">
+            <div id="no-screen-message" class="empty-state">
+              <div><strong>Nenhuma tela compartilhada</strong><p>Compartilhe sua tela ou aguarde outra pessoa.</p></div>
+            </div>
+          </div>
+          <div id="screens-rail" class="screens-rail hidden" aria-label="Outras prévias"></div>
+          <button id="toggle-previews" class="strip-toggle hidden" type="button" aria-label="Ocultar prévias" aria-pressed="false" title="Ocultar prévias">
+            <svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg>
+          </button>
         </div>
+        <div class="dock" aria-label="Controles da sala">
+          <div class="toolgroup">
+            <button id="shareScreenBtn" class="btn icon-button" type="button" aria-label="Compartilhar tela" title="Compartilhar tela">
+              <svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="14" rx="2"/><path d="M8 21h8M12 18v3"/></svg>
+            </button>
+            <button id="stopSharingBtn" class="btn btn-error icon-button hidden" type="button" aria-label="Parar compartilhamento" title="Parar compartilhamento">
+              <svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="14" rx="2"/><path d="M9 8h6v6H9z"/></svg>
+            </button>
+          </div>
+          <button id="changeDesktopAudioBtn" class="btn btn-ghost icon-button hidden" type="button" aria-label="Alterar áudio da tela" title="Alterar áudio da tela">
+            <svg viewBox="0 0 24 24"><path d="M11 5 6 9H3v6h3l5 4V5ZM15 9a4 4 0 0 1 0 6"/><path d="M19 5v4m-2-2h4"/></svg>
+          </button>
+          <span class="tool-separator"></span>
+          <div class="toolgroup with-device">
+            <button id="cameraBtn" class="btn icon-button" type="button" aria-label="Ligar câmera" title="Ligar câmera">
+              <svg viewBox="0 0 24 24"><rect x="3" y="6" width="12" height="12" rx="2"/><path d="m15 10 6-3v10l-6-3"/></svg>
+            </button>
+            <button id="stopCameraBtn" class="btn btn-error icon-button hidden" type="button" aria-label="Desligar câmera" title="Desligar câmera">
+              <svg viewBox="0 0 24 24"><rect x="3" y="6" width="12" height="12" rx="2"/><path d="m15 10 6-3v10l-6-3M3 3l18 18"/></svg>
+            </button>
+            <details class="device-picker">
+              <summary aria-label="Escolher câmera" title="Escolher câmera"><svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg></summary>
+              <div class="picker-panel"><label for="cameraDevices">Câmera</label><select id="cameraDevices" class="select"><option value="">Dispositivo padrão</option></select></div>
+            </details>
+          </div>
+          <div class="toolgroup with-device">
+            <button id="micToggle" class="btn icon-button muted" type="button" aria-label="Ativar microfone" title="Ativar microfone">
+              <svg id="micIcon" viewBox="0 0 24 24"><path id="micIconPath" d="M9 5a3 3 0 0 1 6 0v6a3 3 0 0 1-6 0V5ZM5 11a7 7 0 0 0 14 0M12 18v3M8 21h8"/><line id="micSlash" x1="3" y1="3" x2="21" y2="21"/></svg>
+              <span id="micStatus" class="hidden" aria-hidden="true"></span>
+            </button>
+            <details class="device-picker">
+              <summary aria-label="Escolher microfone" title="Escolher microfone"><svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg></summary>
+              <div class="picker-panel"><label for="inputDevices">Microfone</label><select id="inputDevices" class="select"><option value="">Dispositivo padrão</option></select></div>
+            </details>
+          </div>
+          <div class="toolgroup with-device">
+            <button id="outputToggle" class="btn icon-button" type="button" aria-label="Silenciar saída de áudio" title="Silenciar saída de áudio">
+              <svg viewBox="0 0 24 24"><path d="M11 5 6 9H3v6h3l5 4V5ZM15 9a4 4 0 0 1 0 6M18 6a8 8 0 0 1 0 12"/></svg>
+            </button>
+            <details class="device-picker">
+              <summary aria-label="Escolher saída de áudio" title="Escolher saída de áudio"><svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg></summary>
+              <div class="picker-panel"><label for="outputDevices">Saída de áudio</label><select id="outputDevices" class="select"><option value="">Dispositivo padrão</option></select></div>
+            </details>
+          </div>
+        </div>
+      </section>
+      <aside id="sidebar-chat" class="sidebar" aria-label="Conversa">
+        <header class="conversation-header">
+          <span>Conversa</span>
+          <button id="copyRoomBtn" class="room-code" type="button" aria-label="Copiar código da sala" title="Copiar código da sala">
+            <span class="room-code-label">SALA</span><span id="current-room-id"></span>
+            <svg viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"/></svg>
+          </button>
+          <button id="toggleSidebarBtn" class="chat-hide" type="button" aria-label="Ocultar conversa" title="Ocultar conversa"><svg viewBox="0 0 24 24"><path d="m9 5 7 7-7 7"/></svg></button>
+        </header>
+        <div class="chat-area">
+          <div id="chat-messages" class="custom-scroll" role="log" aria-label="Mensagens" aria-live="polite"></div>
+          <form class="composer" id="chat-form">
+            <input id="message-input" class="input" autocomplete="off" placeholder="Mensagem" aria-label="Mensagem">
+            <button id="send-message-btn" class="btn btn-primary" type="submit" aria-label="Enviar mensagem">Enviar</button>
+          </form>
+        </div>
+      </aside>
+      <button id="restoreSidebarBtn" class="chat-restore" type="button" aria-label="Mostrar conversa" title="Mostrar conversa"><svg viewBox="0 0 24 24"><path d="m15 5-7 7 7 7"/></svg></button>
     </div>
-</div>
-<div id="app-screen" class="hidden">
-    <header class="topbar">
-        <div class="topbar-left">
-            <div class="brand-mini">
-                <span class="logo-mark">
-                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/>
-                    </svg>
-                </span>
-                <span class="word">Screenshare</span>
-            </div>
-            <button id="copyRoomBtn" type="button" class="room-chip" title="Copiar código da sala" aria-label="Copiar código da sala">
-                <span class="room-chip-label">sala</span>
-                <span id="current-room-id" class="room-chip-code"></span>
-                <svg class="icon-copy" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/>
-                </svg>
-                <svg class="icon-check" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
-                </svg>
-            </button>
-        </div>
+  </div>
 
-        <div class="topbar-actions">
-            <div class="dropdown">
-                <button type="button" class="btn btn-ghost">Tema</button>
-                <div class="dropdown-content" tabindex="-1">
-                    <input type="radio" name="theme-dropdown" class="theme-controller" aria-label="Night" value="night" />
-                    <input type="radio" name="theme-dropdown" class="theme-controller" aria-label="Dracula" value="dracula" />
-                    <input type="radio" name="theme-dropdown" class="theme-controller" aria-label="Garden" value="garden" />
-                    <input type="radio" name="theme-dropdown" class="theme-controller" aria-label="Coffee" value="coffee" />
-                    <input type="radio" name="theme-dropdown" class="theme-controller" aria-label="Synthwave" value="synthwave" />
-                </div>
-            </div>
+  <ul id="user-list" class="hidden" aria-hidden="true"></ul>
+  <span id="participant-count" class="hidden" aria-hidden="true">0</span>
+  <div id="participant-context" class="context-menu hidden" role="dialog" aria-label="Opções do participante"></div>
+  <div id="ui-notice" class="notice hidden" role="alert"></div>
 
-            <button id="shareScreenBtn" class="btn btn-primary">
-                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"/>
-                </svg>
-                <span class="label-md">Compartilhar</span>
-            </button>
-            <button id="stopSharingBtn" class="btn btn-error hidden">
-                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 10a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1v-4z"/>
-                </svg>
-                <span class="label-md">Parar</span>
-            </button>
-            <button id="changeDesktopAudioBtn" class="btn btn-ghost hidden" title="Alterar áudio da tela">
-                <span class="label-md">Alterar áudio</span>
-            </button>
-
-            <button id="cameraBtn" class="btn btn-ghost" aria-label="Compartilhar câmera" title="Ativar câmera">
-                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"/>
-                    <circle cx="6" cy="13" r="1"/>
-                </svg>
-                <span class="label-md">Câmera</span>
-            </button>
-            <button id="stopCameraBtn" class="btn btn-error hidden" aria-label="Parar câmera" title="Desativar câmera">
-                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"/>
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 3l18 18"/>
-                </svg>
-                <span class="label-md">Parar câmera</span>
-            </button>
-
-            <button id="micToggle" class="btn btn-ghost btn-circle indicator" aria-label="Alternar microfone">
-                <svg id="micIcon" class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path id="micIconPath" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"/>
-                    <line id="micSlash" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" x1="4" y1="4" x2="20" y2="20"/>
-                </svg>
-                <span id="micStatus" class="indicator-item badge badge-error badge-xs"></span>
-            </button>
-
-            <div class="dropdown">
-                <button type="button" id="deviceSelectBtn" class="btn btn-ghost btn-circle" aria-label="Dispositivos de áudio">
-                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/>
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
-                    </svg>
-                </button>
-                <div class="dropdown-content" id="deviceDropdown" tabindex="-1" style="min-width: 16rem;">
-                    <h3 class="device-title">Dispositivos de áudio</h3>
-                    <div style="padding: 0.25rem 0.5rem 0.5rem; display: flex; flex-direction: column; gap: 0.75rem;">
-                        <div>
-                            <label class="field-label" for="inputDevices">Microfone</label>
-                            <select id="inputDevices" class="select select-sm">
-                                <option disabled selected>Em breve...</option>
-                            </select>
-                        </div>
-                        <div>
-                            <label class="field-label" for="outputDevices">Alto-falante</label>
-                            <select id="outputDevices" class="select select-sm">
-                                <option disabled selected>Em breve...</option>
-                            </select>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <button id="toggleSidebarBtn" class="btn btn-ghost btn-circle" aria-label="Alternar painel" onclick="document.getElementById('sidebar-chat').classList.toggle('hidden')">
-                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/>
-                </svg>
-            </button>
-        </div>
-    </header>
-
-    <div class="workspace">
-        <section class="stage">
-            <div id="no-screen-message" class="empty-state animate-fade-in">
-                <div class="monitor">
-                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/>
-                    </svg>
-                </div>
-                <h3 class="empty-title">Nenhuma tela compartilhada</h3>
-                <p class="empty-sub">Clique em Compartilhar para transmitir, ou aguarde alguém da sala.</p>
-            </div>
-
-            <div id="screens-stage" class="screen-stage hidden">
-                <div id="screens-main" class="screens-main"></div>
-                <div id="screens-rail" class="screens-rail hidden"></div>
-            </div>
-        </section>
-
-        <aside id="sidebar-chat" class="sidebar">
-            <div class="panel-head">
-                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"/>
-                </svg>
-                Participantes
-                <span class="count-badge" id="participant-count">0</span>
-            </div>
-            <ul id="user-list" class="custom-scroll"></ul>
-
-            <div class="panel-head">
-                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/>
-                </svg>
-                Chat
-            </div>
-
-            <div class="chat-area">
-                <div id="chat-messages" class="custom-scroll"></div>
-                <div class="composer">
-                    <input type="text" id="message-input" placeholder="Mensagem..." class="input" />
-                    <button id="send-message-btn" class="btn btn-primary btn-square" aria-label="Enviar mensagem">
-                        <svg class="w-4 h-4" style="transform: rotate(90deg)" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"/>
-                        </svg>
-                    </button>
-                </div>
-            </div>
-        </aside>
-    </div>
-</div>
-
-<div id="quality-modal" class="hidden" role="dialog" aria-modal="true" aria-labelledby="share-wizard-title">
+  <div id="quality-modal" class="hidden" role="dialog" aria-modal="true" aria-labelledby="share-wizard-title">
     <div class="modal-backdrop"></div>
     <div class="modal-panel">
-        <p class="wizard-kicker">Compartilhamento no Windows</p>
-        <h3 id="share-wizard-title" class="modal-title">Preparar compartilhamento</h3>
-        <p class="modal-desc">O Windows escolhe o vídeo. Aqui você escolhe apenas o áudio.</p>
-
-        <div class="modal-section">
-            <span class="field-label">Resolução</span>
-            <div id="resolution-options" class="segmented">
-                <button type="button" class="btn quality-option" data-source="true">Fonte</button>
-                <button type="button" class="btn quality-option" data-width="1280" data-height="720">720p</button>
-                <button type="button" class="btn btn-primary quality-option" data-width="1920" data-height="1080">1080p</button>
-                <button type="button" class="btn quality-option" data-width="2560" data-height="1440">1440p</button>
-                <button type="button" class="btn quality-option" data-width="3840" data-height="2160">4K</button>
-            </div>
+      <p class="wizard-kicker">Compartilhamento no Windows</p>
+      <h2 id="share-wizard-title" class="modal-title">Preparar compartilhamento</h2>
+      <p class="modal-desc">O Windows escolhe o vídeo. Escolha o áudio aqui.</p>
+      <div class="modal-section">
+        <span class="field-label">Resolução</span>
+        <div id="resolution-options" class="segmented">
+          <button type="button" class="btn quality-option" data-source="true">Fonte</button>
+          <button type="button" class="btn quality-option" data-width="1280" data-height="720">720p</button>
+          <button type="button" class="btn btn-primary quality-option" data-width="1920" data-height="1080">1080p</button>
+          <button type="button" class="btn quality-option" data-width="2560" data-height="1440">1440p</button>
+          <button type="button" class="btn quality-option" data-width="3840" data-height="2160">4K</button>
         </div>
-
-        <div class="modal-section">
-            <span class="field-label">Framerate</span>
-            <div id="framerate-options" class="segmented">
-                <button type="button" class="btn btn-primary quality-option" data-fps="30">30 fps</button>
-                <button type="button" class="btn quality-option" data-fps="60">60 fps</button>
-            </div>
+      </div>
+      <div class="modal-section">
+        <span class="field-label">Quadros por segundo</span>
+        <div id="framerate-options" class="segmented">
+          <button type="button" class="btn btn-primary quality-option" data-fps="30">30 fps</button>
+          <button type="button" class="btn quality-option" data-fps="60">60 fps</button>
         </div>
-
-        <div class="modal-section" id="desktop-wizard-step-one">
-            <span class="field-label">Etapa 1 de 2 · Escolha o áudio</span>
-            <div class="audio-mode-grid">
-                <button type="button" id="desktop-audio-mode-none" class="audio-mode-card"><strong>Sem áudio</strong><span>Compartilhe somente o vídeo escolhido pelo Windows.</span></button>
-                <button type="button" id="desktop-audio-mode-system" class="audio-mode-card"><strong>Áudio de todo o computador</strong><span>Inclui o som reproduzido no computador durante o compartilhamento.</span></button>
-                <button type="button" id="desktop-audio-mode-process" class="audio-mode-card"><strong>Áudio de um aplicativo</strong><span>Escolha um aplicativo local para enviar apenas o áudio dele.</span></button>
-            </div>
+      </div>
+      <div class="modal-section" id="desktop-wizard-step-one">
+        <span class="field-label">Áudio</span>
+        <div class="audio-mode-grid">
+          <button type="button" id="desktop-audio-mode-none" class="audio-mode-card selected"><strong>Sem áudio</strong><span>Compartilhar somente o vídeo.</span></button>
+          <button type="button" id="desktop-audio-mode-system" class="audio-mode-card"><strong>Áudio do computador</strong><span>Enviar o som reproduzido no computador.</span></button>
+          <button type="button" id="desktop-audio-mode-process" class="audio-mode-card"><strong>Áudio de um aplicativo</strong><span>Escolher um aplicativo local.</span></button>
         </div>
-        <div class="modal-section hidden" id="desktop-wizard-step-two">
-            <div class="audio-source-toolbar">
-                <span class="field-label">Etapa 2 de 2 · Escolha o aplicativo</span>
-                <button type="button" id="desktop-audio-refresh" class="btn btn-ghost">Atualizar</button>
-            </div>
-            <p class="modal-desc">Esta escolha controla o áudio. Ela não seleciona o vídeo.</p>
-            <p class="wizard-note">Agora o Windows vai pedir a tela ou janela para vídeo. Escolha o mesmo aplicativo para combinar vídeo e áudio.</p>
-            <div id="desktop-audio-source-grid" class="audio-source-grid" aria-live="polite"></div>
-            <p id="desktop-audio-picker-state" class="wizard-note" aria-live="polite"></p>
-            <div id="desktop-audio-thumbnail" class="hidden" style="max-height: 11rem; overflow: hidden; border-radius: 6px; border: 1px solid var(--hairline); background: #000;"></div>
-            <button type="button" id="desktop-back-to-audio-modes" class="btn btn-ghost">Trocar modo de áudio</button>
+      </div>
+      <div class="modal-section hidden" id="desktop-wizard-step-two">
+        <div class="audio-source-toolbar">
+          <span class="field-label">Áudio de aplicativo</span>
+          <button id="desktop-audio-refresh" type="button" class="btn btn-ghost">Atualizar</button>
         </div>
-
-        <div class="modal-actions">
-            <button type="button" id="cancel-share" class="btn btn-ghost">Cancelar</button>
-            <button type="button" id="confirm-share" class="btn btn-primary">Continuar para o Windows</button>
-        </div>
+        <p class="modal-desc">O Windows escolherá a tela ou janela para o vídeo. Aqui você escolhe apenas o áudio.</p>
+        <div id="desktop-audio-source-grid" class="audio-source-grid" aria-live="polite"></div>
+        <p id="desktop-audio-picker-state" class="wizard-note" aria-live="polite"></p>
+        <div id="desktop-audio-thumbnail" class="hidden"></div>
+        <button id="desktop-back-to-audio-modes" type="button" class="btn btn-ghost">Trocar modo de áudio</button>
+      </div>
+      <div class="modal-actions">
+        <button id="cancel-share" type="button" class="btn btn-ghost">Cancelar</button>
+        <button id="confirm-share" type="button" class="btn btn-primary">Continuar para o Windows</button>
+      </div>
     </div>
-</div>
-
-<script>
-    const roomIdInput = document.getElementById('roomId');
-    const urlParams = new URLSearchParams(window.location.search);
-    const roomId = urlParams.get('roomId');
-    if (roomId) roomIdInput.value = roomId;
-
-    const copyRoomBtn = document.getElementById('copyRoomBtn');
-    copyRoomBtn.addEventListener('click', async () => {
-        const code = document.getElementById('current-room-id').textContent.trim();
-        if (!code) return;
-        try {
-            await navigator.clipboard.writeText(code);
-            copyRoomBtn.classList.add('copied');
-            setTimeout(() => copyRoomBtn.classList.remove('copied'), 1400);
-        } catch (err) {}
-    });
-
-    document.getElementById('message-input')?.addEventListener('keypress', (e) => {
-        if (e.key === 'Enter') document.getElementById('send-message-btn')?.click();
-    });
-    document.getElementById('username')?.addEventListener('keypress', (e) => {
-        if (e.key === 'Enter') document.getElementById('roomId')?.focus();
-    });
-    document.getElementById('roomId')?.addEventListener('keypress', (e) => {
-        if (e.key === 'Enter') document.getElementById('joinBtn')?.click();
-    });
-
-    document.addEventListener('keydown', (e) => {
-        if (e.key === 'Escape') document.getElementById('quality-modal')?.classList.add('hidden');
-    });
-</script>
-<script src="desktopBridge.js"></script>
-<script src="clientApp.js"></script>
+  </div>
+  <script src="desktopBridge.js"></script>
+  <script src="ui.js"></script>
+  <script src="clientApp.js"></script>
 </body>
 </html>

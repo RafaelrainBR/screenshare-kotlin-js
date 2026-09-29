@@ -42,7 +42,7 @@ fun main() {
                         ),
                         localUsername = session?.localUsername.orEmpty(),
                     )
-                    window.alert("Conexão encerrada! Recarregue a página.")
+                    InterfaceMutations.showError("Conexão encerrada. Recarregue a página.")
                 },
             )
         }
@@ -98,12 +98,15 @@ fun main() {
         onOutputDeviceChange = { deviceId ->
             getSessionOrAlert().handleSpeakerOutputDeviceChange(deviceId)
         },
+        onCameraDeviceChange = { deviceId ->
+            getSessionOrAlert().handleCameraDeviceChange(deviceId)
+        },
     )
 }
 
 fun getSessionOrAlert(): Session {
     if (session == null) {
-        window.alert("Você precisa entrar em uma sala primeiro!")
+        InterfaceMutations.showError("Entre em uma sala primeiro.")
         throw IllegalStateException("Session is null")
     }
     return session!!

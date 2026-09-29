@@ -4,6 +4,7 @@ import createSafeElement
 import getUsernameInitials
 import kotlinx.browser.document
 import org.w3c.dom.HTMLAudioElement
+import org.w3c.dom.HTMLButtonElement
 import org.w3c.dom.HTMLElement
 import org.w3c.dom.HTMLInputElement
 import org.w3c.dom.HTMLSpanElement
@@ -13,10 +14,20 @@ import ui.Elements
 
 object UserListMutations {
     val userVolumes: MutableMap<String, Int> = mutableMapOf()
+    private var currentUsers: List<SocketUser> = emptyList()
+    private var currentLocalName = ""
+    private val speakingUsers = mutableSetOf<String>()
+    private val mutedUsers = mutableMapOf<String, Boolean>()
+
     fun updateUserList(
         users: List<SocketUser>,
         localUserName: String,
     ) {
+        currentUsers = users
+        currentLocalName = localUserName
+        users.forEach { user ->
+            mutedUsers[if (user.username == localUserName) "self" else user.socketId] = user.isMuted
+        }
         Elements.userList.innerHTML = ""
 
         users.forEach { user ->
@@ -26,12 +37,63 @@ object UserListMutations {
         }
 
         Elements.userCount.textContent = users.size.toString()
+        syncAvatarTiles()
+    }
+
+    fun syncAvatarTiles() {
+        val rail = Elements.screensRail
+        val previous = rail.querySelectorAll(".participant-tile")
+        for (index in previous.length - 1 downTo 0) previous.item(index)?.parentElement?.removeChild(previous.item(index)!!)
+
+        currentUsers.forEach { user ->
+            val owner = if (user.username == currentLocalName) "self" else user.socketId
+            if (hasVideo(owner)) return@forEach
+            val button = document.createSafeElement("button") as HTMLButtonElement
+            button.type = "button"
+            button.className = "participant-tile"
+            button.setAttribute("data-owner-id", owner)
+            button.setAttribute("data-username", user.username)
+            button.title = user.username
+            val muted = mutedUsers[owner] ?: user.isMuted
+            val state = when {
+                muted -> "mudo"
+                owner in speakingUsers -> "falando"
+                else -> "áudio ativo"
+            }
+            button.setAttribute("aria-label", "${user.username}, $state, abrir opções")
+
+            val avatar = document.createSafeElement("span") as HTMLElement
+            avatar.className = "avatar-circle"
+            if (owner in speakingUsers) avatar.classList.add("speaking")
+            avatar.textContent = user.username.getUsernameInitials()
+            if (muted) {
+                val mute = document.createSafeElement("span") as HTMLElement
+                mute.className = "mute-overlay"
+                mute.setAttribute("aria-hidden", "true")
+                mute.innerHTML = "<svg viewBox='0 0 24 24'><path d='M3 3l18 18M9 5v6a3 3 0 0 0 5 2M5 11a7 7 0 0 0 12 5M12 18v3M8 21h8'/></svg>"
+                avatar.appendChild(mute)
+            }
+            button.appendChild(avatar)
+            rail.appendChild(button)
+        }
+        rail.classList.toggle("hidden", rail.childElementCount == 0)
+        document.getElementById("toggle-previews")?.classList?.toggle("hidden", rail.childElementCount == 0)
+    }
+
+    private fun hasVideo(owner: String): Boolean {
+        // ponytail: scan is fine for room-sized groups; index by owner if rooms become large.
+        val tiles = document.getElementsByClassName("screen-tile")
+        for (index in 0 until tiles.length) {
+            if ((tiles.item(index) as? HTMLElement)?.getAttribute("data-owner-id") == owner) return true
+        }
+        return false
     }
 
     fun updateUserMuted(
         socketId: String,
         isMicMuted: Boolean,
     ) {
+        mutedUsers[socketId] = isMicMuted
         val element = document.getElementById("micIcon-user-$socketId")
         if (element != null) {
             if (isMicMuted) {
@@ -44,12 +106,27 @@ object UserListMutations {
                 element.classList.add("hidden")
             }
         }
+        syncAvatarTiles()
     }
 
     fun setUserSpeaking(
         socketId: String,
         isSpeaking: Boolean,
     ) {
+        if (isSpeaking) speakingUsers.add(socketId) else speakingUsers.remove(socketId)
+        val rail = Elements.screensRail
+        val avatars = rail.getElementsByClassName("participant-tile")
+        for (index in 0 until avatars.length) {
+            val tile = avatars.item(index) as? HTMLElement ?: continue
+            if (tile.getAttribute("data-owner-id") == socketId) {
+                tile.querySelector(".avatar-circle")?.classList?.toggle("speaking", isSpeaking)
+            }
+        }
+        val videos = document.getElementsByClassName("screen-tile")
+        for (index in 0 until videos.length) {
+            val tile = videos.item(index) as? HTMLElement ?: continue
+            if (tile.getAttribute("data-owner-id") == socketId) tile.classList.toggle("speaking", isSpeaking)
+        }
         val avatarCircle = document.querySelector("article#user-list-$socketId .avatar-circle") as? HTMLElement
         if (avatarCircle != null) {
             if (isSpeaking) {

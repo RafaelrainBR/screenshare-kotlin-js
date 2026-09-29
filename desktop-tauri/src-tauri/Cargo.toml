@@ -1,6 +1,6 @@
 [package]
 name = "screenshare-desktop"
-version = "0.1.0"
+version = "0.5.0"
 description = "Windows desktop shell for the canonical Screenshare Kotlin/JS client"
 authors = ["Screenshare contributors"]
 edition = "2021"

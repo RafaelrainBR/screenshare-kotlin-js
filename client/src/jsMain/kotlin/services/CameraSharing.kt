@@ -17,11 +17,16 @@ class CameraSharing(
     suspend fun setupLocalCameraStream(
         recreatePeerConnections: () -> Unit,
         onStreamEnd: () -> Unit,
+        deviceId: String? = null,
     ) {
-        localCameraStream =
+        val previousStream = localCameraStream
+        val nextStream =
             window.navigator.mediaDevices
-                .getUserMedia(buildMediaStreamConstraints())
+                .getUserMedia(buildMediaStreamConstraints(deviceId))
                 .await()
+        previousStream?.getVideoTracks()?.forEach { it.onended = null }
+        previousStream?.getTracks()?.forEach { it.stop() }
+        localCameraStream = nextStream
         val videoTrack = localCameraStream?.getVideoTracks()?.firstOrNull()
         if (videoTrack != null) {
             videoTrack.onended = {
@@ -73,7 +78,7 @@ class CameraSharing(
         InterfaceMutations.updateCameraControls(isLocalCameraOn = false)
     }
 
-    private fun buildMediaStreamConstraints(): MediaStreamConstraints {
+    private fun buildMediaStreamConstraints(deviceId: String?): MediaStreamConstraints {
         // IMPORTANTE: kotlin.js.json (objeto JS plano), não um Map do Kotlin —
         // o browser lê width/height/frameRate como propriedades próprias do objeto.
         val video: dynamic =
@@ -83,6 +88,7 @@ class CameraSharing(
                 "frameRate" to json("ideal" to 30, "max" to 30),
                 "resizeMode" to "crop-and-scale",
             )
+        if (!deviceId.isNullOrBlank()) video["deviceId"] = json("exact" to deviceId)
         return MediaStreamConstraints(video = video)
     }
 
