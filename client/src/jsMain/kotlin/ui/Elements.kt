@@ -30,6 +30,8 @@ object Elements {
     val stopCameraButton = getElement<HTMLButtonElement>("stopCameraBtn")
     val inputDevices = getElement<HTMLSelectElement>("inputDevices")
     val outputDevices = getElement<HTMLSelectElement>("outputDevices")
+    val cameraDevices = getElement<HTMLSelectElement>("cameraDevices")
+    val outputToggle = getElement<HTMLButtonElement>("outputToggle")
     val qualityModal = getElement<HTMLElement>("quality-modal")
     val confirmShare = getElement<HTMLButtonElement>("confirm-share")
     val cancelShare = getElement<HTMLButtonElement>("cancel-share")

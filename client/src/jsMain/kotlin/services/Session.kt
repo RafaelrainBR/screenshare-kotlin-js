@@ -20,6 +20,7 @@ class Session(
     // result is therefore unable to publish a share after stop, room exit, or
     // a newer replacement request.
     private var screenShareGeneration = 0
+    private var selectedCameraDeviceId: String? = null
     val voiceChat = VoiceChat()
     val screenSharing =
         ScreenSharing(
@@ -86,7 +87,7 @@ class Session(
                     )
                 }.onFailure {
                     console.warn("Não foi possível acessar o microfone")
-                    window.alert("Permissao de mic necessária")
+                    InterfaceMutations.showError("Permissão de microfone necessária.")
                     return@launch
                 }
             }
@@ -155,11 +156,13 @@ class Session(
                     onStreamEnd = {
                         handleStopCameraShare()
                     },
+                    deviceId = selectedCameraDeviceId,
                 )
                 websocketService.startCameraShare(localRoomId)
+                runCatching { InterfaceMutations.populateAudioDevices() }
             }.onFailure {
                 console.warn("Não foi possível acessar a câmera")
-                window.alert("Permissao de câmera necessária")
+                InterfaceMutations.showError("Permissão de câmera necessária.")
             }
         }
 
@@ -169,14 +172,38 @@ class Session(
             websocketService.stopCameraShare(localRoomId)
         }
 
+    fun handleCameraDeviceChange(deviceId: String) = launch {
+        val previous = selectedCameraDeviceId
+        selectedCameraDeviceId = deviceId.takeIf { it.isNotBlank() }
+        if (cameraSharing.localCameraStream == null) return@launch
+        runCatching {
+            cameraSharing.setupLocalCameraStream(
+                recreatePeerConnections = { recreatePeerConnections() },
+                onStreamEnd = { handleStopCameraShare() },
+                deviceId = selectedCameraDeviceId,
+            )
+            InterfaceMutations.populateAudioDevices()
+        }.onFailure {
+            selectedCameraDeviceId = previous
+            InterfaceMutations.restoreCameraDevice(previous)
+            InterfaceMutations.showError("Não foi possível trocar a câmera. Escolha outro dispositivo.")
+        }
+    }
+
     fun handleMicInputDeviceChange(deviceId: String) =
         launch {
-            if (deviceId.isBlank()) return@launch
+            val requested = deviceId.takeIf { it.isNotBlank() }
+            val previous = voiceChat.selectedInputDeviceId
+            if (voiceChat.localMicStream == null) {
+                voiceChat.selectedInputDeviceId = requested
+                return@launch
+            }
 
             runCatching {
+                if (requested == null) voiceChat.selectedInputDeviceId = null
                 voiceChat.setupLocalMic(
                     recreatePeerConnections = { recreatePeerConnections() },
-                    deviceId = deviceId,
+                    deviceId = requested,
                     onMicTrackReplaced = { oldTrackId, newTrack ->
                         if (newTrack != null) {
                             peerConnections.replaceMicTrack(oldTrackId, newTrack)
@@ -187,8 +214,10 @@ class Session(
                     voiceChat.localMicStream?.getTracks()?.forEach { track -> track.enabled = false }
                 }
             }.onFailure {
+                voiceChat.selectedInputDeviceId = previous
+                InterfaceMutations.restoreInputDevice(previous)
                 console.warn("Não foi possível trocar o microfone")
-                window.alert("Erro ao trocar o microfone")
+                InterfaceMutations.showError("Não foi possível trocar o microfone. Escolha outro dispositivo.")
             }
         }
 

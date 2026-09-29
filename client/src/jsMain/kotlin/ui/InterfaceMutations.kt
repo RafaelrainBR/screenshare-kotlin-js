@@ -11,7 +11,6 @@ import org.w3c.dom.HTMLElement
 import org.w3c.dom.HTMLInputElement
 import org.w3c.dom.HTMLOptionElement
 import org.w3c.dom.HTMLParagraphElement
-import org.w3c.dom.HTMLSpanElement
 import org.w3c.dom.HTMLVideoElement
 import org.w3c.dom.mediacapture.MediaStream
 import org.w3c.dom.url.URL
@@ -23,8 +22,17 @@ import platform.DesktopCaptureBridge
 object InterfaceMutations {
     var selectedOutputDeviceId: String? = null
     private var focusedTileId: String? = null
+    private var outputMuted = false
+    private var noticeTimeout: Int? = null
     val screenVolumes: MutableMap<String, Int> = mutableMapOf()
     private val screenLastAudibleVolumes: MutableMap<String, Int> = mutableMapOf()
+    fun showError(message: String) {
+        val notice = document.getElementById("ui-notice") as HTMLElement
+        noticeTimeout?.let { window.clearTimeout(it) }
+        notice.textContent = message
+        notice.classList.remove("hidden")
+        noticeTimeout = window.setTimeout({ notice.classList.add("hidden") }, 6_000)
+    }
     fun navigateToRoomScreen(
         roomId: String,
         username: String,
@@ -68,11 +76,11 @@ object InterfaceMutations {
 
         val headerDiv = document.createElement("div") as HTMLDivElement
         headerDiv.className = "chat-header"
-        headerDiv.innerHTML =
-            """
-            ${if (isCurrentUser) "Você" else message.username}
-            <time class="text-xs opacity-50 ml-2">$formattedDate</time>
-            """.trimIndent()
+        headerDiv.textContent = if (isCurrentUser) "Você" else message.username
+        val time = document.createElement("time") as HTMLElement
+        time.className = "text-xs opacity-50 ml-2"
+        time.textContent = formattedDate
+        headerDiv.appendChild(time)
         wrapper.appendChild(headerDiv)
 
         val bubbleDiv = document.createElement("div") as HTMLDivElement
@@ -102,8 +110,9 @@ object InterfaceMutations {
             if (video != null && video.srcObject.asDynamic().id != stream.id) {
                 video.srcObject = stream
             }
-            val name = document.getElementById("screen-name-$tileId") as? HTMLSpanElement
-            name?.textContent = username
+            existingTile.setAttribute("data-username", username)
+            existingTile.setAttribute("aria-label", "Tela de $username")
+            (existingTile as? HTMLElement)?.title = "Tela de $username"
         } else {
             val tile = createScreenTile(tileId, stream, username, isLocal)
             Elements.screensMain.appendChild(tile)
@@ -121,32 +130,22 @@ object InterfaceMutations {
         tile.id = "screen-tile-$tileId"
         tile.className = "screen-tile"
         tile.setAttribute("data-tile-id", tileId)
+        tile.setAttribute("data-owner-id", if (isLocal) "self" else tileId)
+        tile.setAttribute("data-username", username)
+        tile.setAttribute("data-local", isLocal.toString())
+        tile.setAttribute("aria-label", "Tela de $username")
+        tile.title = "Tela de $username"
+        tile.tabIndex = 0
 
         val video = document.createElement("video") as HTMLVideoElement
         video.id = "screen-tile-video-$tileId"
         video.autoplay = true
-        video.muted = isLocal
+        video.muted = isLocal || outputMuted
         video.setAttribute("playsinline", "")
         video.srcObject = stream
         video.addEventListener("pause", { video.play() })
         video.addEventListener("click", { e -> e.preventDefault() })
         tile.appendChild(video)
-
-        val top = document.createElement("div") as HTMLElement
-        top.className = "screen-tile-top"
-
-        val badge = document.createElement("span") as HTMLSpanElement
-        badge.className = "screen-tile-badge"
-        badge.textContent = "LIVE"
-
-        val name = document.createElement("span") as HTMLSpanElement
-        name.id = "screen-name-$tileId"
-        name.className = "screen-tile-name"
-        name.textContent = username
-
-        top.appendChild(badge)
-        top.appendChild(name)
-        tile.appendChild(top)
 
         val controls = document.createElement("div") as HTMLElement
         controls.className = "screen-tile-controls"
@@ -248,6 +247,12 @@ object InterfaceMutations {
         tile.addEventListener("click", {
             setFocusedTile(tileId)
         })
+        tile.addEventListener("keydown", { event ->
+            if (event.asDynamic().key == "Enter" || event.asDynamic().key == " ") {
+                event.preventDefault()
+                setFocusedTile(tileId)
+            }
+        })
 
         return tile
     }
@@ -268,23 +273,35 @@ object InterfaceMutations {
         reflowScreens()
     }
 
+    private fun findTile(tileId: String): HTMLElement? {
+        val tiles = Elements.screensStage.querySelectorAll(".screen-tile")
+        for (index in 0 until tiles.length) {
+            val tile = tiles.item(index) as? HTMLElement ?: continue
+            if (tile.getAttribute("data-tile-id") == tileId) return tile
+        }
+        return null
+    }
+
     fun reflowScreens() {
         val tiles = Elements.screensStage.querySelectorAll(".screen-tile")
         val tileCount = tiles.length
 
         if (tileCount == 0) {
             focusedTileId = null
-            Elements.screensStage.classList.add("hidden")
+            Elements.screensStage.classList.remove("focus-mode", "hidden")
+            Elements.screensStage.classList.add("no-video")
             Elements.noScreenMessage.classList.remove("hidden")
+            UserListMutations.syncAvatarTiles()
             return
         }
 
         Elements.screensStage.classList.remove("hidden")
+        Elements.screensStage.classList.remove("no-video")
         Elements.noScreenMessage.classList.add("hidden")
 
-        val focusId = focusedTileId?.takeIf { id -> document.getElementById("screen-tile-$id") != null }
+        val focusedTile = focusedTileId?.let(::findTile)
 
-        if (focusId == null) {
+        if (focusedTile == null) {
             Elements.screensStage.classList.remove("focus-mode")
             Elements.screensRail.classList.add("hidden")
             for (i in 0 until tiles.length) {
@@ -294,12 +311,12 @@ object InterfaceMutations {
                     Elements.screensMain.appendChild(tile)
                 }
             }
+            UserListMutations.syncAvatarTiles()
             return
         }
 
         Elements.screensStage.classList.add("focus-mode")
 
-        val focusedTile = document.getElementById("screen-tile-$focusId") as HTMLElement
         for (i in 0 until tiles.length) {
             val tile = tiles.item(i) as HTMLElement
             if (tile != focusedTile) {
@@ -315,6 +332,7 @@ object InterfaceMutations {
             }
         }
 
+        UserListMutations.syncAvatarTiles()
         if (Elements.screensRail.childElementCount > 0) {
             Elements.screensRail.classList.remove("hidden")
         } else {
@@ -362,8 +380,9 @@ object InterfaceMutations {
             if (video != null && video.srcObject.asDynamic().id != stream.id) {
                 video.srcObject = stream
             }
-            val name = document.getElementById("camera-name-$tileId") as? HTMLSpanElement
-            name?.textContent = username
+            existingTile.setAttribute("data-username", username)
+            existingTile.setAttribute("aria-label", "Câmera de $username")
+            (existingTile as? HTMLElement)?.title = "Câmera de $username"
         } else {
             val tile = createCameraTile(tileId, stream, username, isLocal)
             Elements.screensMain.appendChild(tile)
@@ -381,32 +400,22 @@ object InterfaceMutations {
         tile.id = "camera-tile-$tileId"
         tile.className = "screen-tile camera-tile"
         tile.setAttribute("data-tile-id", tileId)
+        tile.setAttribute("data-owner-id", if (isLocal) "self" else tileId.removePrefix("camera-"))
+        tile.setAttribute("data-username", username)
+        tile.setAttribute("data-local", isLocal.toString())
+        tile.setAttribute("aria-label", "Câmera de $username")
+        tile.title = "Câmera de $username"
+        tile.tabIndex = 0
 
         val video = document.createElement("video") as HTMLVideoElement
         video.id = "camera-tile-video-$tileId"
         video.autoplay = true
-        video.muted = isLocal
+        video.muted = isLocal || outputMuted
         video.setAttribute("playsinline", "")
         video.srcObject = stream
         video.addEventListener("pause", { video.play() })
         video.addEventListener("click", { e -> e.preventDefault() })
         tile.appendChild(video)
-
-        val top = document.createElement("div") as HTMLElement
-        top.className = "screen-tile-top"
-
-        val badge = document.createElement("span") as HTMLSpanElement
-        badge.className = "screen-tile-badge camera-badge"
-        badge.textContent = "CAM"
-
-        val name = document.createElement("span") as HTMLSpanElement
-        name.id = "camera-name-$tileId"
-        name.className = "screen-tile-name"
-        name.textContent = username
-
-        top.appendChild(badge)
-        top.appendChild(name)
-        tile.appendChild(top)
 
         val controls = document.createElement("div") as HTMLElement
         controls.className = "screen-tile-controls"
@@ -437,6 +446,12 @@ object InterfaceMutations {
         tile.addEventListener("click", {
             setFocusedTile(tileId)
         })
+        tile.addEventListener("keydown", { event ->
+            if (event.asDynamic().key == "Enter" || event.asDynamic().key == " ") {
+                event.preventDefault()
+                setFocusedTile(tileId)
+            }
+        })
 
         return tile
     }
@@ -459,6 +474,7 @@ object InterfaceMutations {
                 id = "remote-audio-$userId"
                 srcObject = stream
                 autoplay = true
+                muted = outputMuted
                 volume = UserListMutations.userVolumes[userId]?.div(100.0) ?: 1.0
             }
         document.body?.appendChild(audioElement)
@@ -471,13 +487,19 @@ object InterfaceMutations {
     suspend fun populateAudioDevices() {
         val previousInput = Elements.inputDevices.value
         val previousOutput = Elements.outputDevices.value
+        val previousCamera = Elements.cameraDevices.value
 
         val devices = window.navigator.mediaDevices.enumerateDevices().await()
         val inputSelect = Elements.inputDevices
         val outputSelect = Elements.outputDevices
+        val cameraSelect = Elements.cameraDevices
 
         inputSelect.innerHTML = ""
         outputSelect.innerHTML = ""
+        cameraSelect.innerHTML = ""
+        inputSelect.appendChild(createDeviceOption("", "Dispositivo padrão"))
+        outputSelect.appendChild(createDeviceOption("", "Dispositivo padrão"))
+        cameraSelect.appendChild(createDeviceOption("", "Dispositivo padrão"))
 
         devices.forEach { device ->
             when (device.asDynamic().kind as String) {
@@ -493,12 +515,47 @@ object InterfaceMutations {
                     )
                 }
 
+                "videoinput" -> {
+                    cameraSelect.appendChild(
+                        createDeviceOption(device.deviceId, device.label.ifBlank { "Câmera" }),
+                    )
+                }
+
                 else -> {}
             }
         }
 
         if (devices.any { it.deviceId == previousInput }) Elements.inputDevices.value = previousInput
         if (devices.any { it.deviceId == previousOutput }) Elements.outputDevices.value = previousOutput
+        if (devices.any { it.deviceId == previousCamera }) Elements.cameraDevices.value = previousCamera
+    }
+
+    fun toggleOutputMute() {
+        outputMuted = !outputMuted
+        Elements.outputToggle.classList.toggle("muted", outputMuted)
+        val label = if (outputMuted) "Ativar saída de áudio" else "Silenciar saída de áudio"
+        Elements.outputToggle.title = label
+        Elements.outputToggle.setAttribute("aria-label", label)
+        val audioElements = document.getElementsByTagName("audio")
+        for (index in 0 until audioElements.length) {
+            (audioElements.item(index) as? HTMLAudioElement)?.let { audio ->
+                if (audio.id.startsWith("remote-audio-")) audio.muted = outputMuted
+            }
+        }
+        val videoElements = document.getElementsByClassName("screen-tile")
+        for (index in 0 until videoElements.length) {
+            val tile = videoElements.item(index) as? HTMLElement ?: continue
+            val video = tile.querySelector("video") as? HTMLVideoElement ?: continue
+            video.muted = outputMuted || tile.getAttribute("data-local") == "true"
+        }
+    }
+
+    fun restoreCameraDevice(deviceId: String?) {
+        Elements.cameraDevices.value = deviceId.orEmpty()
+    }
+
+    fun restoreInputDevice(deviceId: String?) {
+        Elements.inputDevices.value = deviceId.orEmpty()
     }
 
     fun setOutputDevice(deviceId: String) {
@@ -536,13 +593,20 @@ object InterfaceMutations {
         val micStatus = document.getElementById("micStatus")!!
 
         if (isMicMuted) {
+            Elements.micToggle.classList.add("muted")
+            Elements.micToggle.setAttribute("aria-label", "Ativar microfone")
+            Elements.micToggle.title = "Ativar microfone"
             micSlash.classList.remove("hidden")
             micStatus.classList.remove("badge-success")
             micStatus.classList.add("badge-error")
         } else {
+            Elements.micToggle.classList.remove("muted")
+            Elements.micToggle.setAttribute("aria-label", "Silenciar microfone")
+            Elements.micToggle.title = "Silenciar microfone"
             micSlash.classList.add("hidden")
             micStatus.classList.remove("badge-error")
             micStatus.classList.add("badge-success")
         }
+        UserListMutations.updateUserMuted("self", isMicMuted)
     }
 }
