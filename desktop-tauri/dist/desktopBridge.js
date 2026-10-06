@@ -273,6 +273,7 @@
     setAutoStart: (enabled) => invoke(enabled ? "plugin:autostart|enable" : "plugin:autostart|disable"),
     hideMainWindow: () => invoke("hide_main_window"),
     showMainWindow: () => invoke("show_main_window"),
+    quitApp: () => invoke("quit_app"),
     setTrayState: (kind, active, participants) => invoke("set_tray_state", { kind, active, participants })
   };
   void listen("tray-action", ({ payload }) => {
@@ -281,5 +282,8 @@
   void listen("session-media-available", ({ payload }) => {
     globalThis.__screenshareDesktopBridge.mediaAvailable = payload;
     window.dispatchEvent(new CustomEvent("screenshare:session-media-available", { detail: payload }));
+  });
+  void listen("viewer-mode", ({ payload }) => {
+    window.dispatchEvent(new CustomEvent("screenshare:viewer-mode", { detail: payload }));
   });
 })();

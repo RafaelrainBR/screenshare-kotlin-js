@@ -21,6 +21,27 @@ import platform.DesktopCaptureBridge
 import platform.mediaPermissionHelp
 
 object InterfaceMutations {
+    fun setTrayRoom(roomId: String?) {
+        document.getElementById("tray-room")?.textContent = roomId ?: "Nenhuma sala"
+        val buttons = document.querySelectorAll("[data-needs-room]")
+        for (index in 0 until buttons.length) (buttons.item(index) as? HTMLButtonElement)?.disabled = roomId == null
+        syncTrayQuality()
+    }
+
+    fun syncTrayQuality() {
+        val width = window.localStorage.getItem("screenshare.shareWidth") ?: "1920"
+        val source = window.localStorage.getItem("screenshare.sourceResolution") == "true"
+        val buttons = document.querySelectorAll("[data-quality-width]")
+        for (index in 0 until buttons.length) {
+            val button = buttons.item(index) as HTMLElement
+            button.setAttribute("aria-pressed", (!source && button.getAttribute("data-quality-width") == width).toString())
+        }
+    }
+
+    fun showGrid() {
+        focusedTileId = null
+        reflowScreens()
+    }
     var selectedOutputDeviceId: String? = null
     private var focusedTileId: String? = null
     private var outputMuted = window.localStorage.getItem("screenshare.outputMuted") == "true"
@@ -65,6 +86,7 @@ object InterfaceMutations {
         username: String,
     ) {
         Elements.joinScreen.classList.add("hidden")
+        setTrayRoom(roomId)
         Elements.appScreen.classList.remove("hidden")
 
         val actualUrl = URL(window.location.href)
@@ -330,7 +352,6 @@ object InterfaceMutations {
         val tileCount = tiles.length
 
         if (tileCount == 0) {
-            focusedTileId = null
             Elements.screensStage.classList.remove("focus-mode", "hidden")
             Elements.screensStage.classList.add("no-video")
             Elements.noScreenMessage.classList.remove("hidden")
@@ -384,6 +405,7 @@ object InterfaceMutations {
     }
 
     fun updateShareControls(isLocalSharing: Boolean) {
+        document.getElementById("tray-screen")?.textContent = if (isLocalSharing) "Tela compartilhada · Parar" else "Compartilhar tela ou janela…"
         if (isLocalSharing) {
             Elements.stopScreenShareButton.classList.remove("hidden")
             Elements.shareScreenButton.classList.add("hidden")
@@ -402,6 +424,7 @@ object InterfaceMutations {
     }
 
     fun updateCameraControls(isLocalCameraOn: Boolean) {
+        document.getElementById("tray-camera")?.textContent = if (isLocalCameraOn) "Câmera ativa · Parar" else "Câmera desligada · Ligar"
         if (isLocalCameraOn) {
             Elements.stopCameraButton.classList.remove("hidden")
             Elements.cameraButton.classList.add("hidden")
@@ -597,6 +620,7 @@ object InterfaceMutations {
         window.localStorage.setItem("screenshare.outputMuted", outputMuted.toString())
         Elements.outputToggle.classList.toggle("muted", outputMuted)
         val label = if (outputMuted) "Ativar saída de áudio" else "Silenciar saída de áudio"
+        document.getElementById("tray-output")?.textContent = label
         Elements.outputToggle.title = label
         Elements.outputToggle.setAttribute("aria-label", label)
         val audioElements = document.getElementsByTagName("audio")
@@ -616,6 +640,7 @@ object InterfaceMutations {
     fun restoreOutputState() {
         Elements.outputToggle.classList.toggle("muted", outputMuted)
         val label = if (outputMuted) "Ativar saída de áudio" else "Silenciar saída de áudio"
+        document.getElementById("tray-output")?.textContent = label
         Elements.outputToggle.title = label
         Elements.outputToggle.setAttribute("aria-label", label)
     }
@@ -659,6 +684,7 @@ object InterfaceMutations {
         }
 
     fun updateAudioControls(isMicMuted: Boolean) {
+        document.getElementById("tray-mic")?.textContent = if (isMicMuted) "Microfone desligado · Ativar" else "Microfone ativo · Silenciar"
         val micSlash = document.getElementById("micSlash")!!
         val micStatus = document.getElementById("micStatus")!!
 

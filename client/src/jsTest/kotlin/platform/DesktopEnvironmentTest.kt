@@ -7,6 +7,14 @@ import kotlin.test.assertFailsWith
 
 class DesktopEnvironmentTest {
     @Test
+    fun compactPanelAndHiddenWindowNeverRequestVideo() {
+        assertEquals(false, shouldReceiveVideo(true, "compact", false))
+        assertEquals(false, shouldReceiveVideo(true, "hidden", false))
+        assertEquals(false, shouldReceiveVideo(true, "room", true))
+        assertEquals(true, shouldReceiveVideo(true, "room", false))
+        assertEquals(true, shouldReceiveVideo(false, "compact", false))
+    }
+    @Test
     fun browserUsesCurrentPageOrigin() {
         val endpoint =
             resolveWebSocketEndpoint(

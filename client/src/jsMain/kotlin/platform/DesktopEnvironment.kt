@@ -13,6 +13,7 @@ data class WebSocketEndpoint(
 )
 
 object DesktopEnvironment {
+    var viewerMode = "room"
     private const val SERVER_URL_STORAGE_KEY = "screenshare.desktop.serverUrl"
     private const val DEFAULT_SERVER_URL = "wss://screen-share.fly.dev"
 
@@ -52,6 +53,9 @@ object DesktopEnvironment {
             return window.sessionStorage.getItem(SERVER_URL_STORAGE_KEY) ?: DEFAULT_SERVER_URL
         }
 }
+
+fun shouldReceiveVideo(isDesktop: Boolean, viewerMode: String, pageHidden: Boolean): Boolean =
+    !pageHidden && (!isDesktop || viewerMode == "room")
 
 fun resolveWebSocketEndpoint(
     locationProtocol: String,

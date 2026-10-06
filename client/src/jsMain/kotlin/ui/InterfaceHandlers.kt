@@ -164,6 +164,7 @@ private fun setupShareQualityModal(
                 selectedFps = it
                 window.localStorage.setItem("screenshare.shareFps", selectedFps.toString())
             }
+            InterfaceMutations.syncTrayQuality()
         })
     }
 }

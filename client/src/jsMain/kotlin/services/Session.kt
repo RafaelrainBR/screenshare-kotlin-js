@@ -45,6 +45,7 @@ class Session(
     val peerConnections = PeerConnections(voiceChat, screenSharing, cameraSharing)
 
     init {
+        peerConnections.setVideoReception(platform.shouldReceiveVideo(DesktopEnvironment.isAvailable, DesktopEnvironment.viewerMode, kotlinx.browser.document.asDynamic().hidden as Boolean))
         if (DesktopEnvironment.isAvailable) {
             mediaCaptureGate.setAvailable(window.asDynamic().__screenshareDesktopBridge.mediaAvailable != false)
         }
@@ -312,6 +313,7 @@ class Session(
         screenSharing.stopScreenSharing(recreatePeerConnections = {})
         cameraSharing.stopCameraSharing(recreatePeerConnections = {})
         voiceChat.stopLocalMic()
+        InterfaceMutations.updateAudioControls(isMicMuted = true)
         peerConnections.closeAll()
         launch {
             runCatching { DesktopEnvironment.setTrayState("mic", false) }

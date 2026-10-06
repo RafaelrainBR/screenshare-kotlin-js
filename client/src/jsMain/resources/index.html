@@ -109,8 +109,29 @@
     </div>
   </div>
 
-  <ul id="user-list" class="hidden" aria-hidden="true"></ul>
-  <span id="participant-count" class="hidden" aria-hidden="true">0</span>
+  <section id="tray-panel" class="tray-panel" aria-labelledby="tray-room">
+    <header class="tray-header"><div><small>Screenshare</small><h1 id="tray-room">Nenhuma sala</h1></div><span id="participant-count" class="tray-count" aria-label="Participantes">0</span></header>
+    <p id="tray-share-notice" class="tray-notice">Nenhum compartilhamento disponível</p>
+    <div class="tray-media" aria-label="Mídia enviada">
+      <button id="tray-mic" type="button" class="btn" data-tray-action="mic" data-needs-room disabled>Microfone desligado · Ativar</button>
+      <button id="tray-camera" type="button" class="btn" data-tray-action="camera" data-needs-room disabled>Câmera desligada · Ligar</button>
+      <button id="tray-screen" type="button" class="btn" data-tray-action="screen" data-needs-room disabled>Compartilhar tela ou janela…</button>
+      <button id="tray-output" type="button" class="btn btn-ghost" data-tray-action="output">Silenciar saída de áudio</button>
+    </div>
+    <div class="tray-quality" aria-label="Qualidade de compartilhamento">
+      <button type="button" class="btn" data-tray-action="quality720" data-quality-width="1280" aria-pressed="false">720p</button>
+      <button type="button" class="btn" data-tray-action="quality1080" data-quality-width="1920" aria-pressed="true">1080p</button>
+      <button type="button" class="btn" data-tray-action="quality4k" data-quality-width="3840" aria-pressed="false">4K</button>
+      <button type="button" class="btn btn-ghost" data-tray-action="quality-options" data-needs-room disabled>Mais opções</button>
+    </div>
+    <div id="user-list" class="tray-participants" role="list" aria-label="Participantes e mídias"></div>
+    <footer class="tray-footer">
+      <button type="button" class="btn btn-primary" data-tray-action="open">Abrir sala</button>
+      <button type="button" class="btn btn-ghost" data-tray-action="switch">Trocar sala</button>
+      <button type="button" class="btn btn-ghost" data-tray-action="leave" data-needs-room disabled>Sair da sala</button>
+      <button type="button" class="btn btn-ghost" data-tray-action="quit">Encerrar app</button>
+    </footer>
+  </section>
   <div id="participant-context" class="context-menu hidden" role="dialog" aria-label="Opções do participante"></div>
   <div id="ui-notice" class="notice hidden" role="alert"></div>
   <section id="permission-recovery" class="permission-recovery hidden" role="dialog" aria-modal="true" aria-labelledby="permission-title">

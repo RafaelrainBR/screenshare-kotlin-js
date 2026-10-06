@@ -12,6 +12,11 @@ import org.w3c.dom.HTMLSpanElement
 import sanitizeHTML
 import screenshare.common.SocketUser
 import ui.Elements
+import ui.InterfaceMutations
+import platform.DesktopEnvironment
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 
 object UserListMutations {
     val userVolumes: MutableMap<String, Int> = mutableMapOf()
@@ -40,7 +45,7 @@ object UserListMutations {
     fun clearUserMediaSharing() {
         screenSharers.clear()
         cameraSharers.clear()
-        syncAvatarTiles()
+        updateUserList(currentUsers, currentLocalName)
     }
 
     fun hasRemoteShares(localSocketId: String?): Boolean =
@@ -71,6 +76,8 @@ object UserListMutations {
         }
 
         Elements.userCount.textContent = users.size.toString()
+        document.getElementById("tray-share-notice")?.textContent =
+            if (screenSharers.isNotEmpty() || cameraSharers.isNotEmpty()) "Compartilhamento disponível na sala" else "Nenhum compartilhamento disponível"
         syncAvatarTiles()
     }
 
@@ -176,6 +183,7 @@ object UserListMutations {
         localUserName: String,
     ): HTMLElement {
         val article = document.createSafeElement("article") as HTMLElement
+        article.setAttribute("role", "listitem")
         article.style.apply {
             padding = "0.75rem"
             marginBottom = "0.5rem"
@@ -217,6 +225,27 @@ object UserListMutations {
 
         if (!isCurrentUser) {
             article.appendChild(createVolumeControl(user.socketId, user.username))
+            if (DesktopEnvironment.isAvailable) {
+                val views = document.createSafeElement("div") as HTMLElement
+                views.className = "tray-view-actions"
+                fun addViewButton(label: String, tileId: String) {
+                    val button = document.createSafeElement("button") as HTMLButtonElement
+                    button.type = "button"
+                    button.className = "btn btn-ghost"
+                    button.textContent = label
+                    button.addEventListener("click", {
+                        CoroutineScope(Dispatchers.Main).launch {
+                            runCatching { DesktopEnvironment.showMainWindow() }
+                                .onSuccess { InterfaceMutations.focusOnTile(tileId) }
+                                .onFailure { InterfaceMutations.showError("Não foi possível abrir a sala.") }
+                        }
+                    })
+                    views.appendChild(button)
+                }
+                if (user.socketId in screenSharers) addViewButton("Visualizar tela", user.socketId)
+                if (user.socketId in cameraSharers) addViewButton("Visualizar câmera", services.CameraSharing.cameraTileId(user.socketId))
+                article.appendChild(views)
+            }
         }
 
         article.id = "user-list-${if (isCurrentUser) "self" else user.socketId}"

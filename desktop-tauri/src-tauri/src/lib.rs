@@ -9,7 +9,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 #[cfg(target_os = "windows")]
 use std::sync::Arc;
-use tauri::{menu::{Menu, MenuItem}, tray::{TrayIcon, TrayIconBuilder}, Emitter, Manager, State};
+use tauri::{menu::{Menu, MenuItem}, tray::{MouseButton, MouseButtonState, TrayIcon, TrayIconBuilder, TrayIconEvent}, Emitter, Manager, State};
 #[cfg(target_os = "windows")]
 use tauri::ipc::Channel;
 
@@ -186,17 +186,37 @@ fn capture_thumbnail(hwnd: u64) -> Result<Option<Thumbnail>, String> {
 
 #[tauri::command]
 fn hide_main_window(window: tauri::WebviewWindow) -> Result<(), String> {
-    window.hide().map_err(|_| "window-hide-failed".to_string())
+    window.hide().and_then(|_| window.emit("viewer-mode", "hidden")).map_err(|_| "window-hide-failed".to_string())
 }
 
 #[tauri::command]
 fn show_main_window(window: tauri::WebviewWindow) -> Result<(), String> {
-    window.show().and_then(|_| window.set_focus()).map_err(|_| "window-show-failed".to_string())
+    present_window(&window, false)
+}
+
+fn present_window(window: &tauri::WebviewWindow, compact: bool) -> Result<(), String> {
+    let (width, height, min_width, min_height) = if compact { (400.0, 560.0, 360.0, 320.0) } else { (1280.0, 800.0, 960.0, 640.0) };
+    window.emit("viewer-mode", if compact { "compact" } else { "room" })
+        .and_then(|_| window.set_min_size(Some(tauri::LogicalSize::new(min_width, min_height))))
+        .and_then(|_| window.set_size(tauri::LogicalSize::new(width, height)))
+        .and_then(|_| window.show())
+        .and_then(|_| window.set_focus())
+        .map_err(|_| "window-show-failed".to_string())
+}
+
+#[tauri::command]
+fn quit_app(app: tauri::AppHandle) {
+    app.exit(0);
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let builder = tauri::Builder::default();
+    let builder = tauri::Builder::default()
+        .plugin(tauri_plugin_single_instance::init(|app, _, _| {
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = present_window(&window, false);
+            }
+        }));
     #[cfg(target_os = "windows")]
     let builder = builder
         .manage(CaptureState {
@@ -210,10 +230,11 @@ pub fn run() {
             capture_thumbnail,
             hide_main_window,
             show_main_window,
+            quit_app,
             set_tray_state
         ]);
     #[cfg(not(target_os = "windows"))]
-    let builder = builder.invoke_handler(tauri::generate_handler![hide_main_window, show_main_window, set_tray_state]);
+    let builder = builder.invoke_handler(tauri::generate_handler![hide_main_window, show_main_window, quit_app, set_tray_state]);
     builder
         .setup(|app| {
             #[cfg(target_os = "macos")]
@@ -235,14 +256,23 @@ pub fn run() {
             let tray = TrayIconBuilder::new()
                 .icon(icon)
                 .menu(&menu)
+                .show_menu_on_left_click(false)
+                .on_tray_icon_event(|tray, event| {
+                    if matches!(event, TrayIconEvent::Click { button: MouseButton::Left, button_state: MouseButtonState::Up, .. }) {
+                        if let Some(window) = tray.app_handle().get_webview_window("main") {
+                            let _ = present_window(&window, true);
+                        }
+                    }
+                })
                 .on_menu_event(|app, event| {
                     let action = event.id().as_ref();
                     if action == "quit" {
                         app.exit(0);
                     } else if let Some(window) = app.get_webview_window("main") {
-                        if action == "open" || action == "screen" || action == "camera" || action == "switch" {
-                            let _ = window.show();
-                            let _ = window.set_focus();
+                        if action == "open" || action == "switch" {
+                            let _ = present_window(&window, false);
+                        } else if action == "screen" || action == "camera" {
+                            let _ = present_window(&window, true);
                         }
                         let _ = app.emit("tray-action", action);
                     }
@@ -266,6 +296,7 @@ pub fn run() {
                     if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                         api.prevent_close();
                         let _ = window_to_hide.hide();
+                        let _ = window_to_hide.emit("viewer-mode", "hidden");
                     }
                 });
             }
