@@ -22,6 +22,7 @@
         <label for="roomId">Código da sala</label>
         <input class="input" id="roomId" placeholder="ex: 4f8a2c1e">
         <span class="field-hint">Código opcional ao criar uma sala.</span>
+        <label class="startup-option"><input id="start-at-login" type="checkbox"> Iniciar com o sistema e voltar a esta sala</label>
         <button type="submit" id="joinBtn" class="btn btn-primary btn-lg">Entrar na sala</button>
       </form>
     </div>
@@ -112,13 +113,21 @@
   <span id="participant-count" class="hidden" aria-hidden="true">0</span>
   <div id="participant-context" class="context-menu hidden" role="dialog" aria-label="Opções do participante"></div>
   <div id="ui-notice" class="notice hidden" role="alert"></div>
+  <section id="permission-recovery" class="permission-recovery hidden" role="dialog" aria-modal="true" aria-labelledby="permission-title">
+    <h2 id="permission-title">Permissão necessária</h2>
+    <p id="permission-help"></p>
+    <div class="modal-actions">
+      <button id="retry-media" type="button" class="btn btn-primary">Tentar novamente</button>
+      <button id="close-permission-help" type="button" class="btn btn-ghost">Depois</button>
+    </div>
+  </section>
 
   <div id="quality-modal" class="hidden" role="dialog" aria-modal="true" aria-labelledby="share-wizard-title">
     <div class="modal-backdrop"></div>
     <div class="modal-panel">
-      <p class="wizard-kicker">Compartilhamento no Windows</p>
+      <p class="wizard-kicker">Compartilhamento de tela</p>
       <h2 id="share-wizard-title" class="modal-title">Preparar compartilhamento</h2>
-      <p class="modal-desc">O Windows escolhe o vídeo. Escolha o áudio aqui.</p>
+      <p class="modal-desc">Escolha a qualidade. Na próxima etapa, selecione a tela ou janela.</p>
       <div class="modal-section">
         <span class="field-label">Resolução</span>
         <div id="resolution-options" class="segmented">
@@ -136,28 +145,17 @@
           <button type="button" class="btn quality-option" data-fps="60">60 fps</button>
         </div>
       </div>
-      <div class="modal-section" id="desktop-wizard-step-one">
-        <span class="field-label">Áudio</span>
-        <div class="audio-mode-grid">
-          <button type="button" id="desktop-audio-mode-none" class="audio-mode-card selected"><strong>Sem áudio</strong><span>Compartilhar somente o vídeo.</span></button>
-          <button type="button" id="desktop-audio-mode-system" class="audio-mode-card"><strong>Áudio do computador</strong><span>Enviar o som reproduzido no computador.</span></button>
-          <button type="button" id="desktop-audio-mode-process" class="audio-mode-card"><strong>Áudio de um aplicativo</strong><span>Escolher um aplicativo local.</span></button>
-        </div>
-      </div>
-      <div class="modal-section hidden" id="desktop-wizard-step-two">
-        <div class="audio-source-toolbar">
-          <span class="field-label">Áudio de aplicativo</span>
-          <button id="desktop-audio-refresh" type="button" class="btn btn-ghost">Atualizar</button>
-        </div>
-        <p class="modal-desc">O Windows escolherá a tela ou janela para o vídeo. Aqui você escolhe apenas o áudio.</p>
-        <div id="desktop-audio-source-grid" class="audio-source-grid" aria-live="polite"></div>
-        <p id="desktop-audio-picker-state" class="wizard-note" aria-live="polite"></p>
-        <div id="desktop-audio-thumbnail" class="hidden"></div>
-        <button id="desktop-back-to-audio-modes" type="button" class="btn btn-ghost">Trocar modo de áudio</button>
+      <div id="desktop-wizard-step-one" class="hidden"></div>
+      <div id="desktop-wizard-step-two" class="hidden">
+        <div id="desktop-audio-source-grid"></div>
+        <p id="desktop-audio-picker-state"></p>
+        <button id="desktop-audio-refresh" type="button"></button>
+        <div id="desktop-audio-thumbnail"></div>
+        <button id="desktop-back-to-audio-modes" type="button"></button>
       </div>
       <div class="modal-actions">
         <button id="cancel-share" type="button" class="btn btn-ghost">Cancelar</button>
-        <button id="confirm-share" type="button" class="btn btn-primary">Continuar para o Windows</button>
+        <button id="confirm-share" type="button" class="btn btn-primary">Escolher tela ou janela</button>
       </div>
     </div>
   </div>

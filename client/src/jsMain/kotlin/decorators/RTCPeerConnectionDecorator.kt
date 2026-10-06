@@ -41,6 +41,19 @@ class RTCPeerConnectionDecorator(
 
     fun getSenders(): Array<dynamic> = windowRTCPeerConnection.getSenders() as Array<dynamic>
 
+    fun setVideoReception(enabled: Boolean) {
+        val transceivers = windowRTCPeerConnection.getTransceivers() as Array<dynamic>
+        transceivers.forEach { transceiver ->
+            if (transceiver.receiver.track.kind == "video") {
+                transceiver.direction = when {
+                    transceiver.sender.track != null -> if (enabled) "sendrecv" else "sendonly"
+                    enabled -> "recvonly"
+                    else -> "inactive"
+                }
+            }
+        }
+    }
+
     private fun senderForTrack(trackId: String): dynamic? {
         val senders = getSenders()
         for (i in 0 until senders.size) {

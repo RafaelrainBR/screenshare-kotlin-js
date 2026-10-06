@@ -35,7 +35,8 @@ object DesktopCaptureBridge {
     val isAvailable: Boolean
         get() =
             DesktopEnvironment.isAvailable &&
-                jsTypeOf(window.asDynamic().__screenshareDesktopBridge) != "undefined"
+                jsTypeOf(window.asDynamic().__screenshareDesktopBridge) != "undefined" &&
+                window.asDynamic().__screenshareDesktopBridge.isAvailable == true
 
     suspend fun startSystemAudio(): MediaStreamTrack {
         if (!isAvailable) throw DesktopCaptureException("native-unavailable", "Captura nativa não disponível")

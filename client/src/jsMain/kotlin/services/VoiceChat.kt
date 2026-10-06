@@ -36,6 +36,12 @@ class VoiceChat {
         }
     }
 
+    fun clearRemoteAudio() {
+        remoteAudioStreams.values.forEach { stream -> stream.getTracks().forEach { it.stop() } }
+        remoteAudioStreams.clear()
+        InterfaceMutations.removeRemoteAudioElements()
+    }
+
     suspend fun setupLocalMic(
         recreatePeerConnections: suspend () -> Unit,
         deviceId: String? = null,

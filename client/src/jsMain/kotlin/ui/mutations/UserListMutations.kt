@@ -3,6 +3,7 @@ package ui.mutations
 import createSafeElement
 import getUsernameInitials
 import kotlinx.browser.document
+import kotlinx.browser.window
 import org.w3c.dom.HTMLAudioElement
 import org.w3c.dom.HTMLButtonElement
 import org.w3c.dom.HTMLElement
@@ -18,6 +19,32 @@ object UserListMutations {
     private var currentLocalName = ""
     private val speakingUsers = mutableSetOf<String>()
     private val mutedUsers = mutableMapOf<String, Boolean>()
+    private val screenSharers = mutableSetOf<String>()
+    private val cameraSharers = mutableSetOf<String>()
+
+    fun setUserMediaSharing(socketId: String, camera: Boolean, active: Boolean) {
+        val sharers = if (camera) cameraSharers else screenSharers
+        if (active) sharers.add(socketId) else sharers.remove(socketId)
+        updateUserList(currentUsers, currentLocalName)
+    }
+
+    fun restoreUserMediaSharing(screenSocketIds: List<String>, cameraSocketIds: List<String>) {
+        screenSharers.clear()
+        cameraSharers.clear()
+        screenSharers.addAll(screenSocketIds)
+        cameraSharers.addAll(cameraSocketIds)
+        updateUserList(currentUsers, currentLocalName)
+        syncAvatarTiles()
+    }
+
+    fun clearUserMediaSharing() {
+        screenSharers.clear()
+        cameraSharers.clear()
+        syncAvatarTiles()
+    }
+
+    fun hasRemoteShares(localSocketId: String?): Boolean =
+        screenSharers.any { it != localSocketId } || cameraSharers.any { it != localSocketId }
 
     fun updateUserList(
         users: List<SocketUser>,
@@ -25,6 +52,13 @@ object UserListMutations {
     ) {
         currentUsers = users
         currentLocalName = localUserName
+        users.forEach { user ->
+            val volume = window.localStorage.getItem("screenshare.volume.user.${user.username}")?.toIntOrNull()
+            if (volume != null) {
+                userVolumes[user.socketId] = volume
+                (document.getElementById("remote-audio-${user.socketId}") as? HTMLAudioElement)?.volume = volume / 100.0
+            }
+        }
         users.forEach { user ->
             mutedUsers[if (user.username == localUserName) "self" else user.socketId] = user.isMuted
         }
@@ -182,7 +216,7 @@ object UserListMutations {
         article.appendChild(container)
 
         if (!isCurrentUser) {
-            article.appendChild(createVolumeControl(user.socketId))
+            article.appendChild(createVolumeControl(user.socketId, user.username))
         }
 
         article.id = "user-list-${if (isCurrentUser) "self" else user.socketId}"
@@ -190,7 +224,7 @@ object UserListMutations {
         return article
     }
 
-    private fun createVolumeControl(userId: String): HTMLElement {
+    private fun createVolumeControl(userId: String, username: String): HTMLElement {
         val wrapper = document.createSafeElement("div") as HTMLElement
         wrapper.style.apply {
             display = "flex"
@@ -213,12 +247,14 @@ object UserListMutations {
         slider.type = "range"
         slider.min = "0"
         slider.max = "100"
-        slider.value = (userVolumes[userId] ?: 100).toString()
+        slider.value = (userVolumes[userId] ?: window.localStorage.getItem("screenshare.volume.user.$username")?.toIntOrNull() ?: 100).toString()
+        userVolumes[userId] = slider.value.toInt()
         slider.className = "range range-primary range-xs flex-1"
         slider.setAttribute("aria-label", "Volume do participante")
         slider.addEventListener("input", {
             val volume = slider.value.toInt()
             userVolumes[userId] = volume
+            window.localStorage.setItem("screenshare.volume.user.$username", volume.toString())
             (document.getElementById("remote-audio-$userId") as? HTMLAudioElement)?.volume = volume / 100.0
         })
 

@@ -13,6 +13,8 @@ import screenshare.common.Packet.ChatMessageReceived
 import screenshare.common.Packet.DescriptionReceived
 import screenshare.common.Packet.IceCandidateReceived
 import screenshare.common.Packet.ListUsers
+import screenshare.common.Packet.RequestMediaState
+import screenshare.common.Packet.RoomMediaState
 import screenshare.common.Packet.ScreenShareStarted
 import screenshare.common.Packet.ScreenShareStopped
 import screenshare.common.Packet.SendChatMessage
@@ -81,6 +83,16 @@ class Room(
                 user.sendPacket(createUserListPacket())
             }
 
+            is RequestMediaState -> {
+                user.sendPacket(
+                    RoomMediaState(
+                        roomId = id,
+                        screenSharers = allUsers.filter { it.isScreenSharing }.map { it.id },
+                        cameraSharers = allUsers.filter { it.isCameraSharing }.map { it.id },
+                    ),
+                )
+            }
+
             is SendIceCandidate -> {
                 getUserById(packet.targetId)
                     ?.sendPacket(
@@ -104,10 +116,12 @@ class Room(
             }
 
             is StartScreenShare -> {
+                user.isScreenSharing = true
                 broadcast(ScreenShareStarted(roomId = id, senderId = user.id))
             }
 
             is Packet.StopScreenShare -> {
+                user.isScreenSharing = false
                 broadcast(ScreenShareStopped(roomId = id, senderId = user.id))
             }
 
@@ -120,10 +134,12 @@ class Room(
             }
 
             is Packet.StartCameraShare -> {
+                user.isCameraSharing = true
                 broadcast(CameraShareStarted(roomId = id, senderId = user.id))
             }
 
             is Packet.StopCameraShare -> {
+                user.isCameraSharing = false
                 broadcast(CameraShareStopped(roomId = id, senderId = user.id))
             }
 
@@ -185,7 +201,12 @@ class Room(
 fun Room.createUserListPacket(): UserList {
     val userList =
         allUsers.map {
-            SocketUser(socketId = it.id, username = it.username, roomId = id, isMuted = it.isMuted)
+            SocketUser(
+                socketId = it.id,
+                username = it.username,
+                roomId = id,
+                isMuted = it.isMuted,
+            )
         }
     return UserList(roomId = id, users = userList)
 }

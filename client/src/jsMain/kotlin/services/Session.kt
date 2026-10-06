@@ -1,17 +1,21 @@
 package services
 
+import hideAfterLocalShare
 import kotlinx.browser.window
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import screenshare.common.ChatMessage
 import screenshare.common.SocketUser
+import platform.DesktopEnvironment
 import ui.InterfaceMutations
+import ui.mutations.UserListMutations
 import kotlin.js.Date
 
 class Session(
     var localUsername: String,
     var localRoomId: String,
     var userList: List<SocketUser> = emptyList(),
+    var localSocketId: String? = null,
     val websocketService: WebsocketService,
     coroutineScope: CoroutineScope,
 ) : CoroutineScope by coroutineScope {
@@ -40,6 +44,7 @@ class Session(
     val peerConnections = PeerConnections(voiceChat, screenSharing, cameraSharing)
 
     init {
+        UserListMutations.clearUserMediaSharing()
         launch {
             InterfaceMutations.navigateToRoomScreen(
                 roomId = localRoomId,
@@ -49,6 +54,7 @@ class Session(
                 roomId = localRoomId,
                 username = localUsername,
             )
+            websocketService.requestMediaState(localRoomId)
             runCatching {
                 InterfaceMutations.populateAudioDevices()
             }.onFailure {
@@ -87,7 +93,8 @@ class Session(
                     )
                 }.onFailure {
                     console.warn("Não foi possível acessar o microfone")
-                    InterfaceMutations.showError("Permissão de microfone necessária.")
+                    runCatching { DesktopEnvironment.showMainWindow() }
+                    InterfaceMutations.showPermissionRecovery("microphone", it.asDynamic().name as? String)
                     return@launch
                 }
             }
@@ -97,6 +104,7 @@ class Session(
                     websocketService.sendToggleMute(roomId = localRoomId, isMuted = isMuted)
                 },
             )
+            runCatching { DesktopEnvironment.setTrayState("mic", !voiceChat.isMicMuted) }
         }
 
     fun handleStartScreenShare(
@@ -126,17 +134,24 @@ class Session(
                     recreatePeerConnections = { recreatePeerConnections() },
                 )
             }.onFailure {
-                // The OS picker is allowed to be cancelled. No native worker
-                // has started yet, so simply return the user to their local
-                // audio selection instead of leaving a partial share behind.
+                // The OS picker is allowed to be cancelled. Keep the user in the room
+                // with a recovery path instead of leaving a partial share behind.
                 InterfaceMutations.reopenDesktopShareWizard()
+                InterfaceMutations.showPermissionRecovery("screen", it.asDynamic().name as? String)
+                hideAfterLocalShare = false
                 return@launch
             }
             if (disposed || generation != screenShareGeneration) {
                 screenSharing.stopScreenSharing(recreatePeerConnections = { recreatePeerConnections() })
+                hideAfterLocalShare = false
                 return@launch
             }
             websocketService.startScreenSharing(localRoomId)
+            runCatching { DesktopEnvironment.setTrayState("screen", true) }
+            if (hideAfterLocalShare) {
+                hideAfterLocalShare = false
+                runCatching { DesktopEnvironment.hideMainWindow() }
+            }
         }
     }
 
@@ -145,6 +160,11 @@ class Session(
         launch {
             screenSharing.stopScreenSharing(recreatePeerConnections = { recreatePeerConnections() })
             websocketService.stopScreenSharing(localRoomId)
+            runCatching { DesktopEnvironment.setTrayState("screen", false) }
+            if (hideAfterLocalShare) {
+                hideAfterLocalShare = false
+                runCatching { DesktopEnvironment.hideMainWindow() }
+            }
         }
     }
 
@@ -159,10 +179,16 @@ class Session(
                     deviceId = selectedCameraDeviceId,
                 )
                 websocketService.startCameraShare(localRoomId)
+                runCatching { DesktopEnvironment.setTrayState("camera", true) }
+                if (hideAfterLocalShare) {
+                    hideAfterLocalShare = false
+                    runCatching { DesktopEnvironment.hideMainWindow() }
+                }
                 runCatching { InterfaceMutations.populateAudioDevices() }
             }.onFailure {
                 console.warn("Não foi possível acessar a câmera")
-                InterfaceMutations.showError("Permissão de câmera necessária.")
+                InterfaceMutations.showPermissionRecovery("camera", it.asDynamic().name as? String)
+                hideAfterLocalShare = false
             }
         }
 
@@ -170,6 +196,11 @@ class Session(
         launch {
             cameraSharing.stopCameraSharing(recreatePeerConnections = { recreatePeerConnections() })
             websocketService.stopCameraShare(localRoomId)
+            runCatching { DesktopEnvironment.setTrayState("camera", false) }
+            if (hideAfterLocalShare) {
+                hideAfterLocalShare = false
+                runCatching { DesktopEnvironment.hideMainWindow() }
+            }
         }
 
     fun handleCameraDeviceChange(deviceId: String) = launch {
@@ -225,6 +256,17 @@ class Session(
         InterfaceMutations.setOutputDevice(deviceId)
     }
 
+    fun setVideoReception(enabled: Boolean) =
+        peerConnections.setVideoReception(enabled)
+
+    fun prepareForReconnect() {
+        peerConnections.closeAll()
+        screenSharing.remoteScreenStreams.keys.toList().forEach(screenSharing::stopRemoteScreen)
+        cameraSharing.remoteCameraStreams.keys.toList().forEach(cameraSharing::stopRemoteCamera)
+        voiceChat.clearRemoteAudio()
+        UserListMutations.clearUserMediaSharing()
+    }
+
     /** Releases local capture without attempting room signaling during page exit. */
     fun dispose() {
         if (disposed) return
@@ -234,6 +276,11 @@ class Session(
         cameraSharing.stopCameraSharing(recreatePeerConnections = {})
         voiceChat.stopLocalMic()
         peerConnections.closeAll()
+        launch {
+            runCatching { DesktopEnvironment.setTrayState("mic", false) }
+            runCatching { DesktopEnvironment.setTrayState("camera", false) }
+            runCatching { DesktopEnvironment.setTrayState("screen", false) }
+        }
     }
 
     private fun recreatePeerConnections() {

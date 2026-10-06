@@ -14,6 +14,8 @@ data class RoomUser(
     val session: WebSocketSession,
     val username: String,
     var isMuted: Boolean = true,
+    var isScreenSharing: Boolean = false,
+    var isCameraSharing: Boolean = false,
 ) {
     private val outgoing = Channel<Packet>(capacity = Channel.UNLIMITED)
 

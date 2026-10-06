@@ -12,6 +12,8 @@ import screenshare.common.Packet.SendIceCandidate
 import screenshare.common.Packet.UserConnected
 import screenshare.common.Packet.UserDisconnected
 import screenshare.common.Packet.UserList
+import screenshare.common.Packet.RequestMediaState
+import screenshare.common.Packet.RoomMediaState
 
 class MessageSpec : FunSpec({
     withData(
@@ -19,6 +21,9 @@ class MessageSpec : FunSpec({
         joinRoomJson("testRoomId", "username") to JoinRoom("testRoomId", "username"),
         sendMessageJson("testRoomId", "Hello") to SendChatMessage("testRoomId", "Hello"),
         listUsersJson("testRoomId") to ListUsers("testRoomId"),
+        """{"type":"request-media-state","rid":"testRoomId"}""" to RequestMediaState("testRoomId"),
+        """{"type":"room-media-state","rid":"testRoomId","screenSharers":["screen"],"cameraSharers":["camera"]}""" to
+            RoomMediaState("testRoomId", listOf("screen"), listOf("camera")),
         sendIceCandidateJson("testRoomId", "candidate", "targetId") to
             SendIceCandidate("testRoomId", "candidate", "targetId"),
         userConnectedJson("testRoomId", "socketId", "username") to UserConnected("testRoomId", "socketId", "username"),
@@ -37,6 +42,9 @@ class MessageSpec : FunSpec({
         JoinRoom("testRoomId", "username") to joinRoomJson("testRoomId", "username"),
         SendChatMessage("testRoomId", "Hello") to sendMessageJson("testRoomId", "Hello"),
         ListUsers("testRoomId") to listUsersJson("testRoomId"),
+        RequestMediaState("testRoomId") to """{"type":"request-media-state","rid":"testRoomId"}""",
+        RoomMediaState("testRoomId", listOf("screen"), listOf("camera")) to
+            """{"type":"room-media-state","rid":"testRoomId","screenSharers":["screen"],"cameraSharers":["camera"]}""",
         UserConnected("testRoomId", "socketId", "username") to userConnectedJson("testRoomId", "socketId", "username"),
         UserDisconnected("testRoomId", "socketId", "username") to
             userDisconnectedJson("testRoomId", "socketId", "username"),

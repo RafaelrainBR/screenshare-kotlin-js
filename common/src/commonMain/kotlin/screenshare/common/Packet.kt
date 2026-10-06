@@ -38,6 +38,13 @@ sealed class Packet {
     ) : Packet()
 
     @Serializable
+    @SerialName("request-media-state")
+    data class RequestMediaState(
+        @SerialName("rid")
+        val roomId: String,
+    ) : Packet()
+
+    @Serializable
     @SerialName("send-ice-candidate")
     data class SendIceCandidate(
         @SerialName("rid")
@@ -140,6 +147,17 @@ sealed class Packet {
     ) : Packet()
 
     @Serializable
+    @SerialName("room-media-state")
+    data class RoomMediaState(
+        @SerialName("rid")
+        val roomId: String,
+        @SerialName("screenSharers")
+        val screenSharers: List<String>,
+        @SerialName("cameraSharers")
+        val cameraSharers: List<String>,
+    ) : Packet()
+
+    @Serializable
     @SerialName("ice-candidate-received")
     data class IceCandidateReceived(
         @SerialName("rid")
@@ -220,6 +238,7 @@ sealed class Packet {
             is JoinRoom,
             is SendChatMessage,
             is ListUsers,
+            is RequestMediaState,
             is SendIceCandidate,
             is SendDescription,
             is StartScreenShare,
@@ -234,6 +253,7 @@ sealed class Packet {
             is UserDisconnected,
             is ChatMessageReceived,
             is UserList,
+            is RoomMediaState,
             is IceCandidateReceived,
             is DescriptionReceived,
             is ScreenShareStarted,

@@ -2,6 +2,7 @@ package platform
 
 import io.ktor.http.URLProtocol
 import io.ktor.http.Url
+import kotlinx.coroutines.await
 import kotlinx.browser.window
 import org.w3c.dom.url.URLSearchParams
 
@@ -17,6 +18,26 @@ object DesktopEnvironment {
 
     val isAvailable: Boolean
         get() = jsTypeOf(window.asDynamic().__TAURI_INTERNALS__) != "undefined"
+
+    suspend fun autoStartEnabled(): Boolean =
+        (window.asDynamic().__screenshareDesktopBridge.autoStartEnabled() as kotlin.js.Promise<Boolean>).await()
+
+    suspend fun setAutoStart(enabled: Boolean) {
+        (window.asDynamic().__screenshareDesktopBridge.setAutoStart(enabled) as kotlin.js.Promise<dynamic>).await()
+    }
+
+    suspend fun hideMainWindow() {
+        (window.asDynamic().__screenshareDesktopBridge.hideMainWindow() as kotlin.js.Promise<dynamic>).await()
+    }
+
+    suspend fun showMainWindow() {
+        (window.asDynamic().__screenshareDesktopBridge.showMainWindow() as kotlin.js.Promise<dynamic>).await()
+    }
+
+    suspend fun setTrayState(kind: String, active: Boolean, participants: Int? = null) {
+        if (!isAvailable) return
+        (window.asDynamic().__screenshareDesktopBridge.setTrayState(kind, active, participants) as kotlin.js.Promise<dynamic>).await()
+    }
 
     val serverUrl: String?
         get() {

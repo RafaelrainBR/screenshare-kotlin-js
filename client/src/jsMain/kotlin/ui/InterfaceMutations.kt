@@ -18,12 +18,39 @@ import screenshare.common.ChatMessage
 import ui.mutations.UserListMutations
 import kotlin.js.Date
 import platform.DesktopCaptureBridge
+import platform.mediaPermissionHelp
 
 object InterfaceMutations {
     var selectedOutputDeviceId: String? = null
     private var focusedTileId: String? = null
-    private var outputMuted = false
+    private var outputMuted = window.localStorage.getItem("screenshare.outputMuted") == "true"
     private var noticeTimeout: Int? = null
+    private var retryMediaKind = ""
+
+    fun showPermissionRecovery(kind: String, errorName: String?) {
+        document.getElementById("permission-title")?.textContent = when (kind) {
+            "camera" -> "Câmera indisponível"
+            "microphone" -> "Microfone indisponível"
+            else -> "Compartilhamento de tela indisponível"
+        }
+        document.getElementById("permission-help")?.textContent = mediaPermissionHelp(kind, errorName)
+        document.getElementById("permission-recovery")?.classList?.remove("hidden")
+        retryMediaKind = kind
+        document.getElementById("retry-media")?.asDynamic()?.onclick = {
+            document.getElementById("permission-recovery")?.classList?.add("hidden")
+            val buttonId = when (retryMediaKind) {
+                "camera" -> "cameraBtn"
+                "microphone" -> "micToggle"
+                else -> "shareScreenBtn"
+            }
+            document.getElementById(buttonId)?.asDynamic()?.click()
+            null
+        }
+        document.getElementById("close-permission-help")?.asDynamic()?.onclick = {
+            document.getElementById("permission-recovery")?.classList?.add("hidden")
+            null
+        }
+    }
     val screenVolumes: MutableMap<String, Int> = mutableMapOf()
     private val screenLastAudibleVolumes: MutableMap<String, Int> = mutableMapOf()
     fun showError(message: String) {
@@ -172,6 +199,17 @@ object InterfaceMutations {
         })
         controls.appendChild(fullscreenButton)
 
+        val viewButton = document.createElement("button") as HTMLButtonElement
+        viewButton.type = "button"
+        viewButton.className = "glass-chip view-source"
+        viewButton.textContent = "Visualizar tela"
+        viewButton.addEventListener("click", { event ->
+            event.preventDefault()
+            event.stopPropagation()
+            focusOnTile(tileId)
+        })
+        controls.appendChild(viewButton)
+
         val volumeChip = document.createElement("div") as HTMLElement
         volumeChip.className = "glass-chip"
         volumeChip.addEventListener("click", { e -> e.stopPropagation() })
@@ -270,6 +308,11 @@ object InterfaceMutations {
 
     fun setFocusedTile(tileId: String) {
         focusedTileId = if (focusedTileId == tileId) null else tileId
+        reflowScreens()
+    }
+
+    fun focusOnTile(tileId: String) {
+        focusedTileId = tileId
         reflowScreens()
     }
 
@@ -441,6 +484,16 @@ object InterfaceMutations {
             }
         })
         controls.appendChild(fullscreenButton)
+        val viewButton = document.createElement("button") as HTMLButtonElement
+        viewButton.type = "button"
+        viewButton.className = "glass-chip view-source"
+        viewButton.textContent = "Visualizar câmera"
+        viewButton.addEventListener("click", { event ->
+            event.preventDefault()
+            event.stopPropagation()
+            focusOnTile(tileId)
+        })
+        controls.appendChild(viewButton)
         tile.appendChild(controls)
 
         tile.addEventListener("click", {
@@ -484,9 +537,17 @@ object InterfaceMutations {
         }
     }
 
+    fun removeRemoteAudioElements() {
+        val audioElements = document.getElementsByTagName("audio")
+        for (index in audioElements.length - 1 downTo 0) {
+            val audio = audioElements.item(index) as? HTMLAudioElement ?: continue
+            if (audio.id.startsWith("remote-audio-")) audio.parentElement?.removeChild(audio)
+        }
+    }
+
     suspend fun populateAudioDevices() {
         val previousInput = Elements.inputDevices.value
-        val previousOutput = Elements.outputDevices.value
+        val previousOutput = window.localStorage.getItem("screenshare.outputDeviceId") ?: Elements.outputDevices.value
         val previousCamera = Elements.cameraDevices.value
 
         val devices = window.navigator.mediaDevices.enumerateDevices().await()
@@ -528,10 +589,12 @@ object InterfaceMutations {
         if (devices.any { it.deviceId == previousInput }) Elements.inputDevices.value = previousInput
         if (devices.any { it.deviceId == previousOutput }) Elements.outputDevices.value = previousOutput
         if (devices.any { it.deviceId == previousCamera }) Elements.cameraDevices.value = previousCamera
+        setOutputDevice(Elements.outputDevices.value)
     }
 
     fun toggleOutputMute() {
         outputMuted = !outputMuted
+        window.localStorage.setItem("screenshare.outputMuted", outputMuted.toString())
         Elements.outputToggle.classList.toggle("muted", outputMuted)
         val label = if (outputMuted) "Ativar saída de áudio" else "Silenciar saída de áudio"
         Elements.outputToggle.title = label
@@ -548,6 +611,13 @@ object InterfaceMutations {
             val video = tile.querySelector("video") as? HTMLVideoElement ?: continue
             video.muted = outputMuted || tile.getAttribute("data-local") == "true"
         }
+    }
+
+    fun restoreOutputState() {
+        Elements.outputToggle.classList.toggle("muted", outputMuted)
+        val label = if (outputMuted) "Ativar saída de áudio" else "Silenciar saída de áudio"
+        Elements.outputToggle.title = label
+        Elements.outputToggle.setAttribute("aria-label", label)
     }
 
     fun restoreCameraDevice(deviceId: String?) {

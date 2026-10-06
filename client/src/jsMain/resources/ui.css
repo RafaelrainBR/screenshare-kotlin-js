@@ -254,6 +254,10 @@ button.glass-chip { width: 34px; justify-content: center; padding: 0; }
 .context-menu button:hover { background: #364054; }
 .context-note { padding: 8px 8px 2px; border-top: 1px solid #3c4654; color: var(--faint); font-size: 10px; }
 .notice { position: fixed; top: 12px; left: 50%; transform: translateX(-50%); z-index: 90; max-width: min(560px, calc(100% - 32px)); padding: 12px 15px; border: 1px solid var(--red); border-radius: 9px; background: #2c1b23; color: #f8e7ea; font-size: 12px; }
+.permission-recovery { position: fixed; z-index: 100; inset: 50% auto auto 50%; transform: translate(-50%, -50%); width: min(420px, calc(100vw - 32px)); padding: 24px; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); box-shadow: 0 18px 60px #0009; }
+.permission-recovery h2 { margin: 0 0 12px; }
+.startup-option { display: flex; align-items: center; gap: 9px; margin: 8px 0; font-size: 13px; }
+.view-source { padding: 5px 8px; font-size: 11px; white-space: nowrap; }
 
 #quality-modal { position: fixed; inset: 0; z-index: 80; display: grid; place-items: center; padding: 18px; }
 .modal-backdrop { position: absolute; inset: 0; background: rgba(0,0,0,.68); }

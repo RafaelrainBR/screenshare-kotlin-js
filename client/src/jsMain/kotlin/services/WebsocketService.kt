@@ -8,12 +8,12 @@ import io.ktor.http.URLProtocol
 import io.ktor.websocket.Frame.Close
 import io.ktor.websocket.Frame.Text
 import io.ktor.websocket.WebSocketSession
-import io.ktor.websocket.readReason
 import io.ktor.websocket.readText
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.channels.consumeEach
-import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.serialization.json.Json
 import screenshare.common.Packet
 
@@ -26,23 +26,64 @@ class WebsocketService(
     private val onClose: () -> Unit = {},
 ) {
     private var session: WebSocketSession? = null
+    private var lastJoin: Packet.JoinRoom? = null
+    private var reportedDisconnect = false
 
     suspend fun connect(coroutineScope: CoroutineScope) {
-        session =
-            client.webSocketSession {
-                url.protocol = urlProtocol
-                url.host = host
-                url.port = port
+        var attempt = 0
+        while (coroutineScope.isActive) {
+            var connected: WebSocketSession? = null
+            try {
+                val opened = client.webSocketSession {
+                    url.protocol = urlProtocol
+                    url.host = host
+                    url.port = port
+                }
+                connected = opened
+                session = opened
+                reportedDisconnect = false
+                lastJoin?.let {
+                    opened.send(Text(Json.encodeToString(it)))
+                    opened.send(Text(Json.encodeToString(Packet.RequestMediaState(it.roomId))))
+                }
+                opened.incoming.consumeEach { frame ->
+                    when (frame) {
+                        is Text -> handler(getSessionOrAlert(), Json.decodeFromString(frame.readText()), coroutineScope)
+                        is Close -> throw kotlinx.coroutines.CancellationException("websocket closed")
+                        else -> Unit
+                    }
+                }
+            } catch (_: Exception) {
+                // A failed network attempt is retried below; local media state is untouched.
+            } finally {
+                if (session === connected) session = null
+                runCatching { connected?.cancel() }
             }
-
-        startListening(session!!, coroutineScope)
+            if (coroutineScope.isActive && lastJoin != null && !reportedDisconnect) {
+                onClose()
+                reportedDisconnect = true
+            }
+            if (coroutineScope.isActive) {
+                delay(reconnectDelayMillis(attempt++))
+            }
+        }
     }
 
     suspend fun joinRoom(
         roomId: String,
         username: String,
     ) {
-        sendPacket(Packet.JoinRoom(roomId, username))
+        val join = Packet.JoinRoom(roomId, username)
+        lastJoin = join
+        sendPacket(join)
+        requestMediaState(roomId)
+    }
+
+    suspend fun requestMediaState(roomId: String) = sendPacket(Packet.RequestMediaState(roomId))
+
+    fun leaveRoom() {
+        lastJoin = null
+        session?.cancel()
     }
 
     suspend fun sendIceCandidate(
@@ -107,50 +148,13 @@ class WebsocketService(
         }
     }
 
-    private fun close() {
-        session?.cancel()
-        session = null
-    }
-
-    private fun startListening(
-        session: WebSocketSession,
-        coroutineScope: CoroutineScope,
-    ) {
-        coroutineScope.launch {
-            try {
-                session.incoming.consumeEach { frame ->
-                    when (frame) {
-                        is Text -> {
-                            // Handle incoming text frames
-                            val text = frame.readText()
-                            val packet = Json.decodeFromString<Packet>(text)
-                            handler(getSessionOrAlert(), packet, coroutineScope)
-                        }
-
-                        is Close -> {
-                            this@WebsocketService.session = null
-                            onClose()
-                        }
-
-                        else -> {
-                            // Handle other types of frames if needed
-                        }
-                    }
-                }
-                close()
-            } catch (_: Exception) {
-                try {
-                    close()
-                } catch (_: Exception) {}
-                onClose()
-            }
-        }
-    }
-
     private suspend fun sendPacket(packet: Packet) {
         session?.send(Text(Json.encodeToString(packet)))
     }
 }
+
+internal fun reconnectDelayMillis(attempt: Int): Long =
+    (1_000L shl attempt.coerceIn(0, 4)).coerceAtMost(15_000L)
 
 private fun createHttpClient(): HttpClient =
     HttpClient {

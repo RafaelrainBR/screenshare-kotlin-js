@@ -50,3 +50,8 @@ desktop-tauri/node_modules/
 desktop-tauri/src-tauri/gen/
 desktop-tauri/src-tauri/target/
 .smoke-edge*/
+
+.gradle-native
+artifacts/
+native-engine/target/
+tools/native

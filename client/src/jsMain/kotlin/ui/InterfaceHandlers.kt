@@ -17,10 +17,10 @@ private const val DEFAULT_WIDTH = 1920
 private const val DEFAULT_HEIGHT = 1080
 private const val DEFAULT_FPS = 30
 
-private var selectedWidth = DEFAULT_WIDTH
-private var selectedHeight = DEFAULT_HEIGHT
-private var selectedFps = DEFAULT_FPS
-private var useSourceResolution = false
+private var selectedWidth = window.localStorage.getItem("screenshare.shareWidth")?.toIntOrNull() ?: DEFAULT_WIDTH
+private var selectedHeight = window.localStorage.getItem("screenshare.shareHeight")?.toIntOrNull() ?: DEFAULT_HEIGHT
+private var selectedFps = window.localStorage.getItem("screenshare.shareFps")?.toIntOrNull() ?: DEFAULT_FPS
+private var useSourceResolution = window.localStorage.getItem("screenshare.sourceResolution") == "true"
 private var selectedAudioMode = ScreenSharing.DesktopAudioMode.NONE
 private var selectedAudioSource: DesktopCaptureSource? = null
 private val desktopAudioPickerScope = CoroutineScope(Dispatchers.Main)
@@ -81,6 +81,8 @@ private fun setupJoinButtonHandler(joinRoom: (username: String, roomId: String) 
         document.getElementById("join-error")?.classList?.add("hidden")
 
         Elements.currentRoomId.textContent = roomId
+        window.localStorage.setItem("screenshare.lastUsername", username)
+        window.localStorage.setItem("screenshare.lastRoomId", roomId)
 
         joinRoom(username, roomId)
     })
@@ -110,30 +112,23 @@ private fun setupShareQualityModal(
         resetQualitySelection()
         // Browsers never load the bridge or enumerate local windows. Their
         // direct, standard getDisplayMedia flow remains intentionally simple.
-        if (!DesktopCaptureBridge.isAvailable) {
+        if (!platform.DesktopEnvironment.isAvailable) {
             onStartScreenShare(selectedWidth, selectedHeight, selectedFps, useSourceResolution, ScreenSharing.DesktopAudioMode.NONE, null)
             return@addEventListener
         }
         Elements.qualityModal.classList.remove("hidden")
-        resetDesktopAudioWizard()
     })
 
     Elements.confirmShare.addEventListener("click", { e ->
         e.preventDefault()
-        if (selectedAudioMode == ScreenSharing.DesktopAudioMode.PROCESS && selectedAudioSource == null) {
-            InterfaceMutations.showError("Escolha um aplicativo para o áudio antes de continuar.")
-            return@addEventListener
-        }
-        stopAudioSourceRefresh()
         Elements.qualityModal.classList.add("hidden")
-        val source = selectedAudioSource
         onStartScreenShare(
             selectedWidth,
             selectedHeight,
             selectedFps,
             useSourceResolution,
-            selectedAudioMode,
-            source?.processId,
+            ScreenSharing.DesktopAudioMode.NONE,
+            null,
         )
     })
 
@@ -156,12 +151,19 @@ private fun setupShareQualityModal(
 
             if (option.getAttribute("data-source") != null) {
                 useSourceResolution = true
+                window.localStorage.setItem("screenshare.sourceResolution", "true")
             } else {
                 useSourceResolution = false
+                window.localStorage.setItem("screenshare.sourceResolution", "false")
                 option.getAttribute("data-width")?.toIntOrNull()?.let { selectedWidth = it }
                 option.getAttribute("data-height")?.toIntOrNull()?.let { selectedHeight = it }
+                window.localStorage.setItem("screenshare.shareWidth", selectedWidth.toString())
+                window.localStorage.setItem("screenshare.shareHeight", selectedHeight.toString())
             }
-            option.getAttribute("data-fps")?.toIntOrNull()?.let { selectedFps = it }
+            option.getAttribute("data-fps")?.toIntOrNull()?.let {
+                selectedFps = it
+                window.localStorage.setItem("screenshare.shareFps", selectedFps.toString())
+            }
         })
     }
 }
@@ -347,16 +349,16 @@ private fun setupChangeDesktopAudioButton(onChangeDesktopAudio: () -> Unit) =
     })
 
 private fun resetQualitySelection() {
-    selectedWidth = DEFAULT_WIDTH
-    selectedHeight = DEFAULT_HEIGHT
-    selectedFps = DEFAULT_FPS
-    useSourceResolution = false
-
     val options = document.getElementsByClassName("quality-option")
     for (i in 0 until options.length) {
         val option = options.item(i) as HTMLElement
-        val isDefault = option.getAttribute("data-width") == DEFAULT_WIDTH.toString() ||
-            option.getAttribute("data-fps") == DEFAULT_FPS.toString()
+        val isDefault = if (option.getAttribute("data-fps") != null) {
+            option.getAttribute("data-fps") == selectedFps.toString()
+        } else if (option.getAttribute("data-source") != null) {
+            useSourceResolution
+        } else {
+            option.getAttribute("data-width") == selectedWidth.toString()
+        }
         if (isDefault) {
             option.classList.add("btn-primary")
         } else {
@@ -396,7 +398,8 @@ private fun setupDeviceHandlers(
         onInputDeviceChange(Elements.inputDevices.value)
     })
 
-    Elements.outputDevices.addEventListener("change", {
+        Elements.outputDevices.addEventListener("change", {
+        window.localStorage.setItem("screenshare.outputDeviceId", Elements.outputDevices.value)
         onOutputDeviceChange(Elements.outputDevices.value)
     })
 
