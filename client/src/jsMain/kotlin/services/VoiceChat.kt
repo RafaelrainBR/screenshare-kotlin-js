@@ -43,6 +43,7 @@ class VoiceChat {
     }
 
     suspend fun setupLocalMic(
+        isRequestCurrent: () -> Boolean,
         recreatePeerConnections: suspend () -> Unit,
         deviceId: String? = null,
         onMicTrackReplaced: ((oldTrackId: String?, newTrack: MediaStreamTrack?) -> Unit)? = null,
@@ -55,6 +56,10 @@ class VoiceChat {
             window.navigator.mediaDevices
                 .getUserMedia(buildMediaStreamConstraints(effectiveDeviceId))
                 .await()
+        if (!isRequestCurrent()) {
+            newStream.getTracks().forEach { it.stop() }
+            throw kotlinx.coroutines.CancellationException("Capture request invalidated")
+        }
         val audioTrack = newStream.getAudioTracks().firstOrNull()
 
         // Replace the track on the same RTP sender (before stopping the old
@@ -74,10 +79,11 @@ class VoiceChat {
             console.warn("Não foi possível atualizar os dispositivos de áudio")
         }
 
+        if (!isRequestCurrent()) return
         monitorAudioLevel(
-            stream = localMicStream!!,
+            stream = newStream,
             socketId = "self",
-            isEnable = { true },
+            isEnable = { localMicStream === newStream },
         ) { isSpeaking ->
             UserListMutations.setUserSpeaking("self", isSpeaking)
         }

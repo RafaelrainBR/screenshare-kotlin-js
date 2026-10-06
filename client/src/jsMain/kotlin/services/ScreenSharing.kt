@@ -28,6 +28,7 @@ class ScreenSharing(
     enum class DesktopAudioMode { NONE, SYSTEM, PROCESS }
 
     suspend fun setupLocalScreenStream(
+        isRequestCurrent: () -> Boolean,
         width: Int,
         height: Int,
         frameRate: Int,
@@ -45,6 +46,10 @@ class ScreenSharing(
             window.navigator.mediaDevices
                 .getDisplayMedia(buildMediaStreamConstraints(width, height, frameRate, useSourceResolution))
                 .await()
+        if (!isRequestCurrent()) {
+            displayStream.getTracks().forEach { it.stop() }
+            throw kotlinx.coroutines.CancellationException("Capture request invalidated")
+        }
         localScreenStream = displayStream
 
         // On desktop, the optional Rust path replaces (never duplicates) the
@@ -77,6 +82,10 @@ class ScreenSharing(
                 localScreenStream = createMediaStream(displayStream.getVideoTracks().first())
                 console.warn("O áudio local não pôde ser iniciado; o vídeo continua ativo")
             }
+        }
+        if (!isRequestCurrent()) {
+            stopScreenSharing(recreatePeerConnections = {})
+            throw kotlinx.coroutines.CancellationException("Capture request invalidated")
         }
         val publishedStream = localScreenStream
         val videoTrack = publishedStream?.getVideoTracks()?.firstOrNull()

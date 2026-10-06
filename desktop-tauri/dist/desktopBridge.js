@@ -266,7 +266,9 @@
     enumerateSources: () => invoke("enumerate_sources"),
     captureThumbnail: (hwnd) => invoke("capture_thumbnail", { hwnd }),
     getAudioMetrics: () => ({ ...metrics }),
+    // This capability covers Windows capture commands, not the common shell API.
     isAvailable: navigator.userAgent.includes("Windows"),
+    mediaAvailable: true,
     autoStartEnabled: () => invoke("plugin:autostart|is_enabled"),
     setAutoStart: (enabled) => invoke(enabled ? "plugin:autostart|enable" : "plugin:autostart|disable"),
     hideMainWindow: () => invoke("hide_main_window"),
@@ -275,5 +277,9 @@
   };
   void listen("tray-action", ({ payload }) => {
     window.dispatchEvent(new CustomEvent("screenshare:tray-action", { detail: payload }));
+  });
+  void listen("session-media-available", ({ payload }) => {
+    globalThis.__screenshareDesktopBridge.mediaAvailable = payload;
+    window.dispatchEvent(new CustomEvent("screenshare:session-media-available", { detail: payload }));
   });
 })();

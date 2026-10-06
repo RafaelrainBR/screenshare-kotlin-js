@@ -166,6 +166,9 @@ fun main() {
     kotlinx.browser.document.addEventListener("visibilitychange", {
         session?.setVideoReception(!(kotlinx.browser.document.asDynamic().hidden as Boolean))
     })
+    window.addEventListener("screenshare:session-media-available", { event ->
+        session?.setMediaAvailable(event.asDynamic().detail == true)
+    })
 }
 
 fun getSessionOrAlert(): Session {

@@ -1,5 +1,7 @@
 #[cfg(target_os = "windows")]
 mod capture;
+#[cfg(target_os = "macos")]
+mod session_media;
 #[cfg(target_os = "windows")]
 use capture::{sources::Source, thumb::Thumbnail, AudioChunk};
 #[cfg(target_os = "windows")]
@@ -214,6 +216,8 @@ pub fn run() {
     let builder = builder.invoke_handler(tauri::generate_handler![hide_main_window, show_main_window, set_tray_state]);
     builder
         .setup(|app| {
+            #[cfg(target_os = "macos")]
+            session_media::install(app.handle());
             use tauri_plugin_autostart::MacosLauncher;
             app.handle().plugin(tauri_plugin_autostart::init(MacosLauncher::LaunchAgent, None))?;
             let open = MenuItem::with_id(app, "open", "Abrir sala", true, None::<&str>)?;

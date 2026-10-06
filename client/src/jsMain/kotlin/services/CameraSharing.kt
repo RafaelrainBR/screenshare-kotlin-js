@@ -15,6 +15,7 @@ class CameraSharing(
     val remoteCameraStreams: MutableMap<String, MediaStream> = mutableMapOf()
 
     suspend fun setupLocalCameraStream(
+        isRequestCurrent: () -> Boolean,
         recreatePeerConnections: () -> Unit,
         onStreamEnd: () -> Unit,
         deviceId: String? = null,
@@ -24,6 +25,10 @@ class CameraSharing(
             window.navigator.mediaDevices
                 .getUserMedia(buildMediaStreamConstraints(deviceId))
                 .await()
+        if (!isRequestCurrent()) {
+            nextStream.getTracks().forEach { it.stop() }
+            throw kotlinx.coroutines.CancellationException("Capture request invalidated")
+        }
         previousStream?.getVideoTracks()?.forEach { it.onended = null }
         previousStream?.getTracks()?.forEach { it.stop() }
         localCameraStream = nextStream
