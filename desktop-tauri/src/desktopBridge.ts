@@ -1,4 +1,5 @@
 import { Channel, invoke } from '@tauri-apps/api/core'
+import { listen } from '@tauri-apps/api/event'
 
 const frames = 480
 const channels = 2
@@ -107,4 +108,15 @@ async function stopSystemAudio(): Promise<void> {
   enumerateSources: () => invoke<NativeSource[]>('enumerate_sources'),
   captureThumbnail: (hwnd: number) => invoke('capture_thumbnail', { hwnd }),
   getAudioMetrics: () => ({ ...metrics }),
+  isAvailable: navigator.userAgent.includes('Windows'),
+  autoStartEnabled: () => invoke<boolean>('plugin:autostart|is_enabled'),
+  setAutoStart: (enabled: boolean) => invoke(enabled ? 'plugin:autostart|enable' : 'plugin:autostart|disable'),
+  hideMainWindow: () => invoke('hide_main_window'),
+  showMainWindow: () => invoke('show_main_window'),
+  setTrayState: (kind: string, active: boolean, participants?: number) =>
+    invoke('set_tray_state', { kind, active, participants }),
 }
+
+void listen<string>('tray-action', ({ payload }) => {
+  window.dispatchEvent(new CustomEvent('screenshare:tray-action', { detail: payload }))
+})
