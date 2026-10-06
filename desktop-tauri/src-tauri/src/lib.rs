@@ -1,21 +1,85 @@
+#[cfg(target_os = "windows")]
 mod capture;
+#[cfg(target_os = "windows")]
 use capture::{sources::Source, thumb::Thumbnail, AudioChunk};
+#[cfg(target_os = "windows")]
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
-use tauri::{ipc::Channel, State};
+use std::sync::Mutex;
+#[cfg(target_os = "windows")]
+use std::sync::Arc;
+use tauri::{menu::{Menu, MenuItem}, tray::{TrayIcon, TrayIconBuilder}, Emitter, Manager, State};
+#[cfg(target_os = "windows")]
+use tauri::ipc::Channel;
+
+struct TrayUiState {
+    tray: TrayIcon,
+    mic: MenuItem<tauri::Wry>,
+    camera: MenuItem<tauri::Wry>,
+    screen: MenuItem<tauri::Wry>,
+    participants: u32,
+    mic_active: bool,
+    camera_active: bool,
+    screen_active: bool,
+    remote_sharing: bool,
+}
+
+#[tauri::command]
+fn set_tray_state(
+    kind: String,
+    active: bool,
+    participants: Option<u32>,
+    state: State<'_, Mutex<TrayUiState>>,
+) -> Result<(), String> {
+    let mut tray = state.lock().map_err(|_| "tray-state-unavailable")?;
+    if let Some(count) = participants {
+        tray.participants = count;
+    }
+    match kind.as_str() {
+        "mic" => {
+            tray.mic_active = active;
+            tray.mic.set_text(if active { "Microfone ativo · Silenciar" } else { "Microfone silenciado · Ativar" })
+                .map_err(|_| "tray-menu-unavailable")?;
+        }
+        "camera" => {
+            tray.camera_active = active;
+            tray.camera.set_text(if active { "Câmera ativa · Parar" } else { "Câmera desligada · Ligar" })
+                .map_err(|_| "tray-menu-unavailable")?;
+        }
+        "screen" => {
+            tray.screen_active = active;
+            tray.screen.set_text(if active { "Tela compartilhada · Parar" } else { "Compartilhar tela ou janela…" })
+                .map_err(|_| "tray-menu-unavailable")?;
+        }
+        "remote" => {
+            tray.remote_sharing = active;
+        }
+        "participants" => {}
+        _ => return Err("unknown-tray-state".into()),
+    }
+    let tooltip = if tray.remote_sharing {
+        format!("Screenshare · {} participantes · compartilhamento disponível", tray.participants)
+    } else {
+        format!("Screenshare · {} participantes", tray.participants)
+    };
+    tray.tray.set_tooltip(Some(tooltip)).map_err(|_| "tray-icon-unavailable".to_string())
+}
+#[cfg(target_os = "windows")]
 struct CaptureHandle {
     running: Arc<AtomicBool>,
     worker: std::thread::JoinHandle<()>,
 }
+#[cfg(target_os = "windows")]
 struct CaptureState {
     active: Mutex<Option<CaptureHandle>>,
 }
 
+#[cfg(target_os = "windows")]
 fn stop_capture(capture: CaptureHandle) {
     capture.running.store(false, Ordering::Release);
     let _ = capture.worker.join();
 }
 
+#[cfg(target_os = "windows")]
 fn stop_active(state: &CaptureState) -> Result<(), String> {
     let active = state
         .active
@@ -27,6 +91,7 @@ fn stop_active(state: &CaptureState) -> Result<(), String> {
     }
     Ok(())
 }
+#[cfg(target_os = "windows")]
 fn install<F>(state: &CaptureState, body: F) -> Result<(), String>
 where
     F: FnOnce(Arc<AtomicBool>) + Send + 'static,
@@ -48,6 +113,7 @@ where
     Ok(())
 }
 
+#[cfg(target_os = "windows")]
 impl Drop for CaptureState {
     fn drop(&mut self) {
         if let Ok(active) = self.active.get_mut() {
@@ -59,6 +125,7 @@ impl Drop for CaptureState {
 }
 
 #[tauri::command]
+#[cfg(target_os = "windows")]
 fn start_system_audio(
     on_audio: Channel<AudioChunk>,
     state: State<'_, CaptureState>,
@@ -74,6 +141,7 @@ fn start_system_audio(
 }
 
 #[tauri::command]
+#[cfg(target_os = "windows")]
 fn start_process_audio(
     process_id: u32,
     include_process_tree: bool,
@@ -96,14 +164,17 @@ fn start_process_audio(
     })
 }
 #[tauri::command]
+#[cfg(target_os = "windows")]
 fn stop_audio(state: State<'_, CaptureState>) -> Result<(), String> {
     stop_active(&state)
 }
 #[tauri::command]
+#[cfg(target_os = "windows")]
 fn enumerate_sources() -> Vec<Source> {
     capture::sources::enumerate_sources()
 }
 #[tauri::command]
+#[cfg(target_os = "windows")]
 fn capture_thumbnail(hwnd: u64) -> Result<Option<Thumbnail>, String> {
     capture::thumb::capture_thumbnail(
         windows::Win32::Foundation::HWND(hwnd as usize as *mut _),
@@ -111,9 +182,21 @@ fn capture_thumbnail(hwnd: u64) -> Result<Option<Thumbnail>, String> {
     )
 }
 
+#[tauri::command]
+fn hide_main_window(window: tauri::WebviewWindow) -> Result<(), String> {
+    window.hide().map_err(|_| "window-hide-failed".to_string())
+}
+
+#[tauri::command]
+fn show_main_window(window: tauri::WebviewWindow) -> Result<(), String> {
+    window.show().and_then(|_| window.set_focus()).map_err(|_| "window-show-failed".to_string())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let builder = tauri::Builder::default();
+    #[cfg(target_os = "windows")]
+    let builder = builder
         .manage(CaptureState {
             active: Mutex::new(None),
         })
@@ -122,13 +205,73 @@ pub fn run() {
             start_process_audio,
             stop_audio,
             enumerate_sources,
-            capture_thumbnail
-        ])
+            capture_thumbnail,
+            hide_main_window,
+            show_main_window,
+            set_tray_state
+        ]);
+    #[cfg(not(target_os = "windows"))]
+    let builder = builder.invoke_handler(tauri::generate_handler![hide_main_window, show_main_window, set_tray_state]);
+    builder
+        .setup(|app| {
+            use tauri_plugin_autostart::MacosLauncher;
+            app.handle().plugin(tauri_plugin_autostart::init(MacosLauncher::LaunchAgent, None))?;
+            let open = MenuItem::with_id(app, "open", "Abrir sala", true, None::<&str>)?;
+            let mic = MenuItem::with_id(app, "mic", "Microfone silenciado · Ativar", true, None::<&str>)?;
+            let camera = MenuItem::with_id(app, "camera", "Câmera desligada · Ligar", true, None::<&str>)?;
+            let q720 = MenuItem::with_id(app, "quality720", "Qualidade: 720p", true, None::<&str>)?;
+            let q1080 = MenuItem::with_id(app, "quality1080", "Qualidade: 1080p", true, None::<&str>)?;
+            let q4k = MenuItem::with_id(app, "quality4k", "Qualidade: 4K", true, None::<&str>)?;
+            let screen = MenuItem::with_id(app, "screen", "Compartilhar tela ou janela…", true, None::<&str>)?;
+            let switch_room = MenuItem::with_id(app, "switch", "Trocar de sala…", true, None::<&str>)?;
+            let leave = MenuItem::with_id(app, "leave", "Sair da sala", true, None::<&str>)?;
+            let quit = MenuItem::with_id(app, "quit", "Encerrar app", true, None::<&str>)?;
+            let menu = Menu::with_items(app, &[&open, &mic, &camera, &q720, &q1080, &q4k, &screen, &switch_room, &leave, &quit])?;
+            let icon = app.default_window_icon().cloned().ok_or("missing app icon")?;
+            let tray = TrayIconBuilder::new()
+                .icon(icon)
+                .menu(&menu)
+                .on_menu_event(|app, event| {
+                    let action = event.id().as_ref();
+                    if action == "quit" {
+                        app.exit(0);
+                    } else if let Some(window) = app.get_webview_window("main") {
+                        if action == "open" || action == "screen" || action == "camera" || action == "switch" {
+                            let _ = window.show();
+                            let _ = window.set_focus();
+                        }
+                        let _ = app.emit("tray-action", action);
+                    }
+                })
+                .build(app)?;
+            app.manage(Mutex::new(TrayUiState {
+                tray,
+                mic,
+                camera,
+                screen,
+                participants: 0,
+                mic_active: false,
+                camera_active: false,
+                screen_active: false,
+                remote_sharing: false,
+            }));
+
+            if let Some(window) = app.get_webview_window("main") {
+                let window_to_hide = window.clone();
+                window.on_window_event(move |event| {
+                    if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                        api.prevent_close();
+                        let _ = window_to_hide.hide();
+                    }
+                });
+            }
+            Ok(())
+        })
         .run(tauri::generate_context!())
         .expect("error while running Screenshare Desktop");
 }
 
-#[cfg(test)]
+#[cfg(all(test, target_os = "windows"))]
 mod tests {
     use super::*;
     use std::sync::atomic::AtomicUsize;
