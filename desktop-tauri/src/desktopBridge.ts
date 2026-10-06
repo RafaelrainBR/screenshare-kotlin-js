@@ -108,7 +108,7 @@ async function stopSystemAudio(): Promise<void> {
   enumerateSources: () => invoke<NativeSource[]>('enumerate_sources'),
   captureThumbnail: (hwnd: number) => invoke('capture_thumbnail', { hwnd }),
   getAudioMetrics: () => ({ ...metrics }),
-  isAvailable: navigator.userAgent.includes('Windows'),
+  isAvailable: typeof (globalThis as any).__TAURI_INTERNALS__ !== 'undefined',
   autoStartEnabled: () => invoke<boolean>('plugin:autostart|is_enabled'),
   setAutoStart: (enabled: boolean) => invoke(enabled ? 'plugin:autostart|enable' : 'plugin:autostart|disable'),
   hideMainWindow: () => invoke('hide_main_window'),

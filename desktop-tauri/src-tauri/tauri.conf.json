@@ -42,6 +42,9 @@
     "targets": "all",
     "icon": ["icons/icon.ico", "icons/icon.icns", "icons/icon.png"],
     "shortDescription": "P2P screen sharing using the canonical Kotlin client",
+    "macOS": {
+      "infoPlist": "Info.plist"
+    },
     "windows": {
       "webviewInstallMode": {
         "type": "downloadBootstrapper",
