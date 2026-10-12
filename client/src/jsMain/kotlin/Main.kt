@@ -68,8 +68,15 @@ fun main() {
         onMicButtonToggle = {
             getSessionOrAlert().handleMicButtonToggle()
         },
-        onStartScreenShare = { width, height, fps, useSourceResolution, audioMode, nativeSource ->
-            getSessionOrAlert().handleStartScreenShare(width, height, fps, useSourceResolution, audioMode, nativeSource)
+        onStartScreenShare = { width, height, profile, useSourceResolution, audioMode, nativeSource ->
+            getSessionOrAlert().handleStartScreenShare(
+                width,
+                height,
+                profile,
+                useSourceResolution,
+                audioMode,
+                nativeSource,
+            )
         },
         onStopScreenShare = {
             getSessionOrAlert().handleStopScreenShare()
@@ -247,24 +254,15 @@ fun main() {
             }
 
             "quality720" -> {
-                kotlinx.browser.document
-                    .querySelector("[data-width='1280']")
-                    ?.asDynamic()
-                    ?.click()
+                ui.chooseShareResolution("1280x720")
             }
 
             "quality1080" -> {
-                kotlinx.browser.document
-                    .querySelector("[data-width='1920']")
-                    ?.asDynamic()
-                    ?.click()
+                ui.chooseShareResolution("1920x1080")
             }
 
             "quality4k" -> {
-                kotlinx.browser.document
-                    .querySelector("[data-width='3840']")
-                    ?.asDynamic()
-                    ?.click()
+                ui.chooseShareResolution("3840x2160")
             }
 
             "leave" -> {

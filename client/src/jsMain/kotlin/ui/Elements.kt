@@ -40,11 +40,16 @@ object Elements {
     val shareSourceState = getElement<HTMLElement>("share-source-state")
     val shareSourceRefresh = getElement<HTMLButtonElement>("share-source-refresh")
     val shareAudioStep = getElement<HTMLElement>("share-audio-step")
-    val shareAudioOn = getElement<HTMLButtonElement>("share-audio-on")
-    val shareAudioOff = getElement<HTMLButtonElement>("share-audio-off")
+    val shareAudioSwitch = getElement<HTMLButtonElement>("share-audio-on")
     val shareQuality = getElement<HTMLElement>("share-quality")
     val shareQualitySummary = getElement<HTMLElement>("share-quality-summary")
+    val sharePresetGrid = getElement<HTMLElement>("share-preset-grid")
     val resolutionSection = getElement<HTMLElement>("resolution-section")
+    val shareResolution = getElement<HTMLSelectElement>("share-resolution")
+    val shareFps = getElement<HTMLSelectElement>("share-fps")
+    val sharePriority = getElement<HTMLSelectElement>("share-priority")
+    val shareBitrate = getElement<HTMLSelectElement>("share-bitrate")
+    val shareBitrateHint = getElement<HTMLElement>("share-bitrate-hint")
 }
 
 private inline fun <reified T : HTMLElement> getElement(id: String): T =

@@ -62,43 +62,23 @@ class PeerConnections(
         peers.values.forEach { it.setVideoReception(enabled) }
     }
 
-    // Mapeia a resolução/fps escolhidos na UI para um bitrate adequado.
-    // 'maintain-resolution' mantém o quadro nítido; o bitrate alto evita a
-    // macroblocagem típica de filme em movimento.
-    private fun encodingForShare(): Pair<Int, Int> {
-        val height = screenSharing.lastShareHeight
-        val fps = screenSharing.lastShareFrameRate
-        val baseBitrate =
-            when {
-                height <= 720 -> 2_500_000
-                height <= 1080 -> 6_000_000
-                height <= 1440 -> 10_000_000
-                else -> 15_000_000
-            }
-        val bitrate = if (fps >= 60) (baseBitrate * 1.5).toInt() else baseBitrate
-        return Pair(bitrate, fps)
-    }
-
     private fun addTracksIfNotPresent(peerConnection: RTCPeerConnectionDecorator) {
         screenSharing.localScreenStream?.getTracks()?.forEach { track ->
             if (!peerConnection.hasTrack(track)) {
                 peerConnection.addTrack(track, screenSharing.localScreenStream!!)
 
                 if (track.kind == "video") {
-                    // Screen share is also used for video players. `motion` avoids
-                    // treating every fullscreen movie frame as a static desktop,
-                    // which can cause severe macroblocking when motion increases.
+                    val profile = screenSharing.lastShareProfile
                     val dynamicTrack = track.unsafeCast<dynamic>()
-                    dynamicTrack.contentHint = "motion"
+                    dynamicTrack.contentHint = profile.priority.contentHint
 
                     // Prefere codec (VP9) e controla bitrate/fps ANTES de createOffer.
                     peerConnection.preferVideoCodecs()
-                    val (bitrate, fps) = encodingForShare()
                     peerConnection.applyVideoEncoding(
                         trackId = track.id,
-                        maxBitrate = bitrate,
-                        maxFramerate = fps,
-                        degradationPreference = "balanced",
+                        maxBitrate = shareBitrate(profile, screenSharing.lastShareHeight),
+                        maxFramerate = profile.fps,
+                        degradationPreference = profile.priority.degradationPreference,
                     )
                 }
             }

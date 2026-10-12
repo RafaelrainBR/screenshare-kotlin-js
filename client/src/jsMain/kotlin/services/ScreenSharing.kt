@@ -28,7 +28,7 @@ class ScreenSharing(
 
     var lastShareWidth: Int = 1920
     var lastShareHeight: Int = 1080
-    var lastShareFrameRate: Int = 30
+    var lastShareProfile: ShareProfile = SharePreset.VIDEO.profile
     private var nativeAudioTrack: MediaStreamTrack? = null
     private var nativeVideoTrack: MediaStreamTrack? = null
 
@@ -43,7 +43,7 @@ class ScreenSharing(
         isRequestCurrent: () -> Boolean,
         width: Int,
         height: Int,
-        frameRate: Int,
+        profile: ShareProfile,
         useSourceResolution: Boolean,
         desktopAudioMode: DesktopAudioMode = DesktopAudioMode.NONE,
         nativeSource: DesktopCaptureSource? = null,
@@ -52,7 +52,8 @@ class ScreenSharing(
     ) {
         lastShareWidth = width
         lastShareHeight = height
-        lastShareFrameRate = frameRate
+        lastShareProfile = profile
+        val frameRate = profile.fps
 
         val displayStream =
             if (nativeSource != null) {
