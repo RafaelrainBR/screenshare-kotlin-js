@@ -440,6 +440,9 @@
     getAudioMetrics: () => ({ ...metrics }),
     startVideoCapture: startVideo,
     stopVideoCapture: stopVideo,
+    setVideoCaptureFps: async (fps) => {
+      if (currentVideo) await invoke("set_video_capture_fps", { fps });
+    },
     getVideoMetrics: async () => ({ js: videoSummary(), native: isMac ? null : await invoke("video_capture_metrics") }),
     // Native capture commands (Windows and macOS), not the common shell API.
     isAvailable: navigator.userAgent.includes("Windows") || isMac,

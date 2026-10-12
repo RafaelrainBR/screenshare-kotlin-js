@@ -44,16 +44,34 @@ pub enum Target {
 /// Keeps a stream running; dropping it stops the capture.
 pub enum Capture {
     Stream(SCStream),
+    // Keeps its configuration so the frame rate can change while it runs.
+    Video(SCStream, SCStreamConfiguration),
     AppAudio {
         _capture: super::mac_audio::AppAudioCapture,
     },
 }
 impl Drop for Capture {
     fn drop(&mut self) {
-        if let Self::Stream(stream) = self {
+        if let Self::Stream(stream) | Self::Video(stream, _) = self {
             let _ = stream.stop_capture();
         }
     }
+}
+impl Capture {
+    /// Changes a running video capture's frame rate without restarting it.
+    pub fn set_fps(&mut self, fps: u32) -> Result<(), String> {
+        let Self::Video(stream, config) = self else {
+            return Err("not-video".into());
+        };
+        config.set_minimum_frame_interval(&frame_interval(fps));
+        stream
+            .update_configuration(config)
+            .map_err(|_| "capture-failed".into())
+    }
+}
+
+fn frame_interval(fps: u32) -> CMTime {
+    CMTime::new(1, fps.clamp(1, 60) as i32)
 }
 
 fn content() -> Result<SCShareableContent, String> {
@@ -207,7 +225,7 @@ pub fn start_video(
         .with_pixel_format(PixelFormat::YCbCr_420v)
         .with_shows_cursor(true)
         .with_queue_depth(3)
-        .with_minimum_frame_interval(&CMTime::new(1, fps.clamp(1, 60) as i32));
+        .with_minimum_frame_interval(&frame_interval(fps));
     let mut stream = SCStream::new_with_delegate(
         &filter,
         &config,
@@ -258,7 +276,7 @@ pub fn start_video(
         )
         .map_err(|_| "capture-failed")?;
     stream.start_capture().map_err(|_| "capture-failed")?;
-    Ok(Capture::Stream(stream))
+    Ok(Capture::Video(stream, config))
 }
 
 /// System audio (every app but this one), or the audio of the app `pid`.

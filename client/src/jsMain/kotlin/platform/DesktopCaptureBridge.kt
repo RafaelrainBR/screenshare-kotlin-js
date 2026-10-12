@@ -144,6 +144,12 @@ object DesktopCaptureBridge {
         (window.asDynamic().__screenshareDesktopBridge.stopVideoCapture(track) as Promise<Unit>).await()
     }
 
+    /** Changes the running native capture's frame rate without restarting it. */
+    suspend fun setVideoCaptureFps(fps: Int) {
+        if (!isAvailable) return
+        (window.asDynamic().__screenshareDesktopBridge.setVideoCaptureFps(fps) as Promise<Unit>).await()
+    }
+
     suspend fun captureThumbnail(source: DesktopCaptureSource): DesktopCaptureThumbnail? {
         if (!isAvailable) return null
         return try {

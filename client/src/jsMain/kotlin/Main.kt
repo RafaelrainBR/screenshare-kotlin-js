@@ -96,6 +96,8 @@ fun main() {
         onCameraDeviceChange = { deviceId ->
             getSessionOrAlert().handleCameraDeviceChange(deviceId)
         },
+        // Outside a room this only sets the next share; no session is needed.
+        onShareProfileChange = { profile -> session?.updateShareProfile(profile) },
     )
     InterfaceMutations.restoreOutputState()
     InterfaceMutations.setTrayRoom(null)
