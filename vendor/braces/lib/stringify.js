@@ -31,4 +31,3 @@ module.exports = (ast, options = {}) => {
 
   return stringify(ast);
 };
-
