@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: Version tag to create or rebuild (vX.Y.Z; must match the app version)
+        description: Release version (vX.Y.Z; app versions are updated automatically)
         required: true
         type: string
 
@@ -21,8 +21,10 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  test:
+  prepare:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     outputs:
       commit: ${{ steps.source.outputs.commit }}
     steps:
@@ -30,14 +32,56 @@ jobs:
         with:
           ref: ${{ github.sha }}
           fetch-depth: 0
-      - name: Resolve release commit
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - name: Prepare release commit and tag
         id: source
         run: |
           [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
           if git show-ref --verify --quiet "refs/tags/$RELEASE_TAG"; then
             git checkout --detach "$RELEASE_TAG"
+          else
+            node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          import { readFileSync, writeFileSync } from 'node:fs';
+          assert.match(process.env.RELEASE_TAG, /^v\d+\.\d+\.\d+$/);
+          const version = process.env.RELEASE_TAG.slice(1);
+          for (const name of ['package.json', 'package-lock.json', 'src-tauri/tauri.conf.json']) {
+            const path = `desktop-tauri/${name}`;
+            const data = JSON.parse(readFileSync(path, 'utf8'));
+            data.version = version;
+            if (name === 'package-lock.json') data.packages[''].version = version;
+            writeFileSync(path, JSON.stringify(data, null, 2) + '\n');
+          }
+          for (const [name, pattern] of [
+            ['Cargo.toml', /(\[package\][\s\S]*?^version = ")[^"]+(")/m],
+            ['Cargo.lock', /(name = "screenshare-desktop"\r?\nversion = ")[^"]+(")/],
+          ]) {
+            const path = `desktop-tauri/src-tauri/${name}`;
+            const text = readFileSync(path, 'utf8');
+            assert.match(text, pattern);
+            writeFileSync(path, text.replace(pattern, (_, before, after) => before + version + after));
+          }
+          NODE
+            git add desktop-tauri/package.json desktop-tauri/package-lock.json desktop-tauri/src-tauri/Cargo.toml desktop-tauri/src-tauri/Cargo.lock desktop-tauri/src-tauri/tauri.conf.json
+            if ! git diff --cached --quiet; then
+              git -c user.name='github-actions[bot]' -c user.email='github-actions[bot]@users.noreply.github.com' commit -m "chore: prepare release $RELEASE_TAG"
+            fi
+            git tag "$RELEASE_TAG"
+            git push origin "refs/tags/$RELEASE_TAG"
           fi
           echo "commit=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+  test:
+    needs: prepare
+    runs-on: ubuntu-latest
+    outputs:
+      commit: ${{ needs.prepare.outputs.commit }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.prepare.outputs.commit }}
       - uses: actions/setup-java@v6
         with:
           distribution: temurin

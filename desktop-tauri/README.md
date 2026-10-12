@@ -2,31 +2,34 @@
 
 ## Publishing a release
 
-The [Release workflow](../.github/workflows/release.yml) runs when a tag such as
-`v0.9.0` is pushed. It checks that the tag matches the desktop package, npm lock,
-Cargo package/lock and Tauri versions, runs Kotlin and native tests, then builds
+The [Release workflow](../.github/workflows/release.yml) can be started manually
+from GitHub. It updates the desktop package, npm lock, Cargo package/lock and
+Tauri versions automatically, runs Kotlin and native tests, then builds
 Windows x64 (NSIS, MSI and portable EXE) and macOS Apple Silicon (ad hoc signed
 app archive and install script). Only after both builds pass does it publish the
 GitHub release with the files and `SHA256SUMS`.
 
 For the next release:
 
-1. Update the version in `package.json`, `package-lock.json`,
-   `src-tauri/Cargo.toml`, the `screenshare-desktop` entry in
-   `src-tauri/Cargo.lock`, and `src-tauri/tauri.conf.json`.
-2. Optionally add notes in `docs/releases/vX.Y.Z.md`; otherwise GitHub generates
-   notes from the merged changes.
-3. Commit and push to `master`. In GitHub, open **Actions > Release > Run
-   workflow**, select `master`, enter `vX.Y.Z` in the tag field and click **Run
-   workflow**. The workflow builds that commit and creates the tag when publishing.
-   From the CLI: `gh workflow run release.yml --ref master -f tag=vX.Y.Z`.
-   Pushing a version tag manually also continues to trigger the workflow.
+1. Merge the changes you want to release into `master`.
+2. Open **Actions > Release > Run workflow**, select `master`, enter `vX.Y.Z`
+   and click **Run workflow**. No version edits or manual tag creation are needed.
+
+The workflow updates `package.json`, `package-lock.json`, `src-tauri/Cargo.toml`,
+the `screenshare-desktop` entry in `src-tauri/Cargo.lock`, and
+`src-tauri/tauri.conf.json`. It creates a release commit and tag without moving
+`master`, so the tag contains the exact versioned source used for the builds.
+From the CLI: `gh workflow run release.yml --ref master -f tag=vX.Y.Z`.
+Optional notes in `docs/releases/vX.Y.Z.md` take precedence over generated notes.
+Pushing a version tag manually also continues to trigger the workflow.
 
 Re-run failed jobs in GitHub Actions to retry a failed build or publication.
 If the workflow itself needed a fix, run it manually from `master` with the
 existing release tag (`gh workflow run release.yml --ref master -f tag=vX.Y.Z`).
-An existing tag always builds its original commit; a new tag builds the selected
-branch's commit. A tag that changes during the build stops publication.
+An existing tag always builds its original commit; a new tag uses a versioned
+commit based on the selected branch. A tag that changes during the build stops
+publication. If tests/builds fail after the tag is created, re-run that version
+to retry it; use a new version to include newer source changes.
 A partial publication stays as a draft until all uploads succeed; an already
 published release is never overwritten. No signing secrets are required for
 these unsigned/ad hoc builds. Manual capture and installer smoke tests remain
