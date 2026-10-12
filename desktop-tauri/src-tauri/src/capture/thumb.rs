@@ -24,19 +24,29 @@ pub struct Thumbnail {
 }
 /// Captures on-screen window pixels into a bounded top-down BGRA DIB. The
 /// caller requests this lazily, so inventory enumeration never transfers image data.
-pub fn capture_thumbnail(hwnd: HWND, max_dim: u32) -> Result<Option<Thumbnail>, String> {
+/// `screen` (virtual-desktop rect) captures that area of the desktop instead of a window.
+pub fn capture_thumbnail(
+    hwnd: HWND,
+    screen: Option<RECT>,
+    max_dim: u32,
+) -> Result<Option<Thumbnail>, String> {
     // Several tiles request previews together. Serialize the native captures so
     // full-size intermediate DIBs do not multiply memory usage.
     let _capture_guard = THUMBNAIL_CAPTURE_LOCK
         .lock()
         .map_err(|_| "thumbnail-lock-failed")?;
-    if !unsafe { IsWindow(Some(hwnd)) }.as_bool() {
-        return Ok(None);
-    }
-    let mut rect = RECT::default();
-    unsafe {
-        let _ = GetWindowRect(hwnd, &mut rect);
-    }
+    let rect = if let Some(screen) = screen {
+        screen
+    } else {
+        if !unsafe { IsWindow(Some(hwnd)) }.as_bool() {
+            return Ok(None);
+        }
+        let mut rect = RECT::default();
+        unsafe {
+            let _ = GetWindowRect(hwnd, &mut rect);
+        }
+        rect
+    };
     let source_w = (rect.right - rect.left).max(0) as u32;
     let source_h = (rect.bottom - rect.top).max(0) as u32;
     if source_w == 0 || source_h == 0 {
@@ -56,14 +66,20 @@ pub fn capture_thumbnail(hwnd: HWND, max_dim: u32) -> Result<Option<Thumbnail>, 
         },
         bmiColors: [Default::default()],
     };
+    // A screen has no window: its DC is the whole desktop (GetDC/ReleaseDC with None).
+    let window = screen.is_none().then_some(hwnd);
     unsafe {
-        let window_dc = GetWindowDC(Some(hwnd));
+        let window_dc = if window.is_some() {
+            GetWindowDC(window)
+        } else {
+            GetDC(None)
+        };
         if window_dc.0.is_null() {
             return Ok(None);
         }
         let dc = CreateCompatibleDC(Some(window_dc));
         if dc.0.is_null() {
-            let _ = ReleaseDC(Some(hwnd), window_dc);
+            let _ = ReleaseDC(window, window_dc);
             return Err("thumbnail-dc-failed".into());
         }
         let mut bits: *mut core::ffi::c_void = std::ptr::null_mut();
@@ -72,13 +88,13 @@ pub fn capture_thumbnail(hwnd: HWND, max_dim: u32) -> Result<Option<Thumbnail>, 
                 Ok(bitmap) if !bits.is_null() => bitmap,
                 _ => {
                     let _ = DeleteDC(dc);
-                    let _ = ReleaseDC(Some(hwnd), window_dc);
+                    let _ = ReleaseDC(window, window_dc);
                     return Err("thumbnail-bitmap-failed".into());
                 }
             };
         let old: HGDIOBJ = SelectObject(dc, HGDIOBJ(bitmap.0));
-        let rendered = PrintWindow(hwnd, dc, 2).as_bool();
-        let _ = ReleaseDC(Some(hwnd), window_dc);
+        let rendered = window.is_some_and(|hwnd| PrintWindow(hwnd, dc, 2).as_bool());
+        let _ = ReleaseDC(window, window_dc);
 
         let source_pixel_count = (source_w * source_h * 4) as usize;
         let print_was_blank = std::slice::from_raw_parts(bits as *const u8, source_pixel_count)

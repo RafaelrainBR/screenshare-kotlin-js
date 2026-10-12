@@ -8,7 +8,11 @@ import kotlinx.coroutines.await
 import kotlinx.coroutines.launch
 import org.w3c.dom.mediacapture.MediaStream
 import org.w3c.dom.mediacapture.MediaStreamConstraints
+import org.w3c.dom.mediacapture.MediaStreamTrack
 import platform.DesktopCaptureBridge
+import platform.DesktopCaptureException
+import platform.DesktopCaptureSource
+import platform.DesktopCaptureSourceKind
 import platform.DesktopEnvironment
 import platform.nativeSystemAudioSupported
 import ui.InterfaceMutations
@@ -25,10 +29,16 @@ class ScreenSharing(
     var lastShareWidth: Int = 1920
     var lastShareHeight: Int = 1080
     var lastShareFrameRate: Int = 30
-    private var hasNativeSystemAudio = false
+    private var nativeAudioTrack: MediaStreamTrack? = null
+    private var nativeVideoTrack: MediaStreamTrack? = null
 
     enum class DesktopAudioMode { NONE, SYSTEM, PROCESS }
 
+    /**
+     * [nativeSource] (Windows desktop) captures that screen or window natively,
+     * without the WebView picker, sharing bar or border. Otherwise the standard
+     * getDisplayMedia picker chooses the source.
+     */
     suspend fun setupLocalScreenStream(
         isRequestCurrent: () -> Boolean,
         width: Int,
@@ -36,7 +46,7 @@ class ScreenSharing(
         frameRate: Int,
         useSourceResolution: Boolean,
         desktopAudioMode: DesktopAudioMode = DesktopAudioMode.NONE,
-        audioSourceProcessId: Int? = null,
+        nativeSource: DesktopCaptureSource? = null,
         onStreamEnd: () -> Unit,
         recreatePeerConnections: () -> Unit,
     ) {
@@ -45,11 +55,38 @@ class ScreenSharing(
         lastShareFrameRate = frameRate
 
         val displayStream =
-            window.navigator.mediaDevices
-                .getDisplayMedia(buildMediaStreamConstraints(width, height, frameRate, useSourceResolution))
-                .await()
+            if (nativeSource != null) {
+                // The wizard already confirmed this source, so the old share ends first.
+                if (localScreenStream != null) stopScreenSharing(recreatePeerConnections = {})
+                var track: MediaStreamTrack? = null
+                var endedEarly: String? = null
+                val started =
+                    DesktopCaptureBridge.startVideoCapture(nativeSource, frameRate) { error ->
+                        if (track == null) {
+                            endedEarly = error
+                            return@startVideoCapture
+                        }
+                        // A replaced or stopped capture must not end the current share.
+                        if (nativeVideoTrack !== track) return@startVideoCapture
+                        if (error == "window-closed") {
+                            InterfaceMutations.showError(
+                                "A janela compartilhada foi fechada. O compartilhamento terminou.",
+                            )
+                        }
+                        onStreamEnd()
+                    }
+                endedEarly?.let { throw DesktopCaptureException(it, "A captura terminou antes de começar") }
+                track = started
+                nativeVideoTrack = started
+                createMediaStream(started)
+            } else {
+                window.navigator.mediaDevices
+                    .getDisplayMedia(buildMediaStreamConstraints(width, height, frameRate, useSourceResolution))
+                    .await()
+            }
         if (!isRequestCurrent()) {
             displayStream.getTracks().forEach { it.stop() }
+            stopNativeCapture()
             throw kotlinx.coroutines.CancellationException("Capture request invalidated")
         }
         if (localScreenStream != null) stopScreenSharing(recreatePeerConnections = {})
@@ -57,9 +94,9 @@ class ScreenSharing(
 
         // On desktop, the optional Rust path replaces (never duplicates) the
         // WebView display-audio track. Browser behavior stays exactly unchanged.
-        // The WebView picker remains the consent boundary. Its optional audio
-        // checkbox does not define the native route: the explicit local mode
-        // does, but only after getDisplayMedia has returned successfully.
+        // The WebView picker (or the native wizard) remains the consent boundary.
+        // The picker's optional audio checkbox does not define the native route:
+        // the explicit local mode does, once the video source is running.
         if (desktopAudioMode != DesktopAudioMode.NONE &&
             nativeSystemAudioSupported(
                 isDesktop = DesktopCaptureBridge.isAvailable,
@@ -76,7 +113,7 @@ class ScreenSharing(
 
                         DesktopAudioMode.PROCESS -> {
                             DesktopCaptureBridge.startProcessAudio(
-                                requireNotNull(audioSourceProcessId),
+                                requireNotNull(nativeSource).processId,
                             )
                         }
 
@@ -89,7 +126,7 @@ class ScreenSharing(
                 // deliberate local audio choice.
                 displayStream.getAudioTracks().forEach { it.stop() }
                 localScreenStream = createMediaStream(displayStream.getVideoTracks().first(), nativeTrack)
-                hasNativeSystemAudio = true
+                nativeAudioTrack = nativeTrack
             }.onFailure {
                 // Native failures are recoverable, but must not silently fall
                 // back to an unrelated audio track selected in the OS picker.
@@ -99,7 +136,8 @@ class ScreenSharing(
                 hideAfterLocalShare = false
                 runCatching { DesktopEnvironment.showMainWindow() }
                 InterfaceMutations.showError(
-                    "A tela está sendo compartilhada sem áudio. Não foi possível iniciar o áudio escolhido.",
+                    "O compartilhamento continua sem áudio: não foi possível iniciar o áudio escolhido. " +
+                        "Para tentar de novo, pare e compartilhe outra vez.",
                 )
             }
         }
@@ -114,7 +152,7 @@ class ScreenSharing(
                 // A stopped/replaced stream can report `ended` after the next
                 // share has already started. It must not tear down that share.
                 if (localScreenStream === publishedStream) {
-                    stopNativeSystemAudio()
+                    stopNativeCapture()
                     localScreenStream = null
                     onStreamEnd()
                 }
@@ -160,18 +198,24 @@ class ScreenSharing(
         stream?.getVideoTracks()?.forEach { it.onended = null }
         localScreenStream = null
         stream?.getTracks()?.forEach { track -> track.stop() }
-        stopNativeSystemAudio()
+        stopNativeCapture()
         recreatePeerConnections()
         InterfaceMutations.removeScreenTile(LOCAL_TILE_ID)
         InterfaceMutations.updateShareControls(isLocalSharing = false)
     }
 
-    private fun stopNativeSystemAudio() {
-        if (!hasNativeSystemAudio) return
-        hasNativeSystemAudio = false
-        // The bridge operation is idempotent and intentionally detached from the
-        // browser track's synchronous `onended` callback.
-        coroutineScope.launch { runCatching { DesktopCaptureBridge.stopAudio() } }
+    private fun stopNativeCapture() {
+        val audio = nativeAudioTrack
+        val video = nativeVideoTrack
+        nativeAudioTrack = null
+        nativeVideoTrack = null
+        if (audio == null && video == null) return
+        // The bridge stops only the captures that produced these tracks, so this
+        // detached call cannot end a share that has already replaced them.
+        coroutineScope.launch {
+            audio?.let { runCatching { DesktopCaptureBridge.stopAudio(it) } }
+            video?.let { runCatching { DesktopCaptureBridge.stopVideoCapture(it) } }
+        }
     }
 
     private fun createMediaStream(videoTrack: org.w3c.dom.mediacapture.MediaStreamTrack): MediaStream =
@@ -229,3 +273,14 @@ class ScreenSharing(
         const val LOCAL_TILE_ID = "local"
     }
 }
+
+/** A window sends only its own app's sound; a screen sends the whole default output. */
+fun nativeAudioMode(
+    withAudio: Boolean,
+    kind: DesktopCaptureSourceKind,
+): ScreenSharing.DesktopAudioMode =
+    when {
+        !withAudio -> ScreenSharing.DesktopAudioMode.NONE
+        kind == DesktopCaptureSourceKind.WINDOW -> ScreenSharing.DesktopAudioMode.PROCESS
+        else -> ScreenSharing.DesktopAudioMode.SYSTEM
+    }

@@ -482,7 +482,9 @@ object InterfaceMutations {
     }
 
     fun reopenDesktopShareWizard() {
-        if (DesktopCaptureBridge.isAvailable) Elements.qualityModal.classList.remove("hidden")
+        if (!DesktopCaptureBridge.isAvailable) return
+        openNativeShareWizard()
+        Elements.qualityModal.classList.remove("hidden")
     }
 
     fun updateCameraControls(isLocalCameraOn: Boolean) {

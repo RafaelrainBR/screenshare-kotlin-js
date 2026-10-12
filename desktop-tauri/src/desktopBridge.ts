@@ -29,7 +29,8 @@ function errorFor(error: unknown): NativeCaptureError {
   return new NativeCaptureError('native-unavailable', 'A captura de áudio nativa não está disponível.')
 }
 
-let current: { stop: () => Promise<void> } | undefined
+type NativeCapture = { stop: () => Promise<void>; track?: unknown }
+let current: NativeCapture | undefined
 let metrics: AudioCaptureMetrics = { chunksReceived: 0, invalidChunks: 0, maxJitterUs: 0, totalJitterUs: 0 }
 
 async function startAudio(command: 'start_system_audio' | 'start_process_audio', args: Record<string, unknown>): Promise<MediaStreamTrack> {
@@ -42,7 +43,7 @@ async function startAudio(command: 'start_system_audio' | 'start_process_audio',
   const writer = generator.writable.getWriter()
   let stopped = false
   const channel = new Channel<AudioChunk>()
-  let capture: { stop: () => Promise<void> }
+  let capture: NativeCapture
   channel.onmessage = (chunk) => {
     if (chunk.ended) { void capture.stop(); return }
     if (stopped) return
@@ -61,6 +62,7 @@ async function startAudio(command: 'start_system_audio' | 'start_process_audio',
     writer.write(audio).catch(() => { void capture.stop() })
   }
   capture = {
+    track: generator,
     async stop() {
       if (stopped) return
       stopped = true
@@ -91,8 +93,11 @@ async function startAudio(command: 'start_system_audio' | 'start_process_audio',
 async function startSystemAudio(): Promise<MediaStreamTrack> { return startAudio('start_system_audio', {}) }
 async function startProcessAudio(processId: number, includeProcessTree: boolean): Promise<MediaStreamTrack> { return startAudio('start_process_audio', { processId, includeProcessTree }) }
 
-async function stopSystemAudio(): Promise<void> {
+// With a track, stops only the capture that produced it: a late stop for a
+// replaced share must not end its replacement.
+async function stopSystemAudio(track?: unknown): Promise<void> {
   const active = current
+  if (track != null && active?.track !== track) return
   await active?.stop()
   // `capture.stop()` clears its own ownership. Keep this fallback for a
   // generator that was never fully installed.
@@ -102,7 +107,7 @@ async function stopSystemAudio(): Promise<void> {
 type VideoRequest = { hwnd?: number; rect?: [number, number, number, number]; fps: number }
 type VideoMetrics = { received: number; written: number; droppedWriter: number; latencyUs: number[] }
 const sharedHeader = 16
-let currentVideo: { stop: () => Promise<void> } | undefined
+let currentVideo: NativeCapture | undefined
 let videoMetrics: VideoMetrics = { received: 0, written: 0, droppedWriter: 0, latencyUs: [] }
 // Shared memory slots stay mapped for the whole capture; frames only name a slot.
 const sharedSlots = new Map<number, { generation: number; data: ArrayBuffer }>()
@@ -122,7 +127,9 @@ function releaseSharedSlots(keepGeneration?: number) {
   sharedSlots.set(slot, { generation, data })
 })
 
-async function startVideo(request: VideoRequest): Promise<MediaStreamTrack> {
+// `onEnded` reports a capture that ended on its own (e.g. 'window-closed'): a
+// generator track stopped from script fires no `ended` event of its own.
+async function startVideo(request: VideoRequest, onEnded?: (error: string) => void): Promise<MediaStreamTrack> {
   const g = globalThis as any
   if (typeof g.MediaStreamTrackGenerator === 'undefined' || typeof g.VideoFrame === 'undefined') {
     throw new NativeCaptureError('generator-unavailable', 'MediaStreamTrackGenerator não está disponível neste WebView.')
@@ -133,8 +140,8 @@ async function startVideo(request: VideoRequest): Promise<MediaStreamTrack> {
   const writer = generator.writable.getWriter()
   const channel = new Channel<any>()
   let stopped = false
-  let capture: { stop: () => Promise<void> }
-  const write = (data: Uint8Array, width: number, height: number, timestampUs: number, wallUs: number) => {
+  let capture: NativeCapture
+  const write =(data: Uint8Array, width: number, height: number, timestampUs: number, wallUs: number) => {
     videoMetrics.received++
     // Bounded sample window for latency percentiles.
     if (videoMetrics.latencyUs.push(Date.now() * 1000 - wallUs) > 600) videoMetrics.latencyUs.shift()
@@ -157,9 +164,11 @@ async function startVideo(request: VideoRequest): Promise<MediaStreamTrack> {
       }
     } else if (message?.ended) {
       void capture.stop()
+      onEnded?.(message.error ?? '')
     }
   }
   capture = {
+    track: generator,
     async stop() {
       if (stopped) return
       stopped = true
@@ -182,7 +191,8 @@ async function startVideo(request: VideoRequest): Promise<MediaStreamTrack> {
   return generator as MediaStreamTrack
 }
 
-async function stopVideo(): Promise<void> {
+async function stopVideo(track?: unknown): Promise<void> {
+  if (track != null && currentVideo?.track !== track) return
   await currentVideo?.stop()
 }
 
@@ -199,7 +209,7 @@ function videoSummary() {
   startProcessAudio: async (processId: number, includeProcessTree: boolean) => { try { return await startProcessAudio(processId, includeProcessTree) } catch (error) { throw errorFor(error) } },
   stopAudio: stopSystemAudio,
   enumerateSources: () => invoke<NativeSource[]>('enumerate_sources'),
-  captureThumbnail: (hwnd: number) => invoke('capture_thumbnail', { hwnd }),
+  captureThumbnail: (hwnd: number, rect?: [number, number, number, number]) => invoke('capture_thumbnail', { hwnd, rect }),
   getAudioMetrics: () => ({ ...metrics }),
   startVideoCapture: startVideo,
   stopVideoCapture: stopVideo,
@@ -212,8 +222,8 @@ function videoSummary() {
   hideMainWindow: () => invoke('hide_main_window'),
   showMainWindow: () => invoke('show_main_window'),
   quitApp: () => invoke('quit_app'),
-  setTrayState: (kind: string, active: boolean, participants?: number) =>
-    invoke('set_tray_state', { kind, active, participants }),
+  setTrayState: (kind: string, active: boolean, participants?: number, detail?: string) =>
+    invoke('set_tray_state', { kind, active, participants, detail }),
 }
 
 void listen<string>('tray-action', ({ payload }) => {

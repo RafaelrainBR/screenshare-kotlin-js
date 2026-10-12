@@ -17,6 +17,8 @@ use windows::Win32::Graphics::Dwm::{DwmGetWindowAttribute, DWMWA_EXTENDED_FRAME_
 use windows::Win32::Graphics::Dxgi::{
     CreateDXGIFactory1, IDXGIAdapter1, IDXGIFactory1, IDXGIOutput1, IDXGIOutputDuplication,
     IDXGIResource, DXGI_ERROR_ACCESS_LOST, DXGI_ERROR_WAIT_TIMEOUT, DXGI_OUTDUPL_FRAME_INFO,
+    DXGI_OUTDUPL_POINTER_SHAPE_INFO, DXGI_OUTDUPL_POINTER_SHAPE_TYPE_COLOR,
+    DXGI_OUTDUPL_POINTER_SHAPE_TYPE_MASKED_COLOR, DXGI_OUTDUPL_POINTER_SHAPE_TYPE_MONOCHROME,
 };
 use windows::Win32::Graphics::Gdi::{
     CreateCompatibleDC, CreateDIBSection, DeleteDC, DeleteObject, GetWindowDC, ReleaseDC,
@@ -29,6 +31,7 @@ unsafe extern "system" {
     fn PrintWindow(hwnd: HWND, hdc_blt: HDC, flags: u32) -> BOOL;
 }
 const PW_RENDERFULLCONTENT: u32 = 2;
+const WINDOW_MAX_FPS: u32 = 30;
 
 #[derive(Clone, Copy, Debug)]
 pub enum VideoSource {
@@ -82,6 +85,11 @@ pub fn capture_video_loop(
             height,
         } => Box::new(DxgiGrabber::new(left, top, even(width), even(height))?),
         VideoSource::Window(hwnd) => Box::new(WindowGrabber::new(hwnd)),
+    };
+    // PrintWindow costs ~25 ms per capture and saturates near 35 fps on Windows 10.
+    let fps = match source {
+        VideoSource::Window(_) => fps.min(WINDOW_MAX_FPS),
+        VideoSource::Screen { .. } => fps,
     };
     let interval = Duration::from_micros(1_000_000 / u64::from(fps.clamp(1, 120)));
     let start = Instant::now();
@@ -145,8 +153,13 @@ struct DxgiGrabber {
     staging: Option<ID3D11Texture2D>,
     // Crop inside the output, in output pixels.
     crop: (u32, u32, u32, u32),
+    // Desktop image without the pointer, which DXGI reports separately.
+    desktop: Vec<u8>,
     buffer: Vec<u8>,
     has_frame: bool,
+    pointer: Option<PointerShape>,
+    // Top-left of the pointer image in output pixels; None while it is elsewhere or hidden.
+    pointer_at: Option<(i32, i32)>,
 }
 
 impl DxgiGrabber {
@@ -178,8 +191,11 @@ impl DxgiGrabber {
                         duplication: None,
                         staging: None,
                         crop: (crop_x, crop_y, width, height),
+                        desktop: vec![0; (width * height * 4) as usize],
                         buffer: vec![0; (width * height * 4) as usize],
                         has_frame: false,
+                        pointer: None,
+                        pointer_at: None,
                     });
                 }
             }
@@ -187,25 +203,72 @@ impl DxgiGrabber {
         }
     }
 
-    fn acquire(&mut self) -> Result<bool, String> {
+    /// Returns (desktop image changed, pointer changed).
+    fn acquire(&mut self) -> Result<(bool, bool), String> {
         unsafe {
             if self.duplication.is_none() {
                 // Fails transiently on the secure desktop (UAC, lock screen): retry next tick.
                 self.duplication = self.output.DuplicateOutput(&self.device).ok();
             }
             let Some(duplication) = &self.duplication else {
-                return Ok(false);
+                return Ok((false, false));
             };
             let mut info = DXGI_OUTDUPL_FRAME_INFO::default();
             let mut resource: Option<IDXGIResource> = None;
             match duplication.AcquireNextFrame(0, &mut info, &mut resource) {
                 Ok(()) => {}
-                Err(e) if e.code() == DXGI_ERROR_WAIT_TIMEOUT => return Ok(false),
+                Err(e) if e.code() == DXGI_ERROR_WAIT_TIMEOUT => return Ok((false, false)),
                 Err(e) if e.code() == DXGI_ERROR_ACCESS_LOST => {
                     self.duplication = None;
-                    return Ok(false);
+                    return Ok((false, false));
                 }
                 Err(_) => return Err("dxgi-capture-failed".into()),
+            }
+            let pointer_changed = info.LastMouseUpdateTime != 0;
+            if pointer_changed {
+                let position = info.PointerPosition;
+                self.pointer_at = position
+                    .Visible
+                    .as_bool()
+                    .then_some((position.Position.x, position.Position.y));
+            }
+            if info.PointerShapeBufferSize > 0 {
+                let mut data = vec![0u8; info.PointerShapeBufferSize as usize];
+                let mut required = 0;
+                let mut shape = DXGI_OUTDUPL_POINTER_SHAPE_INFO::default();
+                if duplication
+                    .GetFramePointerShape(
+                        data.len() as u32,
+                        data.as_mut_ptr().cast(),
+                        &mut required,
+                        &mut shape,
+                    )
+                    .is_ok()
+                {
+                    let kind = match shape.Type as i32 {
+                        t if t == DXGI_OUTDUPL_POINTER_SHAPE_TYPE_MONOCHROME.0 => {
+                            Some(PointerKind::Monochrome)
+                        }
+                        t if t == DXGI_OUTDUPL_POINTER_SHAPE_TYPE_COLOR.0 => {
+                            Some(PointerKind::Color)
+                        }
+                        t if t == DXGI_OUTDUPL_POINTER_SHAPE_TYPE_MASKED_COLOR.0 => {
+                            Some(PointerKind::MaskedColor)
+                        }
+                        _ => None,
+                    };
+                    self.pointer = kind.map(|kind| PointerShape {
+                        kind,
+                        width: shape.Width,
+                        height: if kind == PointerKind::Monochrome {
+                            shape.Height / 2
+                        } else {
+                            shape.Height
+                        },
+                        pitch: shape.Pitch,
+                        data,
+                    });
+                }
             }
             let result = (|| {
                 // Pointer-only updates carry no new desktop image.
@@ -234,7 +297,7 @@ impl DxgiGrabber {
                 Ok::<bool, String>(true)
             })();
             let _ = duplication.ReleaseFrame();
-            result
+            Ok((result?, pointer_changed))
         }
     }
 
@@ -252,7 +315,7 @@ impl DxgiGrabber {
             for line in 0..h as usize {
                 let src = (mapped.pData as *const u8)
                     .add((y as usize + line) * mapped.RowPitch as usize + x as usize * 4);
-                std::ptr::copy_nonoverlapping(src, self.buffer[line * row..].as_mut_ptr(), row);
+                std::ptr::copy_nonoverlapping(src, self.desktop[line * row..].as_mut_ptr(), row);
             }
             self.context.Unmap(staging, 0);
         }
@@ -262,15 +325,22 @@ impl DxgiGrabber {
 
 impl Grabber for DxgiGrabber {
     fn grab(&mut self, metrics: &VideoMetrics) -> Grab<'_> {
-        if self.acquire()? {
+        let (image_changed, pointer_changed) = self.acquire()?;
+        if image_changed {
             metrics.new_frames.fetch_add(1, Ordering::Relaxed);
             self.read_staging()?;
-            self.has_frame = true;
         }
-        if !self.has_frame {
+        if !self.has_frame && !image_changed {
             return Ok(None);
         }
-        let (_, _, w, h) = self.crop;
+        let (x, y, w, h) = self.crop;
+        if image_changed || pointer_changed {
+            self.has_frame = true;
+            self.buffer.copy_from_slice(&self.desktop);
+            if let (Some(shape), Some((px, py))) = (&self.pointer, self.pointer_at) {
+                draw_pointer(&mut self.buffer, w, h, shape, px - x as i32, py - y as i32);
+            }
+        }
         Ok(Some((w, h, &self.buffer)))
     }
 }
@@ -446,6 +516,71 @@ impl Grabber for WindowGrabber {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum PointerKind {
+    Monochrome,
+    Color,
+    MaskedColor,
+}
+
+struct PointerShape {
+    kind: PointerKind,
+    width: u32,
+    /// Visible height; a monochrome shape stores its AND mask rows and then its XOR rows.
+    height: u32,
+    pitch: u32,
+    data: Vec<u8>,
+}
+
+/// Draws the pointer with its top-left at (x, y) into a tightly packed BGRA image,
+/// clipping whatever falls outside.
+fn draw_pointer(image: &mut [u8], width: u32, height: u32, shape: &PointerShape, x: i32, y: i32) {
+    let pitch = shape.pitch as usize;
+    for row in 0..shape.height as i32 {
+        let ty = y + row;
+        if ty < 0 || ty >= height as i32 {
+            continue;
+        }
+        for col in 0..shape.width as i32 {
+            let tx = x + col;
+            if tx < 0 || tx >= width as i32 {
+                continue;
+            }
+            let at = (ty as usize * width as usize + tx as usize) * 4;
+            let dst = &mut image[at..at + 3];
+            let (row, col) = (row as usize, col as usize);
+            match shape.kind {
+                PointerKind::Color => {
+                    let src = &shape.data[row * pitch + col * 4..][..4];
+                    let alpha = u32::from(src[3]);
+                    for (d, s) in dst.iter_mut().zip(src) {
+                        *d = ((u32::from(*s) * alpha + u32::from(*d) * (255 - alpha)) / 255) as u8;
+                    }
+                }
+                PointerKind::MaskedColor => {
+                    let src = &shape.data[row * pitch + col * 4..][..4];
+                    for (d, s) in dst.iter_mut().zip(src) {
+                        *d = if src[3] == 0 { *s } else { *d ^ *s };
+                    }
+                }
+                PointerKind::Monochrome => {
+                    let bit =
+                        |r: usize| (shape.data[r * pitch + col / 8] >> (7 - col % 8)) & 1 == 1;
+                    let and = if bit(row) { 0xFF } else { 0 };
+                    let xor = if bit(row + shape.height as usize) {
+                        0xFF
+                    } else {
+                        0
+                    };
+                    for d in dst.iter_mut() {
+                        *d = (*d & and) ^ xor;
+                    }
+                }
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -455,5 +590,69 @@ mod tests {
         assert_eq!(even(1921), 1920);
         assert_eq!(even(1080), 1080);
         assert_eq!(even(1), 2);
+    }
+
+    fn pixel(image: &[u8], width: u32, x: u32, y: u32) -> [u8; 3] {
+        let at = ((y * width + x) * 4) as usize;
+        [image[at], image[at + 1], image[at + 2]]
+    }
+
+    #[test]
+    fn color_pointer_blends_by_alpha_and_clips() {
+        let mut image = vec![100u8; 4 * 4 * 4];
+        let shape = PointerShape {
+            kind: PointerKind::Color,
+            width: 2,
+            height: 2,
+            pitch: 8,
+            // Opaque white, half-transparent black, then fully transparent.
+            data: [
+                [255, 255, 255, 255],
+                [0, 0, 0, 128],
+                [9, 9, 9, 0],
+                [9, 9, 9, 0],
+            ]
+            .concat(),
+        };
+        draw_pointer(&mut image, 4, 4, &shape, -1, 3);
+        // Only the right half of the top row lands inside, at (0, 3).
+        assert_eq!(pixel(&image, 4, 0, 3), [49, 49, 49]);
+        assert_eq!(pixel(&image, 4, 1, 3), [100, 100, 100]);
+        draw_pointer(&mut image, 4, 4, &shape, 2, 0);
+        assert_eq!(pixel(&image, 4, 2, 0), [255, 255, 255]);
+        assert_eq!(pixel(&image, 4, 2, 1), [100, 100, 100]);
+    }
+
+    #[test]
+    fn monochrome_pointer_applies_and_then_xor_masks() {
+        let mut image = vec![0x40u8; 4 * 4];
+        let shape = PointerShape {
+            kind: PointerKind::Monochrome,
+            width: 4,
+            height: 1,
+            pitch: 1,
+            // AND row 0b0011: keep pixels 2-3. XOR row 0b0101: flip pixels 1 and 3.
+            data: vec![0b0011_0000, 0b0101_0000],
+        };
+        draw_pointer(&mut image, 4, 1, &shape, 0, 0);
+        assert_eq!(pixel(&image, 4, 0, 0), [0, 0, 0], "black");
+        assert_eq!(pixel(&image, 4, 1, 0), [255, 255, 255], "white");
+        assert_eq!(pixel(&image, 4, 2, 0), [0x40; 3], "transparent");
+        assert_eq!(pixel(&image, 4, 3, 0), [0xBF; 3], "inverted");
+    }
+
+    #[test]
+    fn masked_color_pointer_replaces_or_xors() {
+        let mut image = vec![0x0Fu8; 2 * 4];
+        let shape = PointerShape {
+            kind: PointerKind::MaskedColor,
+            width: 2,
+            height: 1,
+            pitch: 8,
+            data: [[1, 2, 3, 0], [0xF0, 0xF0, 0xF0, 0xFF]].concat(),
+        };
+        draw_pointer(&mut image, 2, 1, &shape, 0, 0);
+        assert_eq!(pixel(&image, 2, 0, 0), [1, 2, 3]);
+        assert_eq!(pixel(&image, 2, 1, 0), [0xFF; 3]);
     }
 }

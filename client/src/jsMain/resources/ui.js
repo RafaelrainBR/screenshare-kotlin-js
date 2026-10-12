@@ -67,7 +67,7 @@ const qualityModal = document.getElementById('quality-modal');
 const permissionModal = document.getElementById('permission-recovery');
 const dialogs = [permissionModal, qualityModal];
 const activeDialog = () => dialogs.find(dialog => !dialog.classList.contains('hidden'));
-const focusableItems = dialog => [...dialog.querySelectorAll('button, input, select, [tabindex="0"]')]
+const focusableItems = dialog => [...dialog.querySelectorAll('button, input, select, summary, [tabindex="0"]')]
   .filter(item => !item.disabled && item.getClientRects().length);
 dialogs.forEach(dialog => {
   let wasOpen = false;

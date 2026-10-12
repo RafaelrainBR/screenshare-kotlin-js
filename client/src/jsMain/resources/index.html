@@ -154,8 +154,22 @@
     <div class="modal-panel">
       <p class="wizard-kicker">Compartilhamento de tela</p>
       <h2 id="share-wizard-title" class="modal-title">Preparar compartilhamento</h2>
-      <p class="modal-desc">Escolha a qualidade. Na próxima etapa, selecione a tela ou janela.</p>
-      <div class="modal-section">
+      <p id="share-wizard-desc" class="modal-desc">Escolha a qualidade. Na próxima etapa, selecione a tela ou janela.</p>
+      <div id="share-source-step" class="modal-section hidden">
+        <div class="audio-source-toolbar"><span class="field-label">O que compartilhar</span><button id="share-source-refresh" class="btn btn-ghost" type="button">Atualizar</button></div>
+        <div id="share-source-grid" class="audio-source-grid" role="group" aria-label="Telas e janelas"></div>
+        <p id="share-source-state" role="status"></p>
+      </div>
+      <div id="share-audio-step" class="modal-section hidden">
+        <span class="field-label">Áudio</span>
+        <div class="audio-mode-grid">
+          <button type="button" id="share-audio-on" class="audio-mode-card" aria-pressed="false"><strong id="share-audio-on-title">Com áudio</strong><span id="share-audio-on-desc">Escolha uma tela ou janela.</span></button>
+          <button type="button" id="share-audio-off" class="audio-mode-card selected" aria-pressed="true"><strong>Sem áudio</strong><span>Compartilhar apenas a imagem.</span></button>
+        </div>
+      </div>
+      <details id="share-quality" class="modal-section share-quality" open>
+      <summary class="field-label">Qualidade <span id="share-quality-summary"></span></summary>
+      <div id="resolution-section" class="modal-section">
         <span class="field-label">Resolução</span>
         <div id="resolution-options" class="segmented">
           <button type="button" class="btn quality-option" data-source="true">Fonte</button>
@@ -172,22 +186,7 @@
           <button type="button" class="btn quality-option" data-fps="60">60 fps</button>
         </div>
       </div>
-      <div id="desktop-wizard-step-one" class="modal-section hidden">
-        <span class="field-label">Áudio compartilhado</span>
-        <div class="audio-mode-grid">
-          <button type="button" id="desktop-audio-mode-none" class="audio-mode-card"><strong>Sem áudio</strong><span>Compartilhar apenas a imagem.</span></button>
-          <button type="button" id="desktop-audio-mode-system" class="audio-mode-card"><strong>Áudio do computador</strong><span>Enviar todo o som da saída padrão.</span></button>
-          <button type="button" id="desktop-audio-mode-process" class="audio-mode-card"><strong>Áudio de um aplicativo</strong><span>Escolher de qual aplicativo enviar o som.</span></button>
-        </div>
-      </div>
-      <div id="desktop-wizard-step-two" class="hidden">
-        <div class="audio-source-toolbar"><span class="field-label">Aplicativo para o áudio</span><button id="desktop-audio-refresh" class="btn btn-ghost" type="button">Atualizar</button></div>
-        <div id="desktop-audio-source-grid" class="audio-source-grid"></div>
-        <p id="desktop-audio-picker-state" role="status"></p>
-        <p class="field-hint">Na próxima etapa, escolha a tela ou janela para o vídeo.</p>
-        <div id="desktop-audio-thumbnail" class="hidden"></div>
-        <button id="desktop-back-to-audio-modes" class="btn btn-ghost" type="button">Voltar aos modos de áudio</button>
-      </div>
+      </details>
       <div class="modal-actions">
         <button id="cancel-share" type="button" class="btn btn-ghost">Cancelar</button>
         <button id="confirm-share" type="button" class="btn btn-primary">Escolher tela ou janela</button>

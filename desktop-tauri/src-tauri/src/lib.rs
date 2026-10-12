@@ -28,6 +28,18 @@ struct TrayUiState {
     qualities: [CheckMenuItem<tauri::Wry>; 3],
     participants: u32,
     remote_sharing: bool,
+    /// Title of what this user shares, while sharing.
+    sharing: Option<String>,
+}
+
+/// Window titles can be very long; the menu and tooltip only fit a short name.
+fn short_title(title: &str) -> String {
+    const MAX: usize = 40;
+    if title.chars().count() <= MAX {
+        title.to_string()
+    } else {
+        format!("{}…", title.chars().take(MAX - 1).collect::<String>())
+    }
 }
 
 #[tauri::command]
@@ -35,6 +47,7 @@ fn set_tray_state(
     kind: String,
     active: bool,
     participants: Option<u32>,
+    detail: Option<String>,
     state: State<'_, Mutex<TrayUiState>>,
 ) -> Result<(), String> {
     let mut tray = state.lock().map_err(|_| "tray-state-unavailable")?;
@@ -61,12 +74,13 @@ fn set_tray_state(
                 .map_err(|_| "tray-menu-unavailable")?;
         }
         "screen" => {
+            tray.sharing = active.then(|| short_title(detail.as_deref().unwrap_or("a tela")));
+            let text = match &tray.sharing {
+                Some(title) => format!("Compartilhando {title} · Parar"),
+                None => "Compartilhar tela ou janela…".into(),
+            };
             tray.screen
-                .set_text(if active {
-                    "Tela compartilhada · Parar"
-                } else {
-                    "Compartilhar tela ou janela…"
-                })
+                .set_text(text)
                 .map_err(|_| "tray-menu-unavailable")?;
         }
         "remote" => {
@@ -105,14 +119,12 @@ fn set_tray_state(
         "participants" => {}
         _ => return Err("unknown-tray-state".into()),
     }
-    let tooltip = if tray.remote_sharing {
-        format!(
-            "Screenshare · {} participantes · compartilhamento disponível",
-            tray.participants
-        )
-    } else {
-        format!("Screenshare · {} participantes", tray.participants)
-    };
+    let mut tooltip = format!("Screenshare · {} participantes", tray.participants);
+    if let Some(title) = &tray.sharing {
+        tooltip += &format!(" · Compartilhando {title}");
+    } else if tray.remote_sharing {
+        tooltip += " · compartilhamento disponível";
+    }
     tray.tray
         .set_tooltip(Some(tooltip))
         .map_err(|_| "tray-icon-unavailable".to_string())
@@ -229,9 +241,20 @@ fn enumerate_sources() -> Vec<Source> {
 }
 #[tauri::command]
 #[cfg(target_os = "windows")]
-fn capture_thumbnail(hwnd: u64) -> Result<Option<Thumbnail>, String> {
+fn capture_thumbnail(
+    hwnd: u64,
+    rect: Option<(i32, i32, i32, i32)>,
+) -> Result<Option<Thumbnail>, String> {
     capture::thumb::capture_thumbnail(
         windows::Win32::Foundation::HWND(hwnd as usize as *mut _),
+        rect.map(
+            |(left, top, right, bottom)| windows::Win32::Foundation::RECT {
+                left,
+                top,
+                right,
+                bottom,
+            },
+        ),
         capture::thumb::MAX_THUMB_DIM,
     )
 }
@@ -726,6 +749,7 @@ pub fn run() {
                 qualities: [q720, q1080, q4k],
                 participants: 0,
                 remote_sharing: false,
+                sharing: None,
             }));
 
             if let Some(window) = app.get_webview_window("main") {
@@ -781,6 +805,15 @@ mod tests {
             ),
             (-1920.0, 30.0)
         );
+    }
+
+    #[test]
+    fn long_shared_titles_are_shortened_on_character_boundaries() {
+        assert_eq!(short_title("Spotify"), "Spotify");
+        let long = "á".repeat(50);
+        let short = short_title(&long);
+        assert_eq!(short.chars().count(), 40);
+        assert!(short.ends_with('…'));
     }
 
     #[test]

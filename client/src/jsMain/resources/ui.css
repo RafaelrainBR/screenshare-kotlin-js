@@ -337,8 +337,12 @@ button.participant-options { position: absolute; top: 5px; right: 5px; width: 28
 .audio-source-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
 .audio-source-tile { min-width: 0; padding: 8px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface-2); color: var(--text); text-align: left; }
 .audio-source-preview { display: grid; place-items: center; width: 100%; aspect-ratio: 16/9; margin-bottom: 7px; overflow: hidden; border: 1px solid #4c5664; border-radius: 5px; background: #202632; color: var(--dim); font-size: 11px; }
-.audio-source-preview canvas, #desktop-audio-thumbnail canvas { display: block; width: 100%; height: auto; }
+.audio-source-preview canvas { display: block; width: 100%; height: auto; }
 .audio-source-title { font-size: 12px; overflow-wrap: anywhere; }
+.source-group { grid-column: 1 / -1; margin: 6px 0 0; color: var(--dim); font-size: 11px; font-weight: 600; }
+#share-audio-step .audio-mode-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.share-quality summary { cursor: pointer; }
+#share-quality-summary { margin-left: 6px; color: var(--dim); font-weight: 400; }
 .wizard-kicker { color: var(--dim); font: 500 10px var(--mono); letter-spacing: .06em; text-transform: uppercase; }
 .wizard-note { margin: 12px 0; padding: 10px 12px; border: 1px solid var(--line); border-radius: 7px; color: var(--dim); font-size: 11px; }
 .modal-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; margin-top: 22px; padding-top: 16px; border-top: 1px solid var(--line); }

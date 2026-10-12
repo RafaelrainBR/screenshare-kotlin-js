@@ -210,6 +210,7 @@
       });
     };
     capture = {
+      track: generator,
       async stop() {
         if (stopped) return;
         stopped = true;
@@ -242,8 +243,9 @@
   async function startProcessAudio(processId, includeProcessTree) {
     return startAudio("start_process_audio", { processId, includeProcessTree });
   }
-  async function stopSystemAudio() {
+  async function stopSystemAudio(track) {
     const active = current;
+    if (track != null && active?.track !== track) return;
     await active?.stop();
     if (current === active) current = void 0;
   }
@@ -265,7 +267,7 @@
     new Uint8Array(data)[0] = 0;
     sharedSlots.set(slot, { generation, data });
   });
-  async function startVideo(request) {
+  async function startVideo(request, onEnded) {
     const g = globalThis;
     if (typeof g.MediaStreamTrackGenerator === "undefined" || typeof g.VideoFrame === "undefined") {
       throw new NativeCaptureError("generator-unavailable", "MediaStreamTrackGenerator n\xE3o est\xE1 dispon\xEDvel neste WebView.");
@@ -303,9 +305,11 @@
         }
       } else if (message?.ended) {
         void capture.stop();
+        onEnded?.(message.error ?? "");
       }
     };
     capture = {
+      track: generator,
       async stop() {
         if (stopped) return;
         stopped = true;
@@ -330,7 +334,8 @@
     }
     return generator;
   }
-  async function stopVideo() {
+  async function stopVideo(track) {
+    if (track != null && currentVideo?.track !== track) return;
     await currentVideo?.stop();
   }
   function videoSummary() {
@@ -355,7 +360,7 @@
     },
     stopAudio: stopSystemAudio,
     enumerateSources: () => invoke("enumerate_sources"),
-    captureThumbnail: (hwnd) => invoke("capture_thumbnail", { hwnd }),
+    captureThumbnail: (hwnd, rect) => invoke("capture_thumbnail", { hwnd, rect }),
     getAudioMetrics: () => ({ ...metrics }),
     startVideoCapture: startVideo,
     stopVideoCapture: stopVideo,
@@ -368,7 +373,7 @@
     hideMainWindow: () => invoke("hide_main_window"),
     showMainWindow: () => invoke("show_main_window"),
     quitApp: () => invoke("quit_app"),
-    setTrayState: (kind, active, participants) => invoke("set_tray_state", { kind, active, participants })
+    setTrayState: (kind, active, participants, detail) => invoke("set_tray_state", { kind, active, participants, detail })
   };
   void listen("tray-action", ({ payload }) => {
     window.dispatchEvent(new CustomEvent("screenshare:tray-action", { detail: payload }));
