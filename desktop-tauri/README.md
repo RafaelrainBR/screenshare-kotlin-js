@@ -16,12 +16,17 @@ For the next release:
    `src-tauri/Cargo.lock`, and `src-tauri/tauri.conf.json`.
 2. Optionally add notes in `docs/releases/vX.Y.Z.md`; otherwise GitHub generates
    notes from the merged changes.
-3. Commit and push to `master`, then run `git tag vX.Y.Z` and
-   `git push origin vX.Y.Z` from that commit.
+3. Commit and push to `master`. In GitHub, open **Actions > Release > Run
+   workflow**, select `master`, enter `vX.Y.Z` in the tag field and click **Run
+   workflow**. The workflow builds that commit and creates the tag when publishing.
+   From the CLI: `gh workflow run release.yml --ref master -f tag=vX.Y.Z`.
+   Pushing a version tag manually also continues to trigger the workflow.
 
 Re-run failed jobs in GitHub Actions to retry a failed build or publication.
 If the workflow itself needed a fix, run it manually from `master` with the
 existing release tag (`gh workflow run release.yml --ref master -f tag=vX.Y.Z`).
+An existing tag always builds its original commit; a new tag builds the selected
+branch's commit. A tag that changes during the build stops publication.
 A partial publication stays as a draft until all uploads succeed; an already
 published release is never overwritten. No signing secrets are required for
 these unsigned/ad hoc builds. Manual capture and installer smoke tests remain

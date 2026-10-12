@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: Existing version tag to build and publish
+        description: Version tag to create or rebuild (vX.Y.Z; must match the app version)
         required: true
         type: string
 
@@ -23,10 +23,21 @@ concurrency:
 jobs:
   test:
     runs-on: ubuntu-latest
+    outputs:
+      commit: ${{ steps.source.outputs.commit }}
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: ${{ env.RELEASE_TAG }}
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - name: Resolve release commit
+        id: source
+        run: |
+          [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          if git show-ref --verify --quiet "refs/tags/$RELEASE_TAG"; then
+            git checkout --detach "$RELEASE_TAG"
+          fi
+          echo "commit=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
       - uses: actions/setup-java@v6
         with:
           distribution: temurin
@@ -77,7 +88,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: ${{ env.RELEASE_TAG }}
+          ref: ${{ needs.test.outputs.commit }}
       - uses: actions/setup-java@v6
         with:
           distribution: temurin
@@ -124,14 +135,14 @@ jobs:
           if-no-files-found: error
 
   publish:
-    needs: build
+    needs: [test, build]
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: ${{ env.RELEASE_TAG }}
+          ref: ${{ needs.test.outputs.commit }}
       - uses: actions/download-artifact@v8
         with:
           pattern: release-*
@@ -140,7 +151,14 @@ jobs:
       - name: Publish release
         env:
           GH_TOKEN: ${{ github.token }}
+          RELEASE_COMMIT: ${{ needs.test.outputs.commit }}
         run: |
+          if git ls-remote --exit-code origin "refs/tags/$RELEASE_TAG"; then
+            git fetch origin "refs/tags/$RELEASE_TAG:refs/tags/$RELEASE_TAG"
+            test "$(git rev-parse "$RELEASE_TAG^{commit}")" = "$RELEASE_COMMIT"
+          else
+            test "$?" -eq 2
+          fi
           test "$(find release-assets -type f | wc -l)" -eq 5
           cd release-assets
           sha256sum * > SHA256SUMS
@@ -150,8 +168,8 @@ jobs:
             test "$(cat release-state)" = true
             gh release upload "$RELEASE_TAG" release-assets/* --clobber
           elif [ -f "$notes" ]; then
-            gh release create "$RELEASE_TAG" release-assets/* --verify-tag --draft --title "Screenshare ${RELEASE_TAG#v}" --notes-file "$notes"
+            gh release create "$RELEASE_TAG" release-assets/* --target "$RELEASE_COMMIT" --draft --title "Screenshare ${RELEASE_TAG#v}" --notes-file "$notes"
           else
-            gh release create "$RELEASE_TAG" release-assets/* --verify-tag --draft --title "Screenshare ${RELEASE_TAG#v}" --generate-notes
+            gh release create "$RELEASE_TAG" release-assets/* --target "$RELEASE_COMMIT" --draft --title "Screenshare ${RELEASE_TAG#v}" --generate-notes
           fi
           gh release edit "$RELEASE_TAG" --draft=false --latest
