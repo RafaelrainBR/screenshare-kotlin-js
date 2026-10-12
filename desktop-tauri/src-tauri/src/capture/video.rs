@@ -2,7 +2,7 @@
 //! DXGI Desktop Duplication for screens and PrintWindow for windows (Windows 10 path).
 //! Frames are BGRA, top-down, tightly packed (stride = width * 4) and paced to the
 //! requested frame rate; a busy consumer drops frames instead of queueing them.
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use windows::core::{Interface, BOOL};
@@ -70,9 +70,10 @@ pub struct VideoMetrics {
 
 /// Runs until `running` is cleared or the source fails. `deliver` returns false when
 /// the consumer had no free slot; that frame is counted as dropped and never queued.
+/// `fps` is read every tick, so the rate can change while the capture runs.
 pub fn capture_video_loop(
     source: VideoSource,
-    fps: u32,
+    fps: Arc<AtomicU32>,
     running: Arc<AtomicBool>,
     metrics: Arc<VideoMetrics>,
     mut deliver: impl FnMut(Frame) -> bool,
@@ -86,15 +87,10 @@ pub fn capture_video_loop(
         } => Box::new(DxgiGrabber::new(left, top, even(width), even(height))?),
         VideoSource::Window(hwnd) => Box::new(WindowGrabber::new(hwnd)),
     };
-    // PrintWindow costs ~25 ms per capture and saturates near 35 fps on Windows 10.
-    let fps = match source {
-        VideoSource::Window(_) => fps.min(WINDOW_MAX_FPS),
-        VideoSource::Screen { .. } => fps,
-    };
-    let interval = Duration::from_micros(1_000_000 / u64::from(fps.clamp(1, 120)));
     let start = Instant::now();
     let mut next = start;
     while running.load(Ordering::Acquire) {
+        let interval = frame_interval(source, fps.load(Ordering::Relaxed));
         let now = Instant::now();
         if now < next {
             std::thread::sleep(next - now);
@@ -130,6 +126,15 @@ pub fn capture_video_loop(
         }
     }
     Ok(())
+}
+
+fn frame_interval(source: VideoSource, fps: u32) -> Duration {
+    // PrintWindow costs ~25 ms per capture and saturates near 35 fps on Windows 10.
+    let fps = match source {
+        VideoSource::Window(_) => fps.min(WINDOW_MAX_FPS),
+        VideoSource::Screen { .. } => fps,
+    };
+    Duration::from_micros(1_000_000 / u64::from(fps.clamp(1, 120)))
 }
 
 fn even(value: u32) -> u32 {
@@ -584,6 +589,21 @@ fn draw_pointer(image: &mut [u8], width: u32, height: u32, shape: &PointerShape,
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn frame_interval_caps_windows_and_clamps_rates() {
+        let screen = VideoSource::Screen {
+            left: 0,
+            top: 0,
+            width: 2,
+            height: 2,
+        };
+        let window = VideoSource::Window(HWND(std::ptr::null_mut()));
+        assert_eq!(frame_interval(screen, 10), Duration::from_millis(100));
+        assert_eq!(frame_interval(screen, 60), Duration::from_micros(16_666));
+        assert_eq!(frame_interval(window, 60), Duration::from_micros(33_333));
+        assert_eq!(frame_interval(screen, 0), Duration::from_secs(1));
+    }
 
     #[test]
     fn frame_dimensions_are_even() {

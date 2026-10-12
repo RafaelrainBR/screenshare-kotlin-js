@@ -274,8 +274,29 @@ const PANEL_SHOW_GRACE: Duration = Duration::from_millis(250);
 // Pressing the tray icon blurs the panel first; the click that follows must not reopen it.
 const PANEL_REOPEN_GUARD: Duration = Duration::from_millis(400);
 
+// Passed by the login item so a login launch stays in the tray.
+const AUTOSTART_ARG: &str = "--autostart";
+
+#[tauri::command]
+fn launched_at_login() -> bool {
+    std::env::args().any(|arg| arg == AUTOSTART_ARG)
+}
+
+/// The dock icon (and Cmd+Tab entry) follows the full window: an app living in the tray has neither.
+fn set_dock_visible(app: &tauri::AppHandle, visible: bool) {
+    #[cfg(target_os = "macos")]
+    let _ = app.set_activation_policy(if visible {
+        tauri::ActivationPolicy::Regular
+    } else {
+        tauri::ActivationPolicy::Accessory
+    });
+    #[cfg(not(target_os = "macos"))]
+    let _ = (app, visible);
+}
+
 fn hide_window(window: &tauri::WebviewWindow) -> tauri::Result<()> {
     window.hide()?;
+    set_dock_visible(window.app_handle(), false);
     window.emit("viewer-mode", "hidden")
 }
 
@@ -284,6 +305,8 @@ struct VideoCaptureState {
     capture: CaptureState,
     metrics: Mutex<Option<Arc<capture::video::VideoMetrics>>>,
     generation: std::sync::atomic::AtomicU64,
+    // Shared with the running capture loop, which reads it every tick.
+    fps: Arc<std::sync::atomic::AtomicU32>,
 }
 
 #[cfg(target_os = "windows")]
@@ -348,7 +371,8 @@ async fn start_video_capture(
         .lock()
         .map_err(|_| "capture-state-unavailable")? = Some(metrics.clone());
     let app = window.app_handle().clone();
-    let fps = request.fps;
+    state.fps.store(request.fps, Ordering::Relaxed);
+    let fps = state.fps.clone();
     install(&state.capture, move |running| {
         let result = capture_video_loop(source, fps, running, metrics, |frame| {
             let Some(slot) = slots.fill(frame.data) else {
@@ -374,6 +398,13 @@ async fn start_video_capture(
 #[cfg(target_os = "windows")]
 fn stop_video_capture(state: State<'_, VideoCaptureState>) -> Result<(), String> {
     stop_active(&state.capture)
+}
+
+/// Changes the running capture's frame rate without restarting it.
+#[tauri::command]
+#[cfg(target_os = "windows")]
+fn set_video_capture_fps(fps: u32, state: State<'_, VideoCaptureState>) {
+    state.fps.store(fps, Ordering::Relaxed);
 }
 
 #[tauri::command]
@@ -535,7 +566,10 @@ fn present_window(
                 Ok(())
             }
         })
-        .and_then(|_| window.show())
+        .and_then(|_| {
+            set_dock_visible(window.app_handle(), !compact);
+            window.show()
+        })
         .and_then(|_| window.set_focus())
         .map_err(|_| "window-show-failed".to_string())
 }
@@ -620,6 +654,7 @@ pub fn run() {
             },
             metrics: Mutex::new(None),
             generation: Default::default(),
+            fps: Default::default(),
         })
         .invoke_handler(tauri::generate_handler![
             start_system_audio,
@@ -627,11 +662,13 @@ pub fn run() {
             stop_audio,
             start_video_capture,
             stop_video_capture,
+            set_video_capture_fps,
             video_capture_metrics,
             enumerate_sources,
             capture_thumbnail,
             hide_main_window,
             show_main_window,
+            launched_at_login,
             quit_app,
             set_tray_state
         ]);
@@ -644,10 +681,12 @@ pub fn run() {
             mac_commands::stop_audio,
             mac_commands::start_video_capture,
             mac_commands::stop_video_capture,
+            mac_commands::set_video_capture_fps,
             mac_commands::enumerate_sources,
             mac_commands::capture_thumbnail,
             hide_main_window,
             show_main_window,
+            launched_at_login,
             quit_app,
             set_tray_state
         ]);
@@ -655,6 +694,7 @@ pub fn run() {
     let builder = builder.invoke_handler(tauri::generate_handler![
         hide_main_window,
         show_main_window,
+        launched_at_login,
         quit_app,
         set_tray_state
     ]);
@@ -662,11 +702,16 @@ pub fn run() {
         .setup(|app| {
             #[cfg(target_os = "macos")]
             session_media::install(app.handle());
-            use tauri_plugin_autostart::MacosLauncher;
+            use tauri_plugin_autostart::{MacosLauncher, ManagerExt};
             app.handle().plugin(tauri_plugin_autostart::init(
                 MacosLauncher::LaunchAgent,
-                None,
+                Some(vec![AUTOSTART_ARG]),
             ))?;
+            // Login items registered by older versions lack the flag; rewrite them.
+            let autolaunch = app.autolaunch();
+            if autolaunch.is_enabled().unwrap_or(false) {
+                let _ = autolaunch.enable();
+            }
             let open = MenuItem::with_id(app, "open", "Abrir sala", true, None::<&str>)?;
             let mic = MenuItem::with_id(
                 app,
@@ -780,6 +825,12 @@ pub fn run() {
                     tauri::WindowEvent::Focused(false) => hide_panel_on_blur(&handle),
                     _ => {}
                 });
+                // The window starts hidden so a login launch never flashes it; any other launch opens it.
+                if launched_at_login() {
+                    set_dock_visible(app.handle(), false);
+                } else {
+                    let _ = present_window(&window, false, None);
+                }
             }
             Ok(())
         })

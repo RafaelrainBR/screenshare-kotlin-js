@@ -25,7 +25,7 @@ objc2 = "0.6.4"
 objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std", "NSWorkspace"] }
 objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSNotification", "NSDistributedNotificationCenter", "NSOperation", "NSObject", "NSString", "block2"] }
 [target.'cfg(windows)'.dependencies]
-wasapi = "0.24"
+wasapi = "0.26"
 webview2-com = "0.39"
 windows = { version = "0.62", features = [
   "Win32_Foundation",

@@ -68,8 +68,15 @@ fun main() {
         onMicButtonToggle = {
             getSessionOrAlert().handleMicButtonToggle()
         },
-        onStartScreenShare = { width, height, fps, useSourceResolution, audioMode, nativeSource ->
-            getSessionOrAlert().handleStartScreenShare(width, height, fps, useSourceResolution, audioMode, nativeSource)
+        onStartScreenShare = { width, height, profile, useSourceResolution, audioMode, nativeSource ->
+            getSessionOrAlert().handleStartScreenShare(
+                width,
+                height,
+                profile,
+                useSourceResolution,
+                audioMode,
+                nativeSource,
+            )
         },
         onStopScreenShare = {
             getSessionOrAlert().handleStopScreenShare()
@@ -89,6 +96,8 @@ fun main() {
         onCameraDeviceChange = { deviceId ->
             getSessionOrAlert().handleCameraDeviceChange(deviceId)
         },
+        // Outside a room this only sets the next share; no session is needed.
+        onShareProfileChange = { profile -> session?.updateShareProfile(profile) },
     )
     InterfaceMutations.restoreOutputState()
     InterfaceMutations.setTrayRoom(null)
@@ -114,13 +123,17 @@ fun main() {
         roomInput.value = window.localStorage.getItem("screenshare.lastRoomId").orEmpty()
         websocketCoroutineScope.launch {
             runCatching { DesktopEnvironment.autoStartEnabled() }.onSuccess { startupToggle.checked = it }
+            // The native side already opened the window, or kept it hidden for a login launch.
+            val atLogin = runCatching { DesktopEnvironment.launchedAtLogin() }.getOrDefault(false)
             if (startupToggle.checked && usernameInput.value.isNotBlank() && roomInput.value.isNotBlank()) {
-                DesktopEnvironment.viewerMode = "hidden"
+                if (atLogin) DesktopEnvironment.viewerMode = "hidden"
                 kotlinx.browser.document
                     .getElementById("joinBtn")
                     ?.asDynamic()
                     ?.click()
-                runCatching { DesktopEnvironment.hideMainWindow() }
+            } else if (atLogin) {
+                // Nothing to rejoin: a tray icon alone would look like the app failed to start.
+                runCatching { DesktopEnvironment.showMainWindow() }
             }
         }
         startupToggle.addEventListener("change", {
@@ -247,24 +260,15 @@ fun main() {
             }
 
             "quality720" -> {
-                kotlinx.browser.document
-                    .querySelector("[data-width='1280']")
-                    ?.asDynamic()
-                    ?.click()
+                ui.chooseShareResolution("1280x720")
             }
 
             "quality1080" -> {
-                kotlinx.browser.document
-                    .querySelector("[data-width='1920']")
-                    ?.asDynamic()
-                    ?.click()
+                ui.chooseShareResolution("1920x1080")
             }
 
             "quality4k" -> {
-                kotlinx.browser.document
-                    .querySelector("[data-width='3840']")
-                    ?.asDynamic()
-                    ?.click()
+                ui.chooseShareResolution("3840x2160")
             }
 
             "leave" -> {

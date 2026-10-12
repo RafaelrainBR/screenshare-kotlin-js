@@ -11,20 +11,29 @@ import org.khronos.webgl.Uint8ClampedArray
 import org.w3c.dom.HTMLElement
 import org.w3c.dom.HTMLSelectElement
 import org.w3c.dom.ImageData
+import org.w3c.dom.events.Event
+import org.w3c.dom.events.KeyboardEvent
 import platform.DesktopCaptureBridge
 import platform.DesktopCaptureException
 import platform.DesktopCaptureSource
 import platform.DesktopCaptureSourceKind
 import services.ScreenSharing
+import services.SharePreset
+import services.SharePriority
+import services.ShareProfile
 import services.nativeAudioMode
+import services.shareProfileFrom
 
 private const val DEFAULT_WIDTH = 1920
 private const val DEFAULT_HEIGHT = 1080
-private const val DEFAULT_FPS = 30
-
 private var selectedWidth = window.localStorage.getItem("screenshare.shareWidth")?.toIntOrNull() ?: DEFAULT_WIDTH
 private var selectedHeight = window.localStorage.getItem("screenshare.shareHeight")?.toIntOrNull() ?: DEFAULT_HEIGHT
-private var selectedFps = window.localStorage.getItem("screenshare.shareFps")?.toIntOrNull() ?: DEFAULT_FPS
+private var shareProfile =
+    shareProfileFrom(
+        window.localStorage.getItem("screenshare.shareFps"),
+        window.localStorage.getItem("screenshare.sharePriority"),
+        window.localStorage.getItem("screenshare.shareBitrate"),
+    )
 private var useSourceResolution = window.localStorage.getItem("screenshare.sourceResolution") == "true"
 private var selectedSource: DesktopCaptureSource? = null
 private var shareAudio = false
@@ -33,6 +42,7 @@ private var sourceRefreshTimer: Int? = null
 private var sourceRefreshGeneration = 0
 private var sourceRefreshInFlight = false
 private var renderedSourcesSignature = ""
+private var shareProfileListener: (ShareProfile) -> Unit = {}
 
 fun registerUIHandlers(
     joinRoom: (username: String, roomId: String) -> Unit,
@@ -41,7 +51,7 @@ fun registerUIHandlers(
     onStartScreenShare: (
         width: Int,
         height: Int,
-        fps: Int,
+        profile: ShareProfile,
         useSourceResolution: Boolean,
         audioMode: ScreenSharing.DesktopAudioMode,
         nativeSource: DesktopCaptureSource?,
@@ -52,11 +62,14 @@ fun registerUIHandlers(
     onInputDeviceChange: (deviceId: String) -> Unit,
     onOutputDeviceChange: (deviceId: String) -> Unit,
     onCameraDeviceChange: (deviceId: String) -> Unit,
+    onShareProfileChange: (ShareProfile) -> Unit,
 ) {
     setupJoinButtonHandler(joinRoom)
     setupSendMessageButtonHandler(sendChatMessage)
     setupMicToggleButtonHandler(onMicButtonToggle)
+    shareProfileListener = onShareProfileChange
     setupShareQualityModal(onStartScreenShare)
+    setupShareMenu()
     setupStopScreenShareButtonHandler(onStopScreenShare)
     setupCameraButtons(onStartCameraShare, onStopCameraShare)
     setupDeviceHandlers(onInputDeviceChange, onOutputDeviceChange, onCameraDeviceChange)
@@ -118,18 +131,25 @@ private fun setupMicToggleButtonHandler(onMicButtonToggle: () -> Unit) =
     })
 
 private fun setupShareQualityModal(
-    onStartScreenShare: (Int, Int, Int, Boolean, ScreenSharing.DesktopAudioMode, DesktopCaptureSource?) -> Unit,
+    onStartScreenShare: (
+        Int,
+        Int,
+        ShareProfile,
+        Boolean,
+        ScreenSharing.DesktopAudioMode,
+        DesktopCaptureSource?,
+    ) -> Unit,
 ) {
     Elements.shareScreenButton.addEventListener("click", { e ->
         e.preventDefault()
-        resetQualitySelection()
+        renderShareSettings()
         // Browsers never load the bridge or enumerate local windows. Their
         // direct, standard getDisplayMedia flow remains intentionally simple.
         if (!platform.DesktopEnvironment.isAvailable) {
             onStartScreenShare(
                 selectedWidth,
                 selectedHeight,
-                selectedFps,
+                shareProfile,
                 useSourceResolution,
                 ScreenSharing.DesktopAudioMode.NONE,
                 null,
@@ -148,7 +168,7 @@ private fun setupShareQualityModal(
             onStartScreenShare(
                 selectedWidth,
                 selectedHeight,
-                selectedFps,
+                shareProfile,
                 useSourceResolution,
                 ScreenSharing.DesktopAudioMode.NONE,
                 null,
@@ -163,7 +183,7 @@ private fun setupShareQualityModal(
         onStartScreenShare(
             right - left,
             bottom - top,
-            selectedFps,
+            shareProfile,
             true,
             nativeAudioMode(shareAudio, source.kind),
             source,
@@ -181,42 +201,38 @@ private fun setupShareQualityModal(
         }
     })
 
-    val options = document.getElementsByClassName("quality-option")
-    for (i in 0 until options.length) {
-        val option = options.item(i) as HTMLElement
-        option.addEventListener("click", {
-            val group = option.parentElement
-            val groupOptions = group?.getElementsByClassName("quality-option") ?: return@addEventListener
-            for (j in 0 until groupOptions.length) {
-                (groupOptions.item(j) as HTMLElement).classList.remove("btn-primary")
-            }
-            option.classList.add("btn-primary")
-
-            if (option.getAttribute("data-source") != null) {
-                useSourceResolution = true
-                window.localStorage.setItem("screenshare.sourceResolution", "true")
-            } else if (option.getAttribute("data-width") != null) {
-                useSourceResolution = false
-                window.localStorage.setItem("screenshare.sourceResolution", "false")
-                option.getAttribute("data-width")?.toIntOrNull()?.let { selectedWidth = it }
-                option.getAttribute("data-height")?.toIntOrNull()?.let { selectedHeight = it }
-                window.localStorage.setItem("screenshare.shareWidth", selectedWidth.toString())
-                window.localStorage.setItem("screenshare.shareHeight", selectedHeight.toString())
-            }
-            option.getAttribute("data-fps")?.toIntOrNull()?.let {
-                selectedFps = it
-                window.localStorage.setItem("screenshare.shareFps", selectedFps.toString())
-            }
-            InterfaceMutations.syncTrayQuality()
-            updateQualitySummary()
-        })
-    }
-    Elements.shareAudioOn.onclick = {
-        setShareAudio(true)
+    Elements.shareResolution.onchange = {
+        chooseShareResolution(Elements.shareResolution.value)
         null
     }
-    Elements.shareAudioOff.onclick = {
-        setShareAudio(false)
+    Elements.shareFps.onchange = {
+        setShareProfile(shareProfile.copy(fps = Elements.shareFps.value.toInt()))
+        renderShareSettings()
+        null
+    }
+    Elements.sharePriority.onchange = {
+        setShareProfile(shareProfile.copy(priority = SharePriority.valueOf(Elements.sharePriority.value)))
+        renderShareSettings()
+        null
+    }
+    Elements.shareBitrate.onchange = {
+        val bitrate = Elements.shareBitrate.value.toInt()
+        setShareProfile(shareProfile.copy(maxBitrate = bitrate.takeIf { it > 0 }))
+        renderShareSettings()
+        null
+    }
+    val presetCards = Elements.sharePresetGrid.querySelectorAll("[data-preset]")
+    for (i in 0 until presetCards.length) {
+        val card = presetCards.item(i) as HTMLElement
+        card.addEventListener("click", { choosePreset(SharePreset.valueOf(card.getAttribute("data-preset")!!)) })
+    }
+    Elements.shareQuality.asDynamic().open = window.localStorage.getItem("screenshare.advancedOpen") == "true"
+    Elements.shareQuality.addEventListener("toggle", {
+        val open = Elements.shareQuality.asDynamic().open as Boolean
+        window.localStorage.setItem("screenshare.advancedOpen", open.toString())
+    })
+    Elements.shareAudioSwitch.onclick = {
+        setShareAudio(!shareAudio)
         null
     }
     Elements.shareSourceRefresh.onclick = {
@@ -233,14 +249,13 @@ internal fun openNativeShareWizard() {
     Elements.shareWizardDesc.textContent = "Escolha a tela ou janela e o áudio que quer enviar."
     Elements.shareSourceStep.classList.remove("hidden")
     Elements.shareAudioStep.classList.remove("hidden")
-    // The native capture sends the source size, so only the frame rate is a choice.
+    // The native capture sends the source size, so resolution is not a choice.
     Elements.resolutionSection.classList.add("hidden")
-    Elements.shareQuality.removeAttribute("open")
     Elements.shareSourceGrid.innerHTML = ""
     Elements.confirmShare.textContent = "Compartilhar"
     Elements.confirmShare.disabled = true
     setShareAudio(false)
-    updateQualitySummary()
+    renderShareSettings()
     Elements.shareSourceState.textContent = "Carregando telas e janelas…"
     val generation = ++sourceRefreshGeneration
     refreshSources(generation = generation)
@@ -249,14 +264,11 @@ internal fun openNativeShareWizard() {
 
 private fun setShareAudio(enabled: Boolean) {
     shareAudio = enabled
-    Elements.shareAudioOn.classList.toggle("selected", enabled)
-    Elements.shareAudioOff.classList.toggle("selected", !enabled)
-    Elements.shareAudioOn.setAttribute("aria-pressed", enabled.toString())
-    Elements.shareAudioOff.setAttribute("aria-pressed", (!enabled).toString())
+    Elements.shareAudioSwitch.setAttribute("aria-checked", enabled.toString())
     val source = selectedSource
     val (title, description) =
         when (source?.kind) {
-            null -> "Com áudio" to "Escolha uma tela ou janela."
+            null -> "Áudio" to "Escolha uma tela ou janela."
             DesktopCaptureSourceKind.SCREEN -> "Áudio do computador" to "Enviar todo o som da saída padrão."
             DesktopCaptureSourceKind.WINDOW -> "Áudio do aplicativo" to "Enviar só o som de ${source.title}."
         }
@@ -264,17 +276,186 @@ private fun setShareAudio(enabled: Boolean) {
     document.getElementById("share-audio-on-desc")?.textContent = description
 }
 
-private fun updateQualitySummary() {
+private fun setSourceResolution(enabled: Boolean) {
+    useSourceResolution = enabled
+    window.localStorage.setItem("screenshare.sourceResolution", enabled.toString())
+}
+
+/** [value] is "source" or "WIDTHxHEIGHT", as in the resolution list; the tray uses it too. */
+internal fun chooseShareResolution(value: String) {
+    val size = value.split("x").mapNotNull { it.toIntOrNull() }
+    if (size.size == 2) {
+        setSourceResolution(false)
+        selectedWidth = size[0]
+        selectedHeight = size[1]
+        window.localStorage.setItem("screenshare.shareWidth", selectedWidth.toString())
+        window.localStorage.setItem("screenshare.shareHeight", selectedHeight.toString())
+    } else {
+        setSourceResolution(true)
+    }
+    InterfaceMutations.syncTrayQuality()
+    renderShareSettings()
+}
+
+private fun choosePreset(preset: SharePreset) {
+    setShareProfile(preset.profile)
+    // Any downscale blurs small fonts, so text starts at the source size.
+    if (preset == SharePreset.TEXT && !useSourceResolution) {
+        setSourceResolution(true)
+        InterfaceMutations.syncTrayQuality()
+    }
+    renderShareSettings()
+}
+
+/** Also reaches a running share, which applies it live. */
+private fun setShareProfile(profile: ShareProfile) {
+    shareProfile = profile
+    window.localStorage.setItem("screenshare.shareFps", profile.fps.toString())
+    window.localStorage.setItem("screenshare.sharePriority", profile.priority.name)
+    window.localStorage.setItem("screenshare.shareBitrate", (profile.maxBitrate ?: 0).toString())
+    shareProfileListener(profile)
+}
+
+/**
+ * The footer menu edits the same profile as the wizard: presets on top, and each
+ * setting opens the options of its wizard list in place ("‹" goes back).
+ */
+private fun setupShareMenu() {
+    val presets = Elements.shareMenuMain.querySelectorAll("[data-menu-preset]")
+    for (i in 0 until presets.length) {
+        val button = presets.item(i) as HTMLElement
+        button.onclick = {
+            choosePreset(SharePreset.valueOf(button.getAttribute("data-menu-preset")!!))
+            null
+        }
+    }
+    val rows = Elements.shareMenuMain.querySelectorAll("[data-menu-field]")
+    for (i in 0 until rows.length) {
+        val row = rows.item(i) as HTMLElement
+        row.onclick = {
+            openShareMenuOptions(row)
+            null
+        }
+    }
+    Elements.shareMenuBack.onclick = {
+        closeShareMenuOptions()
+        null
+    }
+    Elements.shareMenuSource.onclick = {
+        Elements.sharePicker.asDynamic().open = false
+        Elements.shareScreenButton.click()
+        null
+    }
+    // Esc leaves the options first; ui.js closes the menu on the next Esc.
+    Elements.shareMenuOptions.addEventListener("keydown", { event ->
+        if ((event as KeyboardEvent).key == "Escape") {
+            event.stopPropagation()
+            closeShareMenuOptions()
+        }
+    })
+    Elements.sharePicker.addEventListener("toggle", {
+        if (Elements.sharePicker.asDynamic().open != true) closeShareMenuOptions(restoreFocus = false)
+    })
+    renderShareSettings()
+}
+
+private var shareMenuRow: HTMLElement? = null
+
+private fun openShareMenuOptions(row: HTMLElement) {
+    val select = document.getElementById(row.getAttribute("data-menu-field")!!) as HTMLSelectElement
+    shareMenuRow = row
+    Elements.shareMenuOptionsTitle.textContent = (select.labels.item(0) as? HTMLElement)?.textContent
+    Elements.shareMenuList.innerHTML = ""
+    for (i in 0 until select.options.length) {
+        val option = select.options.item(i).asDynamic()
+        val button = document.createElement("button") as HTMLElement
+        button.setAttribute("type", "button")
+        button.className = "share-menu-row"
+        button.setAttribute("role", "radio")
+        button.setAttribute("aria-checked", (option.value == select.value).toString())
+        button.textContent = option.text as String
+        button.onclick = {
+            select.value = option.value as String
+            // The wizard list's own handler updates the profile and every view.
+            select.dispatchEvent(Event("change"))
+            closeShareMenuOptions()
+            null
+        }
+        Elements.shareMenuList.appendChild(button)
+    }
+    Elements.shareMenuMain.classList.add("hidden")
+    Elements.shareMenuOptions.classList.remove("hidden")
+    (Elements.shareMenuList.querySelector("[aria-checked=true]") as? HTMLElement)?.focus()
+}
+
+private fun closeShareMenuOptions(restoreFocus: Boolean = true) {
+    Elements.shareMenuOptions.classList.add("hidden")
+    Elements.shareMenuMain.classList.remove("hidden")
+    if (restoreFocus) shareMenuRow?.focus()
+}
+
+/** Changes in the menu apply to the running share, or to the next one. */
+internal fun setShareMenuLive(live: Boolean) {
+    Elements.shareMenuState.textContent = if (live) "Ao vivo" else "Próxima tela"
+    Elements.shareMenuState.classList.toggle("live", live)
+    Elements.shareMenuSource.textContent = if (live) "Trocar tela ou janela…" else "Escolher tela ou janela…"
+}
+
+private val SharePriority.label
+    get() =
+        when (this) {
+            SharePriority.SHARPNESS -> "Nitidez"
+            SharePriority.BALANCED -> "Equilíbrio"
+            SharePriority.SMOOTHNESS -> "Fluidez"
+        }
+
+/** One pass from state to every control, so cards, lists and summary never disagree. */
+private fun renderShareSettings() {
+    val preset = SharePreset.matching(shareProfile)
+    val cards = Elements.sharePresetGrid.querySelectorAll("[data-preset]")
+    for (i in 0 until cards.length) {
+        val card = cards.item(i) as HTMLElement
+        val selected = card.getAttribute("data-preset") == preset?.name
+        card.classList.toggle("selected", selected)
+        card.setAttribute("aria-pressed", selected.toString())
+    }
+
+    Elements.shareResolution.value = if (useSourceResolution) "source" else "${selectedWidth}x$selectedHeight"
+    Elements.shareFps.value = "${shareProfile.fps}"
+    Elements.sharePriority.value = shareProfile.priority.name
+    Elements.shareBitrate.value = "${shareProfile.maxBitrate ?: 0}"
+    Elements.shareBitrateHint.classList.toggle("hidden", shareProfile.maxBitrate == null)
+
     val resolution =
         when {
+            DesktopCaptureBridge.isAvailable -> null
             useSourceResolution -> "Fonte"
             selectedHeight >= 2160 -> "4K"
             else -> "${selectedHeight}p"
         }
-    val fps = "$selectedFps fps"
     Elements.shareQualitySummary.textContent =
-        if (DesktopCaptureBridge.isAvailable) fps else "$resolution · $fps"
+        listOfNotNull(
+            "Personalizado".takeIf { preset == null },
+            resolution,
+            "${shareProfile.fps} fps",
+            shareProfile.priority.label,
+            shareProfile.maxBitrate?.let { "${it / 1_000_000} Mbps" } ?: "Bitrate auto",
+        ).joinToString(" · ")
     updateSourceState()
+
+    val menuPresets = Elements.shareMenuMain.querySelectorAll("[data-menu-preset]")
+    for (i in 0 until menuPresets.length) {
+        val button = menuPresets.item(i) as HTMLElement
+        button.setAttribute("aria-pressed", (button.getAttribute("data-menu-preset") == preset?.name).toString())
+    }
+    Elements.shareMenuCustom.classList.toggle("hidden", preset != null)
+    val rows = Elements.shareMenuMain.querySelectorAll("[data-menu-field]")
+    for (i in 0 until rows.length) {
+        val row = rows.item(i) as HTMLElement
+        val select = document.getElementById(row.getAttribute("data-menu-field")!!) as HTMLSelectElement
+        val selected = select.options.item(select.selectedIndex).asDynamic()
+        row.querySelector(".share-menu-value")?.textContent = selected?.text as? String
+    }
 }
 
 private fun stopSourceRefresh() {
@@ -329,7 +510,7 @@ private fun updateSourceState() {
                 "Escolha o que você quer compartilhar."
             }
 
-            source.kind == DesktopCaptureSourceKind.WINDOW && selectedFps > 30 -> {
+            source.kind == DesktopCaptureSourceKind.WINDOW && shareProfile.fps > 30 -> {
                 "Janelas são enviadas a até 30 fps."
             }
 
@@ -429,26 +610,6 @@ private fun thumbnailCanvas(thumbnail: platform.DesktopCaptureThumbnail): HTMLEl
     val imageData = ImageData(pixels, thumbnail.width, thumbnail.height)
     canvas.getContext("2d").putImageData(imageData, 0, 0)
     return canvas as HTMLElement
-}
-
-private fun resetQualitySelection() {
-    val options = document.getElementsByClassName("quality-option")
-    for (i in 0 until options.length) {
-        val option = options.item(i) as HTMLElement
-        val isDefault =
-            if (option.getAttribute("data-fps") != null) {
-                option.getAttribute("data-fps") == selectedFps.toString()
-            } else if (option.getAttribute("data-source") != null) {
-                useSourceResolution
-            } else {
-                option.getAttribute("data-width") == selectedWidth.toString()
-            }
-        if (isDefault) {
-            option.classList.add("btn-primary")
-        } else {
-            option.classList.remove("btn-primary")
-        }
-    }
 }
 
 private fun setupStopScreenShareButtonHandler(onStopScreenShare: () -> Unit) {
