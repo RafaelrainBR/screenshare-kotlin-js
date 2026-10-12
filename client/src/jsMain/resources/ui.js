@@ -60,7 +60,7 @@ document.querySelectorAll('.device-picker').forEach(picker => {
       panel.style.transform = `translateX(${shift}px)`;
     }
   });
-  picker.querySelector('select').addEventListener('change', () => { picker.open = false; });
+  picker.querySelector('select')?.addEventListener('change', () => { picker.open = false; });
 });
 
 const qualityModal = document.getElementById('quality-modal');

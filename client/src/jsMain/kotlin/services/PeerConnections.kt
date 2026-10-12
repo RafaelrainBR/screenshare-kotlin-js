@@ -62,24 +62,35 @@ class PeerConnections(
         peers.values.forEach { it.setVideoReception(enabled) }
     }
 
+    /** Re-applies the share profile to every viewer; setParameters needs no renegotiation. */
+    fun applyShareEncoding() {
+        val track = screenSharing.localScreenStream?.getVideoTracks()?.firstOrNull() ?: return
+        peers.values.forEach { applyShareEncoding(it, track) }
+    }
+
+    private fun applyShareEncoding(
+        peerConnection: RTCPeerConnectionDecorator,
+        track: MediaStreamTrack,
+    ) {
+        val profile = screenSharing.lastShareProfile
+        track.asDynamic().contentHint = profile.priority.contentHint
+        peerConnection.applyVideoEncoding(
+            trackId = track.id,
+            maxBitrate = shareBitrate(profile, screenSharing.lastShareHeight),
+            maxFramerate = profile.fps,
+            degradationPreference = profile.priority.degradationPreference,
+        )
+    }
+
     private fun addTracksIfNotPresent(peerConnection: RTCPeerConnectionDecorator) {
         screenSharing.localScreenStream?.getTracks()?.forEach { track ->
             if (!peerConnection.hasTrack(track)) {
                 peerConnection.addTrack(track, screenSharing.localScreenStream!!)
 
                 if (track.kind == "video") {
-                    val profile = screenSharing.lastShareProfile
-                    val dynamicTrack = track.unsafeCast<dynamic>()
-                    dynamicTrack.contentHint = profile.priority.contentHint
-
                     // Prefere codec (VP9) e controla bitrate/fps ANTES de createOffer.
                     peerConnection.preferVideoCodecs()
-                    peerConnection.applyVideoEncoding(
-                        trackId = track.id,
-                        maxBitrate = shareBitrate(profile, screenSharing.lastShareHeight),
-                        maxFramerate = profile.fps,
-                        degradationPreference = profile.priority.degradationPreference,
-                    )
+                    applyShareEncoding(peerConnection, track)
                 }
             }
         }

@@ -170,6 +170,29 @@ class ScreenSharing(
         InterfaceMutations.updateShareControls(isLocalSharing = true)
     }
 
+    /**
+     * Records [profile] for the next share and, while sharing, changes the capture
+     * frame rate in place. Returns whether a share is running.
+     */
+    suspend fun updateProfile(profile: ShareProfile): Boolean {
+        val previousFps = lastShareProfile.fps
+        lastShareProfile = profile
+        val track = localScreenStream?.getVideoTracks()?.firstOrNull() ?: return false
+        if (profile.fps != previousFps) {
+            runCatching {
+                if (nativeVideoTrack != null) {
+                    DesktopCaptureBridge.setVideoCaptureFps(profile.fps)
+                } else {
+                    // applyConstraints replaces every constraint, so keep the size ones.
+                    val constraints: dynamic = track.asDynamic().getConstraints()
+                    constraints.frameRate = json("ideal" to profile.fps, "max" to profile.fps)
+                    (track.asDynamic().applyConstraints(constraints) as kotlin.js.Promise<Any?>).await()
+                }
+            }.onFailure { console.warn("Não foi possível mudar os quadros por segundo da captura") }
+        }
+        return true
+    }
+
     fun handleRemoteScreen(
         socketId: String,
         stream: MediaStream,

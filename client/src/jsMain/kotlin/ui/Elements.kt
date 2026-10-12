@@ -50,6 +50,15 @@ object Elements {
     val sharePriority = getElement<HTMLSelectElement>("share-priority")
     val shareBitrate = getElement<HTMLSelectElement>("share-bitrate")
     val shareBitrateHint = getElement<HTMLElement>("share-bitrate-hint")
+    val sharePicker = getElement<HTMLElement>("share-picker")
+    val shareMenuState = getElement<HTMLElement>("share-menu-state")
+    val shareMenuCustom = getElement<HTMLElement>("share-menu-custom")
+    val shareMenuMain = getElement<HTMLElement>("share-menu-main")
+    val shareMenuOptions = getElement<HTMLElement>("share-menu-options")
+    val shareMenuOptionsTitle = getElement<HTMLElement>("share-menu-options-title")
+    val shareMenuList = getElement<HTMLElement>("share-menu-list")
+    val shareMenuBack = getElement<HTMLButtonElement>("share-menu-back")
+    val shareMenuSource = getElement<HTMLButtonElement>("share-menu-source")
 }
 
 private inline fun <reified T : HTMLElement> getElement(id: String): T =

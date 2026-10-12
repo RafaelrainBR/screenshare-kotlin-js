@@ -189,6 +189,12 @@ class Session(
         }
     }
 
+    /** Applies [profile] to the running share without restarting it. */
+    fun updateShareProfile(profile: ShareProfile) =
+        launch {
+            if (screenSharing.updateProfile(profile)) peerConnections.applyShareEncoding()
+        }
+
     fun handleStopScreenShare() {
         ++screenShareGeneration
         launch {

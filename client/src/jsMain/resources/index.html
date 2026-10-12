@@ -45,13 +45,37 @@
         <div class="dock" aria-label="Controles da sala">
           <span id="room-connection-status" class="dock-status" role="status">Conectando à sala…</span>
           <div class="dock-tools">
-          <div class="toolgroup">
+          <div class="toolgroup with-device">
             <button id="shareScreenBtn" class="btn icon-button" type="button" aria-label="Compartilhar tela" title="Compartilhar tela">
               <svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="14" rx="2"/><path d="M8 21h8M12 18v3"/></svg>
             </button>
             <button id="stopSharingBtn" class="btn btn-error icon-button hidden" type="button" aria-label="Parar compartilhamento" title="Parar compartilhamento">
               <svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="14" rx="2"/><path d="M9 8h6v6H9z"/></svg>
             </button>
+            <details id="share-picker" class="device-picker share-picker">
+              <summary aria-label="Ajustes da transmissão" title="Ajustes da transmissão"><svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg></summary>
+              <div class="picker-panel share-menu">
+                <div id="share-menu-main">
+                  <p class="share-menu-title">Transmissão <span id="share-menu-state" class="share-menu-state">Próxima tela</span></p>
+                  <div class="share-menu-presets" role="group" aria-label="O que você vai mostrar">
+                    <button type="button" data-menu-preset="GAME" aria-pressed="false">Jogo</button>
+                    <button type="button" data-menu-preset="VIDEO" aria-pressed="false">Vídeo</button>
+                    <button type="button" data-menu-preset="TEXT" aria-pressed="false">Código e texto</button>
+                  </div>
+                  <p id="share-menu-custom" class="share-menu-note hidden">Personalizado</p>
+                  <div class="share-menu-rows">
+                    <button type="button" class="share-menu-row" data-menu-field="share-fps"><span>Quadros/s</span><span class="share-menu-value"></span></button>
+                    <button type="button" class="share-menu-row" data-menu-field="share-priority"><span>Se piorar</span><span class="share-menu-value"></span></button>
+                    <button type="button" class="share-menu-row" data-menu-field="share-bitrate"><span>Bitrate</span><span class="share-menu-value"></span></button>
+                  </div>
+                  <button type="button" id="share-menu-source" class="share-menu-row share-menu-source">Escolher tela ou janela…</button>
+                </div>
+                <div id="share-menu-options" class="hidden">
+                  <button type="button" id="share-menu-back" class="share-menu-row share-menu-back"><span id="share-menu-options-title"></span></button>
+                  <div id="share-menu-list" role="radiogroup" aria-labelledby="share-menu-options-title"></div>
+                </div>
+              </div>
+            </details>
           </div>
           <span class="tool-separator"></span>
           <div class="toolgroup with-device">

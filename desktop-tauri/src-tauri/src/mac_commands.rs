@@ -83,6 +83,21 @@ pub async fn stop_video_capture(state: State<'_, MacCaptureState>) -> Result<(),
     replace(&state.video, None)
 }
 
+#[tauri::command]
+pub async fn set_video_capture_fps(
+    fps: u32,
+    state: State<'_, MacCaptureState>,
+) -> Result<(), String> {
+    match &mut *state
+        .video
+        .lock()
+        .map_err(|_| "capture-state-unavailable")?
+    {
+        Some(capture) => capture.set_fps(fps),
+        None => Ok(()),
+    }
+}
+
 fn start_audio(
     pid: Option<i32>,
     on_audio: Channel<AudioChunk>,

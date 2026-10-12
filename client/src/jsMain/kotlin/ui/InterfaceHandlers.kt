@@ -11,6 +11,8 @@ import org.khronos.webgl.Uint8ClampedArray
 import org.w3c.dom.HTMLElement
 import org.w3c.dom.HTMLSelectElement
 import org.w3c.dom.ImageData
+import org.w3c.dom.events.Event
+import org.w3c.dom.events.KeyboardEvent
 import platform.DesktopCaptureBridge
 import platform.DesktopCaptureException
 import platform.DesktopCaptureSource
@@ -40,6 +42,7 @@ private var sourceRefreshTimer: Int? = null
 private var sourceRefreshGeneration = 0
 private var sourceRefreshInFlight = false
 private var renderedSourcesSignature = ""
+private var shareProfileListener: (ShareProfile) -> Unit = {}
 
 fun registerUIHandlers(
     joinRoom: (username: String, roomId: String) -> Unit,
@@ -59,11 +62,14 @@ fun registerUIHandlers(
     onInputDeviceChange: (deviceId: String) -> Unit,
     onOutputDeviceChange: (deviceId: String) -> Unit,
     onCameraDeviceChange: (deviceId: String) -> Unit,
+    onShareProfileChange: (ShareProfile) -> Unit,
 ) {
     setupJoinButtonHandler(joinRoom)
     setupSendMessageButtonHandler(sendChatMessage)
     setupMicToggleButtonHandler(onMicButtonToggle)
+    shareProfileListener = onShareProfileChange
     setupShareQualityModal(onStartScreenShare)
+    setupShareMenu()
     setupStopScreenShareButtonHandler(onStopScreenShare)
     setupCameraButtons(onStartCameraShare, onStopCameraShare)
     setupDeviceHandlers(onInputDeviceChange, onOutputDeviceChange, onCameraDeviceChange)
@@ -218,16 +224,7 @@ private fun setupShareQualityModal(
     val presetCards = Elements.sharePresetGrid.querySelectorAll("[data-preset]")
     for (i in 0 until presetCards.length) {
         val card = presetCards.item(i) as HTMLElement
-        card.addEventListener("click", {
-            val preset = SharePreset.valueOf(card.getAttribute("data-preset")!!)
-            setShareProfile(preset.profile)
-            // Any downscale blurs small fonts, so text starts at the source size.
-            if (preset == SharePreset.TEXT && !useSourceResolution) {
-                setSourceResolution(true)
-                InterfaceMutations.syncTrayQuality()
-            }
-            renderShareSettings()
-        })
+        card.addEventListener("click", { choosePreset(SharePreset.valueOf(card.getAttribute("data-preset")!!)) })
     }
     Elements.shareQuality.asDynamic().open = window.localStorage.getItem("screenshare.advancedOpen") == "true"
     Elements.shareQuality.addEventListener("toggle", {
@@ -300,11 +297,108 @@ internal fun chooseShareResolution(value: String) {
     renderShareSettings()
 }
 
+private fun choosePreset(preset: SharePreset) {
+    setShareProfile(preset.profile)
+    // Any downscale blurs small fonts, so text starts at the source size.
+    if (preset == SharePreset.TEXT && !useSourceResolution) {
+        setSourceResolution(true)
+        InterfaceMutations.syncTrayQuality()
+    }
+    renderShareSettings()
+}
+
+/** Also reaches a running share, which applies it live. */
 private fun setShareProfile(profile: ShareProfile) {
     shareProfile = profile
     window.localStorage.setItem("screenshare.shareFps", profile.fps.toString())
     window.localStorage.setItem("screenshare.sharePriority", profile.priority.name)
     window.localStorage.setItem("screenshare.shareBitrate", (profile.maxBitrate ?: 0).toString())
+    shareProfileListener(profile)
+}
+
+/**
+ * The footer menu edits the same profile as the wizard: presets on top, and each
+ * setting opens the options of its wizard list in place ("‹" goes back).
+ */
+private fun setupShareMenu() {
+    val presets = Elements.shareMenuMain.querySelectorAll("[data-menu-preset]")
+    for (i in 0 until presets.length) {
+        val button = presets.item(i) as HTMLElement
+        button.onclick = {
+            choosePreset(SharePreset.valueOf(button.getAttribute("data-menu-preset")!!))
+            null
+        }
+    }
+    val rows = Elements.shareMenuMain.querySelectorAll("[data-menu-field]")
+    for (i in 0 until rows.length) {
+        val row = rows.item(i) as HTMLElement
+        row.onclick = {
+            openShareMenuOptions(row)
+            null
+        }
+    }
+    Elements.shareMenuBack.onclick = {
+        closeShareMenuOptions()
+        null
+    }
+    Elements.shareMenuSource.onclick = {
+        Elements.sharePicker.asDynamic().open = false
+        Elements.shareScreenButton.click()
+        null
+    }
+    // Esc leaves the options first; ui.js closes the menu on the next Esc.
+    Elements.shareMenuOptions.addEventListener("keydown", { event ->
+        if ((event as KeyboardEvent).key == "Escape") {
+            event.stopPropagation()
+            closeShareMenuOptions()
+        }
+    })
+    Elements.sharePicker.addEventListener("toggle", {
+        if (Elements.sharePicker.asDynamic().open != true) closeShareMenuOptions(restoreFocus = false)
+    })
+    renderShareSettings()
+}
+
+private var shareMenuRow: HTMLElement? = null
+
+private fun openShareMenuOptions(row: HTMLElement) {
+    val select = document.getElementById(row.getAttribute("data-menu-field")!!) as HTMLSelectElement
+    shareMenuRow = row
+    Elements.shareMenuOptionsTitle.textContent = (select.labels.item(0) as? HTMLElement)?.textContent
+    Elements.shareMenuList.innerHTML = ""
+    for (i in 0 until select.options.length) {
+        val option = select.options.item(i).asDynamic()
+        val button = document.createElement("button") as HTMLElement
+        button.setAttribute("type", "button")
+        button.className = "share-menu-row"
+        button.setAttribute("role", "radio")
+        button.setAttribute("aria-checked", (option.value == select.value).toString())
+        button.textContent = option.text as String
+        button.onclick = {
+            select.value = option.value as String
+            // The wizard list's own handler updates the profile and every view.
+            select.dispatchEvent(Event("change"))
+            closeShareMenuOptions()
+            null
+        }
+        Elements.shareMenuList.appendChild(button)
+    }
+    Elements.shareMenuMain.classList.add("hidden")
+    Elements.shareMenuOptions.classList.remove("hidden")
+    (Elements.shareMenuList.querySelector("[aria-checked=true]") as? HTMLElement)?.focus()
+}
+
+private fun closeShareMenuOptions(restoreFocus: Boolean = true) {
+    Elements.shareMenuOptions.classList.add("hidden")
+    Elements.shareMenuMain.classList.remove("hidden")
+    if (restoreFocus) shareMenuRow?.focus()
+}
+
+/** Changes in the menu apply to the running share, or to the next one. */
+internal fun setShareMenuLive(live: Boolean) {
+    Elements.shareMenuState.textContent = if (live) "Ao vivo" else "Próxima tela"
+    Elements.shareMenuState.classList.toggle("live", live)
+    Elements.shareMenuSource.textContent = if (live) "Trocar tela ou janela…" else "Escolher tela ou janela…"
 }
 
 private val SharePriority.label
@@ -348,6 +442,20 @@ private fun renderShareSettings() {
             shareProfile.maxBitrate?.let { "${it / 1_000_000} Mbps" } ?: "Bitrate auto",
         ).joinToString(" · ")
     updateSourceState()
+
+    val menuPresets = Elements.shareMenuMain.querySelectorAll("[data-menu-preset]")
+    for (i in 0 until menuPresets.length) {
+        val button = menuPresets.item(i) as HTMLElement
+        button.setAttribute("aria-pressed", (button.getAttribute("data-menu-preset") == preset?.name).toString())
+    }
+    Elements.shareMenuCustom.classList.toggle("hidden", preset != null)
+    val rows = Elements.shareMenuMain.querySelectorAll("[data-menu-field]")
+    for (i in 0 until rows.length) {
+        val row = rows.item(i) as HTMLElement
+        val select = document.getElementById(row.getAttribute("data-menu-field")!!) as HTMLSelectElement
+        val selected = select.options.item(select.selectedIndex).asDynamic()
+        row.querySelector(".share-menu-value")?.textContent = selected?.text as? String
+    }
 }
 
 private fun stopSourceRefresh() {

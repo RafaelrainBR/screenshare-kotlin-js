@@ -305,6 +305,8 @@ struct VideoCaptureState {
     capture: CaptureState,
     metrics: Mutex<Option<Arc<capture::video::VideoMetrics>>>,
     generation: std::sync::atomic::AtomicU64,
+    // Shared with the running capture loop, which reads it every tick.
+    fps: Arc<std::sync::atomic::AtomicU32>,
 }
 
 #[cfg(target_os = "windows")]
@@ -369,7 +371,8 @@ async fn start_video_capture(
         .lock()
         .map_err(|_| "capture-state-unavailable")? = Some(metrics.clone());
     let app = window.app_handle().clone();
-    let fps = request.fps;
+    state.fps.store(request.fps, Ordering::Relaxed);
+    let fps = state.fps.clone();
     install(&state.capture, move |running| {
         let result = capture_video_loop(source, fps, running, metrics, |frame| {
             let Some(slot) = slots.fill(frame.data) else {
@@ -395,6 +398,13 @@ async fn start_video_capture(
 #[cfg(target_os = "windows")]
 fn stop_video_capture(state: State<'_, VideoCaptureState>) -> Result<(), String> {
     stop_active(&state.capture)
+}
+
+/// Changes the running capture's frame rate without restarting it.
+#[tauri::command]
+#[cfg(target_os = "windows")]
+fn set_video_capture_fps(fps: u32, state: State<'_, VideoCaptureState>) {
+    state.fps.store(fps, Ordering::Relaxed);
 }
 
 #[tauri::command]
@@ -644,6 +654,7 @@ pub fn run() {
             },
             metrics: Mutex::new(None),
             generation: Default::default(),
+            fps: Default::default(),
         })
         .invoke_handler(tauri::generate_handler![
             start_system_audio,
@@ -651,6 +662,7 @@ pub fn run() {
             stop_audio,
             start_video_capture,
             stop_video_capture,
+            set_video_capture_fps,
             video_capture_metrics,
             enumerate_sources,
             capture_thumbnail,
@@ -669,6 +681,7 @@ pub fn run() {
             mac_commands::stop_audio,
             mac_commands::start_video_capture,
             mac_commands::stop_video_capture,
+            mac_commands::set_video_capture_fps,
             mac_commands::enumerate_sources,
             mac_commands::capture_thumbnail,
             hide_main_window,
