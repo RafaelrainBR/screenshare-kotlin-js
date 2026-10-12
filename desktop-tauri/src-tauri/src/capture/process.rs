@@ -6,9 +6,74 @@ use std::sync::Arc;
 
 use wasapi::{AudioClient, Direction, SampleType, StreamMode, WasapiError, WaveFormat};
 use windows::Win32::Foundation::CloseHandle;
+use windows::Win32::Foundation::ERROR_NO_MORE_FILES;
+use windows::Win32::System::Diagnostics::ToolHelp::{
+    CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W, TH32CS_SNAPPROCESS,
+};
 use windows::Win32::System::Threading::{OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION};
 
 use super::{AudioChunk, AudioClock, BYTES_PER_CHUNK};
+
+fn discord_root(processes: &[(u32, u32, String)]) -> Result<Option<u32>, String> {
+    let discord: Vec<_> = processes
+        .iter()
+        .filter(|(_, _, name)| {
+            [
+                "discord.exe",
+                "discordptb.exe",
+                "discordcanary.exe",
+                "discorddevelopment.exe",
+            ]
+            .iter()
+            .any(|expected| name.eq_ignore_ascii_case(expected))
+        })
+        .collect();
+    let roots: Vec<_> = discord
+        .iter()
+        .filter(|(_, parent, _)| !discord.iter().any(|(pid, _, _)| pid == parent))
+        .map(|(pid, _, _)| *pid)
+        .collect();
+    match roots.as_slice() {
+        [] if discord.is_empty() => Ok(None),
+        [pid] => Ok(Some(*pid)),
+        // WASAPI can exclude one tree only. Never pick one and leak another call.
+        _ => Err("discord-multiple-process-trees".into()),
+    }
+}
+
+pub(crate) fn discord_process_id() -> Result<Option<u32>, String> {
+    let snapshot = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) }
+        .map_err(|_| "capture-process-list-unavailable")?;
+    let result = (|| {
+        let mut entry = PROCESSENTRY32W {
+            dwSize: std::mem::size_of::<PROCESSENTRY32W>() as u32,
+            ..Default::default()
+        };
+        unsafe { Process32FirstW(snapshot, &mut entry) }
+            .map_err(|_| "capture-process-list-unavailable")?;
+        let mut processes = Vec::new();
+        loop {
+            let len = entry
+                .szExeFile
+                .iter()
+                .position(|c| *c == 0)
+                .unwrap_or(entry.szExeFile.len());
+            processes.push((
+                entry.th32ProcessID,
+                entry.th32ParentProcessID,
+                String::from_utf16_lossy(&entry.szExeFile[..len]),
+            ));
+            match unsafe { Process32NextW(snapshot, &mut entry) } {
+                Ok(()) => {}
+                Err(error) if error.code() == ERROR_NO_MORE_FILES.to_hresult() => break,
+                Err(_) => return Err("capture-process-list-unavailable".into()),
+            }
+        }
+        discord_root(&processes)
+    })();
+    let _ = unsafe { CloseHandle(snapshot) };
+    result
+}
 
 pub(crate) fn process_exists(pid: u32) -> bool {
     if pid == 0 {
@@ -21,7 +86,7 @@ pub(crate) fn process_exists(pid: u32) -> bool {
     true
 }
 
-/// Captures an application and, optionally, its child-process tree.  A target
+/// Includes the target process tree when true, excludes it when false. A target
 /// that is alive but currently silent remains a valid capture: zero PCM chunks
 /// keep the WebCodecs track alive without blocking the UI.
 pub fn capture_process_loop<F>(
@@ -112,6 +177,43 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn discord_detection_selects_root_not_audio_helper() {
+        let processes = vec![
+            (22, 11, "Discord.exe".into()),
+            (11, 1, "DISCORD.EXE".into()),
+            (33, 22, "Discord.exe".into()),
+            (1, 0, "explorer.exe".into()),
+        ];
+        assert_eq!(discord_root(&processes), Ok(Some(11)));
+        for name in [
+            "DiscordPTB.exe",
+            "DiscordCanary.exe",
+            "DiscordDevelopment.exe",
+        ] {
+            assert_eq!(discord_root(&[(7, 1, name.into())]), Ok(Some(7)));
+        }
+    }
+    #[test]
+    fn discord_detection_does_not_match_browser_or_similar_names() {
+        assert_eq!(
+            discord_root(&[
+                (1, 0, "chrome.exe".into()),
+                (2, 0, "not-discord.exe".into())
+            ]),
+            Ok(None)
+        );
+    }
+    #[test]
+    fn discord_detection_rejects_independent_instances() {
+        assert_eq!(
+            discord_root(&[
+                (1, 0, "Discord.exe".into()),
+                (2, 0, "DiscordCanary.exe".into())
+            ]),
+            Err("discord-multiple-process-trees".into())
+        );
+    }
     #[test]
     fn nonexistent_pid_is_rejected_immediately() {
         assert!(!process_exists(u32::MAX));

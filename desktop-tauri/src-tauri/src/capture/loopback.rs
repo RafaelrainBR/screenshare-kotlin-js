@@ -3,9 +3,11 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use super::{AudioChunk, AudioClock, BYTES_PER_CHUNK};
-use wasapi::{DeviceEnumerator, Direction, SampleType, StreamMode, WasapiError, WaveFormat};
+use wasapi::{
+    AudioClient, DeviceEnumerator, Direction, SampleType, StreamMode, WasapiError, WaveFormat,
+};
 
-/// Ported from the validated POC. This module only captures the default render mix;
+/// Captures the default render mix or the system mix excluding a process tree;
 /// it knows nothing about rooms, signaling, or WebRTC.
 pub fn preflight_default_render_device() -> Result<(), WasapiError> {
     let _ = wasapi::initialize_mta();
@@ -15,14 +17,24 @@ pub fn preflight_default_render_device() -> Result<(), WasapiError> {
     Ok(())
 }
 
-pub fn capture_loop<F>(running: Arc<AtomicBool>, mut on_chunk: F) -> Result<(), WasapiError>
+pub fn capture_loop<F>(
+    excluded_pid: Option<u32>,
+    running: Arc<AtomicBool>,
+    mut on_chunk: F,
+) -> Result<(), WasapiError>
 where
     F: FnMut(AudioChunk) -> bool,
 {
     let _ = wasapi::initialize_mta();
-    let enumerator = DeviceEnumerator::new()?;
-    let render = enumerator.get_default_device(&Direction::Render)?;
-    let mut client = render.get_iaudioclient()?;
+    let mut client = match excluded_pid {
+        Some(pid) => AudioClient::new_application_loopback_client(pid, false)?,
+        None => {
+            let enumerator = DeviceEnumerator::new()?;
+            enumerator
+                .get_default_device(&Direction::Render)?
+                .get_iaudioclient()?
+        }
+    };
     let format = WaveFormat::new(32, 32, &SampleType::Float, 48_000, 2, None);
     client.initialize_client(
         &format,
@@ -38,6 +50,9 @@ where
     let mut clock = AudioClock::new();
     let mut bytes = VecDeque::new();
     while running.load(Ordering::Acquire) {
+        if excluded_pid.is_some_and(|pid| !super::process::process_exists(pid)) {
+            break;
+        }
         match event.wait_for_event(100) {
             Ok(()) => {}
             Err(WasapiError::EventTimeout) => continue,

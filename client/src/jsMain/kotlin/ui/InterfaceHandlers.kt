@@ -266,10 +266,16 @@ private fun setShareAudio(enabled: Boolean) {
     shareAudio = enabled
     Elements.shareAudioSwitch.setAttribute("aria-checked", enabled.toString())
     val source = selectedSource
+    val systemAudioDescription =
+        if (window.navigator.userAgent.contains("Windows")) {
+            "Exclui o Discord desktop já aberto. Se abrir ou reiniciar o Discord, compartilhe novamente."
+        } else {
+            "Enviar todo o som da saída padrão."
+        }
     val (title, description) =
         when (source?.kind) {
             null -> "Áudio" to "Escolha uma tela ou janela."
-            DesktopCaptureSourceKind.SCREEN -> "Áudio do computador" to "Enviar todo o som da saída padrão."
+            DesktopCaptureSourceKind.SCREEN -> "Áudio do computador" to systemAudioDescription
             DesktopCaptureSourceKind.WINDOW -> "Áudio do aplicativo" to "Enviar só o som de ${source.title}."
         }
     document.getElementById("share-audio-on-title")?.textContent = title
