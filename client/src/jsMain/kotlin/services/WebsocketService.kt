@@ -82,9 +82,7 @@ class WebsocketService(
                             throw kotlinx.coroutines.CancellationException("websocket closed")
                         }
 
-                        else -> {
-                            Unit
-                        }
+                        else -> {}
                     }
                 }
             } catch (_: Exception) {
