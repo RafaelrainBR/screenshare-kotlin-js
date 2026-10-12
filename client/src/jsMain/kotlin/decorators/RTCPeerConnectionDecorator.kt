@@ -80,9 +80,9 @@ class RTCPeerConnectionDecorator(
     /**
      * Controla bitrate/fps e preferência de degradação por track.
      *
-     * Crucial para os objetivos 1 e 2: com 'maintain-resolution' o encoder
-     * mantém a imagem nítida (essencial para filme/texto) e só cai o fps sob
-     * congestionamento, em vez de embaçar o quadro.
+     * A preferência decide o que cai sob congestionamento: 'maintain-resolution'
+     * mantém o quadro nítido e só cai o fps (texto); 'maintain-framerate' faz o
+     * contrário (jogo); 'balanced' divide a perda (vídeo).
      */
     fun applyVideoEncoding(
         trackId: String,

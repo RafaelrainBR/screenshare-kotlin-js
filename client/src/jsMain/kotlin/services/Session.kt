@@ -131,7 +131,7 @@ class Session(
     fun handleStartScreenShare(
         width: Int,
         height: Int,
-        fps: Int,
+        profile: ShareProfile,
         useSourceResolution: Boolean,
         desktopAudioMode: ScreenSharing.DesktopAudioMode = ScreenSharing.DesktopAudioMode.NONE,
         nativeSource: DesktopCaptureSource? = null,
@@ -146,7 +146,7 @@ class Session(
                     isRequestCurrent = { request() && generation == screenShareGeneration },
                     width = width,
                     height = height,
-                    frameRate = fps,
+                    profile = profile,
                     useSourceResolution = useSourceResolution,
                     desktopAudioMode = desktopAudioMode,
                     nativeSource = nativeSource,
