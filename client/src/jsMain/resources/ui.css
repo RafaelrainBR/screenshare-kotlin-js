@@ -116,9 +116,9 @@ body.compact-tray .modal-panel { width: 100%; max-height: calc(100dvh - 24px); }
 .btn-lg { height: 43px; font-size: 13px; }
 
 #app-screen { height: 100vh; height: 100dvh; overflow: hidden; display: flex; flex-direction: column; }
-.room-header { flex: none; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 6px 12px; border-bottom: 1px solid var(--line); }
-.room-actions { display: flex; gap: 6px; flex: none; }
-.room-header [role=status], .connection-status { color: var(--dim); font-size: 11px; margin: 0; }
+.dock-status, .connection-status { color: var(--dim); font-size: 11px; margin: 0; }
+.dock-status { justify-self: start; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.room-actions { justify-self: end; gap: 6px; }
 .btn:disabled { opacity: .5; cursor: default; }
 .workspace {
   position: relative; display: grid; grid-template-columns: minmax(0, 1fr) 300px;
@@ -205,16 +205,19 @@ button.participant-options { position: absolute; top: 5px; right: 5px; width: 28
 }
 .strip-toggle svg, .chat-restore svg, .chat-hide svg { width: 16px; height: 16px; }
 .strip-toggle { position: absolute; right: 16px; bottom: 50px; z-index: 5; }
-.screen-stage.rail-collapsed .strip-toggle { left: 16px; right: auto; bottom: 12px; }
+/* Keep the toggle on the right without covering the focused tile's controls. */
+.screen-stage.rail-collapsed { padding-bottom: 52px; }
+.screen-stage.rail-collapsed .strip-toggle { bottom: 12px; }
 .chat-restore { position: absolute; right: 16px; top: 16px; z-index: 8; display: none; }
 .workspace.chat-collapsed .chat-restore { display: grid; }
 
 .dock {
   --control-size: 42px; --glyph-size: 20px;
-  flex: 0 0 64px; display: flex; align-items: center; justify-content: center;
-  gap: 13px; padding: 8px; border-top: 1px solid var(--line);
+  flex: 0 0 64px; display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center;
+  gap: 13px; padding: 8px 12px; border-top: 1px solid var(--line);
   background: #0e1118;
 }
+.dock-tools { display: flex; align-items: center; gap: inherit; }
 .toolgroup { display: flex; position: relative; }
 .toolgroup .icon-button, .device-picker summary {
   display: grid; place-items: center; height: var(--control-size);
@@ -350,8 +353,9 @@ button.participant-options { position: absolute; top: 5px; right: 5px; width: 28
   .workspace { grid-template-columns: minmax(0, 1fr) 245px; }
 }
 @media (max-width: 700px) {
-  .room-header { flex-wrap: wrap; gap: 4px; padding: 4px 8px; }
-  .room-actions .btn { height: 30px; padding: 0 8px; }
+  /* Status gets its own line so the controls keep their size. */
+  .dock { flex-basis: auto; grid-template-columns: auto auto; justify-content: center; row-gap: 4px; padding-top: 4px; }
+  .dock-status { grid-column: 1 / -1; justify-self: center; max-width: 100%; }
   .workspace { display: flex; flex-direction: column; }
   .stage { flex: 1; min-height: 0; }
   .screens-rail { flex-basis: 84px; }
@@ -362,7 +366,6 @@ button.participant-options { position: absolute; top: 5px; right: 5px; width: 28
   .toolgroup.with-device:nth-child(3) .picker-panel { left: -40px; }
   .screens-rail { padding-right: 43px; }
   .strip-toggle { right: 12px; }
-  .screen-stage.rail-collapsed .strip-toggle { left: 12px; }
   .sidebar { flex: 0 0 40%; min-height: 132px; }
   .workspace.chat-collapsed .stage { flex: 1; }
   .conversation-header .room-code { font-size: 9px; }

@@ -29,13 +29,6 @@
   </main>
 
   <div id="app-screen" class="hidden">
-    <header class="room-header">
-      <span id="room-connection-status" role="status">Conectando à sala…</span>
-      <div class="room-actions">
-        <button type="button" class="btn btn-ghost" data-tray-action="switch">Trocar sala</button>
-        <button type="button" class="btn btn-ghost" data-tray-action="leave">Sair da sala</button>
-      </div>
-    </header>
     <div class="workspace" id="workspace">
       <section class="stage" aria-label="Telas e câmeras compartilhadas">
         <div id="screens-stage" class="screen-stage no-video">
@@ -50,6 +43,8 @@
           </button>
         </div>
         <div class="dock" aria-label="Controles da sala">
+          <span id="room-connection-status" class="dock-status" role="status">Conectando à sala…</span>
+          <div class="dock-tools">
           <div class="toolgroup">
             <button id="shareScreenBtn" class="btn icon-button" type="button" aria-label="Compartilhar tela" title="Compartilhar tela">
               <svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="14" rx="2"/><path d="M8 21h8M12 18v3"/></svg>
@@ -60,11 +55,11 @@
           </div>
           <span class="tool-separator"></span>
           <div class="toolgroup with-device">
-            <button id="cameraBtn" class="btn icon-button" type="button" aria-label="Ligar câmera" title="Ligar câmera">
-              <svg viewBox="0 0 24 24"><rect x="3" y="6" width="12" height="12" rx="2"/><path d="m15 10 6-3v10l-6-3"/></svg>
-            </button>
-            <button id="stopCameraBtn" class="btn btn-error icon-button hidden" type="button" aria-label="Desligar câmera" title="Desligar câmera">
+            <button id="cameraBtn" class="btn icon-button muted" type="button" aria-label="Ligar câmera" title="Ligar câmera">
               <svg viewBox="0 0 24 24"><rect x="3" y="6" width="12" height="12" rx="2"/><path d="m15 10 6-3v10l-6-3M3 3l18 18"/></svg>
+            </button>
+            <button id="stopCameraBtn" class="btn icon-button hidden" type="button" aria-label="Desligar câmera" title="Desligar câmera">
+              <svg viewBox="0 0 24 24"><rect x="3" y="6" width="12" height="12" rx="2"/><path d="m15 10 6-3v10l-6-3"/></svg>
             </button>
             <details class="device-picker">
               <summary aria-label="Escolher câmera" title="Escolher câmera"><svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg></summary>
@@ -83,12 +78,18 @@
           </div>
           <div class="toolgroup with-device">
             <button id="outputToggle" class="btn icon-button" type="button" aria-label="Silenciar saída de áudio" title="Silenciar saída de áudio">
-              <svg viewBox="0 0 24 24"><path d="M11 5 6 9H3v6h3l5 4V5ZM15 9a4 4 0 0 1 0 6M18 6a8 8 0 0 1 0 12"/></svg>
+              <svg viewBox="0 0 24 24"><path d="M11 5 6 9H3v6h3l5 4V5ZM15 9a4 4 0 0 1 0 6M18 6a8 8 0 0 1 0 12"/><line id="outputSlash" class="hidden" x1="3" y1="3" x2="21" y2="21"/></svg>
             </button>
             <details class="device-picker">
               <summary aria-label="Escolher saída de áudio" title="Escolher saída de áudio"><svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg></summary>
               <div class="picker-panel"><label for="outputDevices">Saída de áudio</label><select id="outputDevices" class="select"><option value="">Dispositivo padrão</option></select></div>
             </details>
+          </div>
+          </div>
+          <div class="toolgroup room-actions">
+            <button type="button" class="btn btn-error icon-button" data-tray-action="leave" aria-label="Sair ou trocar de sala" title="Sair ou trocar de sala">
+              <svg viewBox="0 0 24 24"><path d="M14 4h4a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-4M10 16l-4-4 4-4M6 12h10"/></svg>
+            </button>
           </div>
         </div>
       </section>
@@ -134,7 +135,6 @@
     <div id="user-list" class="tray-participants" role="list" aria-label="Participantes e mídias"></div>
     <footer class="tray-footer">
       <button type="button" class="btn btn-primary" data-tray-action="open">Abrir sala</button>
-      <button type="button" class="btn btn-ghost" data-tray-action="switch">Trocar sala</button>
       <button type="button" class="btn btn-ghost" data-tray-action="leave" data-needs-room disabled>Sair da sala</button>
     </footer>
   </section>

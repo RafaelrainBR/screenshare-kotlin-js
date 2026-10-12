@@ -106,6 +106,17 @@ try {
     assert.equal(await a.locator('.screen-tile, audio[id^="remote-audio-"]').count(), 0);
     await b.waitForFunction(() => document.querySelector('#participant-count').textContent === '1');
   });
+  await check('reload with saved name rejoins the room; after leaving it only prefills the name', async () => {
+    await b.reload();
+    await b.waitForFunction(() => !document.querySelector('#send-message-btn').disabled);
+    assert(await b.locator('#join-screen').isHidden());
+    assert(new URL(b.url()).searchParams.get('roomId'));
+    await a.reload();
+    await a.locator('#join-screen').waitFor({ state: 'visible' });
+    await a.waitForTimeout(1000);
+    assert(await a.locator('#join-screen').isVisible());
+    assert.equal(await a.locator('#username').inputValue(), 'Mesmo Nome');
+  });
   assert.deepEqual(errors, [], 'no unhandled page errors');
   await writeFile(`${output}/results.json`, JSON.stringify({ passed: results, errors }, null, 2));
 } finally { await browser.close(); }
