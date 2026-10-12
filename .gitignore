@@ -49,6 +49,7 @@ bin/
 desktop-tauri/node_modules/
 desktop-tauri/src-tauri/gen/
 desktop-tauri/src-tauri/target/
+desktop-tauri/src-tauri/target-qa/
 .smoke-edge*/
 
 .gradle-native
