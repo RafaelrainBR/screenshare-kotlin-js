@@ -9,6 +9,7 @@ const gradlew = join(repositoryDir, process.platform === 'win32' ? 'gradlew.bat'
 const gradleUserHome = join(repositoryDir, '.gradle')
 const gradleArgs = [
   '--gradle-user-home', gradleUserHome,
+  '--build-cache',
   '--no-problems-report',
   '-Pkotlin.compiler.execution.strategy=in-process',
   '-Pscreenshare.desktop.bridge',

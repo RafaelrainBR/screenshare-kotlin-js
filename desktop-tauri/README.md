@@ -35,6 +35,12 @@ published release is never overwritten. No signing secrets are required for
 these unsigned/ad hoc builds. Manual capture and installer smoke tests remain
 necessary on real devices.
 
+Release builds cache Gradle dependencies and task outputs in the same
+repository-local `.gradle` directory used by the frontend hook. The desktop jobs
+also cache npm downloads and Cargo dependencies/build artifacts for each platform.
+Native tests use the release profile to reuse compilation work when building the
+app. A first run populates the caches; subsequent compatible runs can reuse them.
+
 This module is the Windows shell for the canonical Kotlin/JS client. It does not
 contain a second frontend, signaling protocol, or server.
 

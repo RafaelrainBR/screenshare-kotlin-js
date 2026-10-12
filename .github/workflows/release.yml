@@ -12,6 +12,7 @@ on:
 
 env:
   RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+  GRADLE_USER_HOME: ${{ github.workspace }}/.gradle
 
 permissions:
   contents: read
@@ -86,6 +87,7 @@ jobs:
         with:
           distribution: temurin
           java-version: '21'
+      - uses: gradle/actions/setup-gradle@v6
       - uses: actions/setup-node@v7
         with:
           node-version: '24'
@@ -109,7 +111,7 @@ jobs:
       - name: Kotlin tests
         run: |
           chmod +x gradlew
-          ./gradlew --no-problems-report -Pkotlin.compiler.execution.strategy=in-process :client:jsTest :common:allTests :server:jvmTest
+          ./gradlew --build-cache --no-problems-report -Pkotlin.compiler.execution.strategy=in-process :client:jsTest :common:allTests :server:jvmTest
           node vendor/braces/test.cjs
 
   build:
@@ -137,19 +139,25 @@ jobs:
         with:
           distribution: temurin
           java-version: '21'
+      - uses: gradle/actions/setup-gradle@v6
       - uses: actions/setup-node@v7
         with:
           node-version: '24'
+          cache: npm
+          cache-dependency-path: desktop-tauri/package-lock.json
       - name: Install build tools
         run: |
           rustup update stable --no-self-update
           rustup default stable
           npm ci --prefix desktop-tauri
           chmod +x gradlew
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: desktop-tauri/src-tauri -> target
       - name: Build frontend and test native code
         run: |
           node desktop-tauri/scripts/build-frontend.mjs
-          cargo test --locked --manifest-path desktop-tauri/src-tauri/Cargo.toml
+          cargo test --release --locked --manifest-path desktop-tauri/src-tauri/Cargo.toml
       - name: Build desktop bundles
         working-directory: desktop-tauri
         run: npm run tauri -- build --bundles '${{ matrix.bundles }}' -- --locked
