@@ -20,6 +20,8 @@ For the next release:
    `git push origin vX.Y.Z` from that commit.
 
 Re-run failed jobs in GitHub Actions to retry a failed build or publication.
+If the workflow itself needed a fix, run it manually from `master` with the
+existing release tag (`gh workflow run release.yml --ref master -f tag=vX.Y.Z`).
 A partial publication stays as a draft until all uploads succeed; an already
 published release is never overwritten. No signing secrets are required for
 these unsigned/ad hoc builds. Manual capture and installer smoke tests remain

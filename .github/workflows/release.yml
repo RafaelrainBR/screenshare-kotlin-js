@@ -3,12 +3,21 @@ name: Release
 on:
   push:
     tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing version tag to build and publish
+        required: true
+        type: string
+
+env:
+  RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
 
 permissions:
   contents: read
 
 concurrency:
-  group: release-${{ github.ref }}
+  group: release-${{ inputs.tag || github.ref_name }}
   cancel-in-progress: false
 
 jobs:
@@ -16,6 +25,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.RELEASE_TAG }}
       - uses: actions/setup-java@v6
         with:
           distribution: temurin
@@ -24,8 +35,6 @@ jobs:
         with:
           node-version: '24'
       - name: Validate release versions
-        env:
-          RELEASE_TAG: ${{ github.ref_name }}
         run: |
           node --input-type=module <<'NODE'
           import assert from 'node:assert/strict';
@@ -56,7 +65,8 @@ jobs:
           - os: windows-latest
             platform: windows-x64
             bundles: nsis,msi
-          - os: macos-15
+          # apple-metal's Swift bridge requires the macOS 26 SDK.
+          - os: macos-26
             platform: macos-arm64
             bundles: app
     runs-on: ${{ matrix.os }}
@@ -65,6 +75,8 @@ jobs:
         shell: bash
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.RELEASE_TAG }}
       - uses: actions/setup-java@v6
         with:
           distribution: temurin
@@ -88,8 +100,6 @@ jobs:
       - name: Package Windows
         if: runner.os == 'Windows'
         shell: pwsh
-        env:
-          RELEASE_TAG: ${{ github.ref_name }}
         run: |
           $ErrorActionPreference = 'Stop'
           New-Item -ItemType Directory -Path release-assets
@@ -119,6 +129,8 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.RELEASE_TAG }}
       - uses: actions/download-artifact@v8
         with:
           pattern: release-*
@@ -127,7 +139,6 @@ jobs:
       - name: Publish release
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ github.ref_name }}
         run: |
           test "$(find release-assets -type f | wc -l)" -eq 5
           cd release-assets
