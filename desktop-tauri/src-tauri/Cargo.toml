@@ -9,6 +9,10 @@ edition = "2021"
 name = "screenshare_desktop_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
+# shortcut: GTK3 requires glib 0.18; remove this pinned upstream-fix backport when Tauri supports glib >=0.20.
+[patch.crates-io]
+glib = { git = "https://github.com/gyldlab/glib-0.18-backport", rev = "b434994322a356a15ea67610a69c800922ef61ec" }
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 

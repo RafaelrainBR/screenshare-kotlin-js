@@ -55,6 +55,7 @@ jobs:
         run: |
           chmod +x gradlew
           ./gradlew --no-problems-report -Pkotlin.compiler.execution.strategy=in-process :client:jsTest :common:allTests :server:jvmTest
+          node vendor/braces/test.cjs
 
   build:
     needs: test
