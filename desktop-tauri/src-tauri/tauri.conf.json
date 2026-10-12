@@ -41,7 +41,7 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDU2MjJCRThERURGOTgxMjEKUldRaGdmbnRqYjRpVnViS09Lczl1U3dHS3BQVlBubk54d2tCNmIzQUVxZmZROENheUFqRlczY1gK",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDE5QjA2QTc5NTNBMjE1NzEKUldSeEZhSlRlV3F3R1NXWXE3dXVGUUhXMURwNEpqWEtrYXpNS1pQV3hGc3F5TzM3bzljUk9mZFkK",
       "endpoints": [
         "https://github.com/RafaelrainBR/screenshare-kotlin-js/releases/latest/download/latest.json"
       ],
