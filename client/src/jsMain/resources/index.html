@@ -4,26 +4,24 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Screenshare</title>
-  <link rel="icon" href="/app1.ico">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Inter+Tight:wght@500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="icon" href="brand/screenshare-mark.svg" type="image/svg+xml">
   <link rel="stylesheet" href="ui.css">
 </head>
 <body>
   <main id="join-screen">
     <div class="join-form">
+      <img class="join-logo" src="brand/screenshare-logo-on-dark.svg" alt="Screenshare" width="112" height="87">
       <h1>Participar de uma sala</h1>
       <p>Use um código recebido ou deixe vazio para criar uma sala.</p>
       <form class="join-fields" id="join-form">
         <label for="username">Seu nome</label>
-        <input class="input" id="username" autocomplete="nickname" placeholder="Como você aparece na sala" aria-describedby="join-error" required>
+        <span class="input-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg><input class="input" id="username" autocomplete="nickname" placeholder="Como você aparece na sala" aria-describedby="join-error" required></span>
         <span class="field-error hidden" id="join-error" role="alert">Informe seu nome para entrar.</span>
         <label for="roomId">Código da sala</label>
-        <input class="input" id="roomId" placeholder="ex: 4f8a2c1e" autocapitalize="off" spellcheck="false">
+        <span class="input-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 9h15M4 15h15M10 3 8 21M16 3l-2 18"/></svg><input class="input" id="roomId" placeholder="ex: 4f8a2c1e" autocapitalize="off" spellcheck="false"></span>
         <span class="field-hint">Código opcional ao criar uma sala.</span>
         <label class="startup-option hidden" id="startup-option"><input id="start-at-login" type="checkbox"> Iniciar com o sistema e voltar a esta sala</label>
-        <button type="submit" id="joinBtn" class="btn btn-primary btn-lg">Entrar na sala</button>
+        <button type="submit" id="joinBtn" class="btn btn-primary btn-lg">Entrar na sala <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></button>
       </form>
     </div>
   </main>

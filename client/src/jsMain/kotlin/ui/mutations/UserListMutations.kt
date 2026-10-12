@@ -254,7 +254,7 @@ object UserListMutations {
                     append(" (Você)")
                 }
             }
-        nameSpan.style.fontWeight = "500"
+        nameSpan.style.fontWeight = "400"
         userInfo.appendChild(nameSpan)
 
         val sharingScreen = user.socketId in screenSharers
@@ -372,7 +372,7 @@ object UserListMutations {
             alignItems = "center"
             justifyContent = "center"
             fontSize = "0.75rem"
-            fontWeight = "600"
+            fontWeight = "700"
         }
         avatar.className = "avatar-circle"
 
