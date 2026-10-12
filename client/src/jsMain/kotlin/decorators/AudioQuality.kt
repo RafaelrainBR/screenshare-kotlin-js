@@ -25,22 +25,22 @@ fun upgradeAudioQualitySdp(sdp: String): String {
     var out = sdp
     opusPayloadTypes.forEach { payloadType ->
         val fmtpRegex = Regex("(a=fmtp:$payloadType )(.*)", RegexOption.IGNORE_CASE)
-        out = fmtpRegex.replace(out) { match ->
-            val keep =
-                match.groupValues[2]
-                    .split(";")
-                    .filter {
-                        !Regex(
-                            "^(stereo|sprop-stereo|maxaveragebitrate|maxplaybackrate|ptime|minptime|usedtx|useinbandfec)=",
-                            RegexOption.IGNORE_CASE,
-                        ).containsMatchIn(it)
-                    }
-                    .joinToString(";")
-            val extra =
-                "stereo=1;sprop-stereo=1;maxaveragebitrate=192000;maxplaybackrate=48000;ptime=20;minptime=10;useinbandfec=1;usedtx=1"
-            val result = match.groupValues[1] + extra + (if (keep.isNotEmpty()) ";$keep" else "")
-            result.trimEnd(';')
-        }
+        out =
+            fmtpRegex.replace(out) { match ->
+                val keep =
+                    match.groupValues[2]
+                        .split(";")
+                        .filter {
+                            !Regex(
+                                "^(stereo|sprop-stereo|maxaveragebitrate|maxplaybackrate|ptime|minptime|usedtx|useinbandfec)=",
+                                RegexOption.IGNORE_CASE,
+                            ).containsMatchIn(it)
+                        }.joinToString(";")
+                val extra =
+                    "stereo=1;sprop-stereo=1;maxaveragebitrate=192000;maxplaybackrate=48000;ptime=20;minptime=10;useinbandfec=1;usedtx=1"
+                val result = match.groupValues[1] + extra + (if (keep.isNotEmpty()) ";$keep" else "")
+                result.trimEnd(';')
+            }
     }
     return out
 }

@@ -1,13 +1,16 @@
 package ui
 
 import generateRandomRoomId
+import hideAfterLocalShare
 import kotlinx.browser.document
 import kotlinx.browser.window
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import org.khronos.webgl.Uint8ClampedArray
 import org.w3c.dom.HTMLElement
 import org.w3c.dom.HTMLSelectElement
+import org.w3c.dom.ImageData
 import platform.DesktopCaptureBridge
 import platform.DesktopCaptureSource
 import platform.DesktopCaptureSourceKind
@@ -23,7 +26,7 @@ private var selectedFps = window.localStorage.getItem("screenshare.shareFps")?.t
 private var useSourceResolution = window.localStorage.getItem("screenshare.sourceResolution") == "true"
 private var selectedAudioMode = ScreenSharing.DesktopAudioMode.NONE
 private var selectedAudioSource: DesktopCaptureSource? = null
-private val desktopAudioPickerScope = CoroutineScope(Dispatchers.Main)
+private val uiScope = CoroutineScope(Dispatchers.Main)
 private var desktopAudioRefreshTimer: Int? = null
 private var desktopAudioRefreshGeneration = 0
 private var desktopAudioRefreshInFlight = false
@@ -31,7 +34,7 @@ private var renderedAudioSourcesSignature = ""
 
 fun registerUIHandlers(
     joinRoom: (username: String, roomId: String) -> Unit,
-    sendChatMessage: (message: String) -> Unit,
+    sendChatMessage: suspend (message: String) -> Unit,
     onMicButtonToggle: () -> Unit,
     onStartScreenShare: (
         width: Int,
@@ -41,7 +44,6 @@ fun registerUIHandlers(
         audioMode: ScreenSharing.DesktopAudioMode,
         audioSourceProcessId: Int?,
     ) -> Unit,
-    onChangeDesktopAudio: () -> Unit,
     onStopScreenShare: () -> Unit,
     onStartCameraShare: () -> Unit,
     onStopCameraShare: () -> Unit,
@@ -53,7 +55,6 @@ fun registerUIHandlers(
     setupSendMessageButtonHandler(sendChatMessage)
     setupMicToggleButtonHandler(onMicButtonToggle)
     setupShareQualityModal(onStartScreenShare)
-    setupChangeDesktopAudioButton(onChangeDesktopAudio)
     setupStopScreenShareButtonHandler(onStopScreenShare)
     setupCameraButtons(onStartCameraShare, onStopCameraShare)
     setupDeviceHandlers(onInputDeviceChange, onOutputDeviceChange, onCameraDeviceChange)
@@ -61,7 +62,7 @@ fun registerUIHandlers(
 }
 
 private fun setupJoinButtonHandler(joinRoom: (username: String, roomId: String) -> Unit) =
-    Elements.joinButton.addEventListener("click", { e ->
+    document.getElementById("join-form")?.addEventListener("submit", { e ->
         e.preventDefault()
         val username = Elements.usernameInput.value.trim()
         val roomId =
@@ -87,14 +88,24 @@ private fun setupJoinButtonHandler(joinRoom: (username: String, roomId: String) 
         joinRoom(username, roomId)
     })
 
-private fun setupSendMessageButtonHandler(sendChatMessage: (message: String) -> Unit) =
-    Elements.sendMessageButton.addEventListener("click", { e ->
+private fun setupSendMessageButtonHandler(sendChatMessage: suspend (message: String) -> Unit) =
+    document.getElementById("chat-form")?.addEventListener("submit", { e ->
         e.preventDefault()
-        val message = Elements.messageInput.value.trim()
-
-        if (message.isNotBlank()) {
-            sendChatMessage(message)
-            Elements.messageInput.value = ""
+        val draft = Elements.messageInput.value
+        val message = draft.trim()
+        if (message.isNotBlank() && !Elements.sendMessageButton.disabled) {
+            Elements.sendMessageButton.disabled = true
+            uiScope.launch {
+                runCatching { sendChatMessage(message) }
+                    .onSuccess {
+                        if (Elements.messageInput.value == draft) Elements.messageInput.value = ""
+                    }.onFailure {
+                        InterfaceMutations.showError(
+                            "Envio não confirmado. Sua mensagem foi mantida; confira a conexão antes de tentar novamente.",
+                        )
+                    }
+                Elements.sendMessageButton.disabled = !InterfaceMutations.roomConnected
+            }
         }
     })
 
@@ -113,28 +124,43 @@ private fun setupShareQualityModal(
         // Browsers never load the bridge or enumerate local windows. Their
         // direct, standard getDisplayMedia flow remains intentionally simple.
         if (!platform.DesktopEnvironment.isAvailable) {
-            onStartScreenShare(selectedWidth, selectedHeight, selectedFps, useSourceResolution, ScreenSharing.DesktopAudioMode.NONE, null)
+            onStartScreenShare(
+                selectedWidth,
+                selectedHeight,
+                selectedFps,
+                useSourceResolution,
+                ScreenSharing.DesktopAudioMode.NONE,
+                null,
+            )
             return@addEventListener
         }
+        if (DesktopCaptureBridge.isAvailable) resetDesktopAudioWizard()
         Elements.qualityModal.classList.remove("hidden")
     })
 
     Elements.confirmShare.addEventListener("click", { e ->
         e.preventDefault()
+        if (selectedAudioMode == ScreenSharing.DesktopAudioMode.PROCESS &&
+            selectedAudioSource == null
+        ) {
+            return@addEventListener
+        }
+        stopAudioSourceRefresh()
         Elements.qualityModal.classList.add("hidden")
         onStartScreenShare(
             selectedWidth,
             selectedHeight,
             selectedFps,
             useSourceResolution,
-            ScreenSharing.DesktopAudioMode.NONE,
-            null,
+            selectedAudioMode,
+            selectedAudioSource?.processId,
         )
     })
 
     Elements.cancelShare.addEventListener("click", { e ->
         e.preventDefault()
         stopAudioSourceRefresh()
+        hideAfterLocalShare = false
         Elements.qualityModal.classList.add("hidden")
     })
 
@@ -152,7 +178,7 @@ private fun setupShareQualityModal(
             if (option.getAttribute("data-source") != null) {
                 useSourceResolution = true
                 window.localStorage.setItem("screenshare.sourceResolution", "true")
-            } else {
+            } else if (option.getAttribute("data-width") != null) {
                 useSourceResolution = false
                 window.localStorage.setItem("screenshare.sourceResolution", "false")
                 option.getAttribute("data-width")?.toIntOrNull()?.let { selectedWidth = it }
@@ -194,7 +220,10 @@ private fun resetDesktopAudioWizard() {
     }
 }
 
-private fun bindAudioMode(id: String, mode: ScreenSharing.DesktopAudioMode) {
+private fun bindAudioMode(
+    id: String,
+    mode: ScreenSharing.DesktopAudioMode,
+) {
     val button = document.getElementById("desktop-audio-mode-$id") as org.w3c.dom.HTMLButtonElement
     button.onclick = {
         selectedAudioMode = mode
@@ -202,7 +231,9 @@ private fun bindAudioMode(id: String, mode: ScreenSharing.DesktopAudioMode) {
         val options = document.getElementsByClassName("audio-mode-card")
         for (index in 0 until options.length) (options.item(index) as HTMLElement).classList.remove("selected")
         button.classList.add("selected")
-        if (mode == ScreenSharing.DesktopAudioMode.PROCESS) openAudioSourceStep() else {
+        if (mode == ScreenSharing.DesktopAudioMode.PROCESS) {
+            openAudioSourceStep()
+        } else {
             Elements.confirmShare.disabled = false
             stopAudioSourceRefresh()
             Elements.desktopWizardStepOne.classList.remove("hidden")
@@ -238,27 +269,41 @@ private fun refreshAudioSources(
 ) {
     if (desktopAudioRefreshInFlight || generation != desktopAudioRefreshGeneration) return
     desktopAudioRefreshInFlight = true
-    desktopAudioPickerScope.launch {
-        runCatching { DesktopCaptureBridge.enumerateSources() }.onSuccess { sources ->
-            if (generation != desktopAudioRefreshGeneration) return@onSuccess
-            val windows = sources
-                .filter { it.kind == DesktopCaptureSourceKind.WINDOW }
-                .sortedBy { it.title.lowercase() }
-            val signature = windows.joinToString("|") { "${it.id}:${it.processId}:${it.title}" }
-            if (forceRender || signature != renderedAudioSourcesSignature) {
-                renderedAudioSourcesSignature = signature
-                renderAudioSources(windows)
+    uiScope.launch {
+        runCatching { DesktopCaptureBridge.enumerateSources() }
+            .onSuccess { sources ->
+                if (generation != desktopAudioRefreshGeneration) return@onSuccess
+                val windows =
+                    sources
+                        .filter { it.kind == DesktopCaptureSourceKind.WINDOW }
+                        .sortedBy { it.title.lowercase() }
+                val signature = windows.joinToString("|") { "${it.id}:${it.processId}:${it.title}" }
+                if (forceRender || signature != renderedAudioSourcesSignature) {
+                    renderedAudioSourcesSignature = signature
+                    renderAudioSources(windows)
+                }
+                Elements.desktopAudioPickerState.textContent =
+                    when {
+                        windows.isEmpty() -> {
+                            "Nenhum aplicativo disponível agora. " +
+                                "A lista será atualizada automaticamente."
+                        }
+
+                        selectedAudioSource != null -> {
+                            "Aplicativo escolhido. " +
+                                "A lista continua sendo atualizada automaticamente."
+                        }
+
+                        else -> {
+                            "Escolha o aplicativo do qual você quer enviar o áudio."
+                        }
+                    }
+            }.onFailure {
+                if (generation == desktopAudioRefreshGeneration) {
+                    Elements.desktopAudioPickerState.textContent =
+                        "Não foi possível atualizar os aplicativos. Tente novamente."
+                }
             }
-            Elements.desktopAudioPickerState.textContent = when {
-                windows.isEmpty() -> "Nenhum aplicativo disponível agora. A lista será atualizada automaticamente."
-                selectedAudioSource != null -> "Aplicativo escolhido. A lista continua sendo atualizada automaticamente."
-                else -> "Escolha o aplicativo do qual você quer enviar o áudio."
-            }
-        }.onFailure {
-            if (generation == desktopAudioRefreshGeneration) {
-                Elements.desktopAudioPickerState.textContent = "Não foi possível atualizar os aplicativos. Tente novamente."
-            }
-        }
         if (generation == desktopAudioRefreshGeneration) desktopAudioRefreshInFlight = false
     }
 }
@@ -299,23 +344,29 @@ private fun createAudioSourceTile(source: DesktopCaptureSource): HTMLElement {
         val tiles = Elements.desktopAudioSourceGrid.getElementsByClassName("audio-source-tile")
         for (index in 0 until tiles.length) (tiles.item(index) as HTMLElement).classList.remove("selected")
         button.classList.add("selected")
-        Elements.desktopAudioPickerState.textContent = "Aplicativo escolhido. O vídeo continuará sendo escolhido pelo Windows."
+        Elements.desktopAudioPickerState.textContent =
+            "Aplicativo escolhido. O vídeo continuará sendo escolhido pelo Windows."
         loadAudioSourcePreview(source)
         null
     }
     return button
 }
 
-private fun loadAudioSourcePreview(source: DesktopCaptureSource) = CoroutineScope(Dispatchers.Main).launch {
-    val thumbnail = DesktopCaptureBridge.captureThumbnail(source.hwnd) ?: return@launch
-    Elements.desktopAudioThumbnail.innerHTML = ""
-    Elements.desktopAudioThumbnail.appendChild(thumbnailCanvas(thumbnail))
-    Elements.desktopAudioThumbnail.classList.remove("hidden")
-}
+private fun loadAudioSourcePreview(source: DesktopCaptureSource) =
+    CoroutineScope(Dispatchers.Main).launch {
+        val thumbnail = DesktopCaptureBridge.captureThumbnail(source.hwnd) ?: return@launch
+        Elements.desktopAudioThumbnail.innerHTML = ""
+        Elements.desktopAudioThumbnail.appendChild(thumbnailCanvas(thumbnail))
+        Elements.desktopAudioThumbnail.classList.remove("hidden")
+    }
 
-private fun loadThumbnailInto(source: DesktopCaptureSource, container: HTMLElement) = desktopAudioPickerScope.launch {
+private fun loadThumbnailInto(
+    source: DesktopCaptureSource,
+    container: HTMLElement,
+) = uiScope.launch {
     val thumbnail = DesktopCaptureBridge.captureThumbnail(source.hwnd)
-    if (thumbnail == null) {
+    // Minimized windows come back as 0×0, which ImageData rejects.
+    if (thumbnail == null || thumbnail.width <= 0 || thumbnail.height <= 0) {
         if (container.isConnected) container.textContent = "Preview indisponível"
         return@launch
     }
@@ -337,29 +388,26 @@ private fun thumbnailCanvas(thumbnail: platform.DesktopCaptureThumbnail): HTMLEl
         // channels contain a valid capture. Canvas treats that as transparent.
         rgba[index + 3] = 255
     }
-    val pixels: dynamic = js("new Uint8ClampedArray(rgba)")
-    val imageData: dynamic = js("new ImageData(pixels, thumbnail.width, thumbnail.height)")
+    // No js("...") here: minified Kotlin renames thumbnail.width, leaving ImageData an undefined size.
+    val pixels = Uint8ClampedArray(rgba.size)
+    pixels.asDynamic().set(rgba) // IntArray is an Int32Array; set() copies 0..255 values as-is.
+    val imageData = ImageData(pixels, thumbnail.width, thumbnail.height)
     canvas.getContext("2d").putImageData(imageData, 0, 0)
     return canvas as HTMLElement
 }
-
-private fun setupChangeDesktopAudioButton(onChangeDesktopAudio: () -> Unit) =
-    Elements.changeDesktopAudioButton.addEventListener("click", { event ->
-        event.preventDefault()
-        onChangeDesktopAudio()
-    })
 
 private fun resetQualitySelection() {
     val options = document.getElementsByClassName("quality-option")
     for (i in 0 until options.length) {
         val option = options.item(i) as HTMLElement
-        val isDefault = if (option.getAttribute("data-fps") != null) {
-            option.getAttribute("data-fps") == selectedFps.toString()
-        } else if (option.getAttribute("data-source") != null) {
-            useSourceResolution
-        } else {
-            option.getAttribute("data-width") == selectedWidth.toString()
-        }
+        val isDefault =
+            if (option.getAttribute("data-fps") != null) {
+                option.getAttribute("data-fps") == selectedFps.toString()
+            } else if (option.getAttribute("data-source") != null) {
+                useSourceResolution
+            } else {
+                option.getAttribute("data-width") == selectedWidth.toString()
+            }
         if (isDefault) {
             option.classList.add("btn-primary")
         } else {
@@ -399,7 +447,7 @@ private fun setupDeviceHandlers(
         onInputDeviceChange(Elements.inputDevices.value)
     })
 
-        Elements.outputDevices.addEventListener("change", {
+    Elements.outputDevices.addEventListener("change", {
         window.localStorage.setItem("screenshare.outputDeviceId", Elements.outputDevices.value)
         onOutputDeviceChange(Elements.outputDevices.value)
     })

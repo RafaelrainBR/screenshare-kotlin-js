@@ -11,7 +11,9 @@ class MediaCaptureGate {
         return { available && requestedGeneration == generation }
     }
 
-    fun invalidate() { generation++ }
+    fun invalidate() {
+        generation++
+    }
 
     fun setAvailable(value: Boolean) {
         available = value

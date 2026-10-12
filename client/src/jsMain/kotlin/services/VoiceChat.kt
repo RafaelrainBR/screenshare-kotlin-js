@@ -1,6 +1,5 @@
 package services
 
-import kotlin.js.json
 import kotlinx.browser.window
 import kotlinx.coroutines.await
 import org.w3c.dom.mediacapture.MediaStream
@@ -8,6 +7,7 @@ import org.w3c.dom.mediacapture.MediaStreamConstraints
 import org.w3c.dom.mediacapture.MediaStreamTrack
 import ui.InterfaceMutations
 import ui.mutations.UserListMutations
+import kotlin.js.json
 
 private const val SPEAKING_THRESHOLD = 30
 
@@ -23,6 +23,7 @@ class VoiceChat {
         socketId: String,
         stream: MediaStream,
     ) {
+        remoteAudioStreams[socketId]?.takeIf { it !== stream }?.getTracks()?.forEach { it.stop() }
         remoteAudioStreams[socketId] = stream
 
         InterfaceMutations.addAudioElementForUser(userId = socketId, stream = stream)
@@ -30,7 +31,7 @@ class VoiceChat {
         monitorAudioLevel(
             stream = stream,
             socketId = socketId,
-            isEnable = { remoteAudioStreams.containsKey(socketId) },
+            isEnable = { remoteAudioStreams[socketId] === stream },
         ) { isSpeaking ->
             UserListMutations.setUserSpeaking(socketId, isSpeaking)
         }
@@ -40,6 +41,13 @@ class VoiceChat {
         remoteAudioStreams.values.forEach { stream -> stream.getTracks().forEach { it.stop() } }
         remoteAudioStreams.clear()
         InterfaceMutations.removeRemoteAudioElements()
+    }
+
+    fun stopRemoteAudio(socketId: String) {
+        remoteAudioStreams.remove(socketId)?.getTracks()?.forEach { it.stop() }
+        kotlinx.browser.document
+            .getElementById("remote-audio-$socketId")
+            ?.let { it.parentElement?.removeChild(it) }
     }
 
     suspend fun setupLocalMic(
@@ -61,6 +69,7 @@ class VoiceChat {
             throw kotlinx.coroutines.CancellationException("Capture request invalidated")
         }
         val audioTrack = newStream.getAudioTracks().firstOrNull()
+        newStream.getAudioTracks().forEach { it.enabled = !isMicMuted }
 
         // Replace the track on the same RTP sender (before stopping the old
         // one) so switching devices never leaves the previous mic playing.
@@ -149,7 +158,12 @@ private fun monitorAudioLevel(
     var isSpeaking = false
 
     fun checkAudioLevel() {
-        if (!isEnable()) return
+        if (!isEnable()) {
+            source.disconnect()
+            analyser.disconnect()
+            audioContext.close()
+            return
+        }
 
         analyser.getByteFrequencyData(dataArray)
 

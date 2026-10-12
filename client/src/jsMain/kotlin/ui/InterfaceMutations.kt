@@ -3,7 +3,10 @@ package ui
 import getUsernameInitials
 import kotlinx.browser.document
 import kotlinx.browser.window
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.await
+import kotlinx.coroutines.launch
 import org.w3c.dom.HTMLAudioElement
 import org.w3c.dom.HTMLButtonElement
 import org.w3c.dom.HTMLDivElement
@@ -14,17 +17,52 @@ import org.w3c.dom.HTMLParagraphElement
 import org.w3c.dom.HTMLVideoElement
 import org.w3c.dom.mediacapture.MediaStream
 import org.w3c.dom.url.URL
+import platform.DesktopCaptureBridge
+import platform.DesktopEnvironment
+import platform.mediaPermissionHelp
 import screenshare.common.ChatMessage
 import ui.mutations.UserListMutations
 import kotlin.js.Date
-import platform.DesktopCaptureBridge
-import platform.mediaPermissionHelp
 
 object InterfaceMutations {
+    var roomConnected = false
+        private set
+
+    fun updateRoomConnection(
+        connected: Boolean,
+        status: String = if (connected) "Conectado" else "Conectando à sala…",
+    ) {
+        roomConnected = connected
+        document.getElementById("room-connection-status")?.textContent = status
+        document.getElementById("tray-connection-status")?.textContent = status
+        Elements.sendMessageButton.disabled = !connected
+        val buttons = document.querySelectorAll("[data-needs-room]")
+        for (index in 0 until buttons.length) (buttons.item(index) as? HTMLButtonElement)?.disabled = !connected
+        listOf(
+            Elements.shareScreenButton,
+            Elements.cameraButton,
+            Elements.micToggle,
+        ).forEach { it.disabled = !connected }
+        CoroutineScope(
+            Dispatchers.Main,
+        ).launch { runCatching { DesktopEnvironment.setTrayState("connection", connected) } }
+    }
+
     fun setTrayRoom(roomId: String?) {
         document.getElementById("tray-room")?.textContent = roomId ?: "Nenhuma sala"
-        val buttons = document.querySelectorAll("[data-needs-room]")
-        for (index in 0 until buttons.length) (buttons.item(index) as? HTMLButtonElement)?.disabled = roomId == null
+        updateRoomConnection(
+            false,
+            if (roomId ==
+                null
+            ) {
+                "Entre em uma sala para usar a mídia."
+            } else {
+                "Conectando à sala…"
+            },
+        )
+        CoroutineScope(
+            Dispatchers.Main,
+        ).launch { runCatching { DesktopEnvironment.setTrayState("room", roomId != null) } }
         syncTrayQuality()
     }
 
@@ -34,36 +72,57 @@ object InterfaceMutations {
         val buttons = document.querySelectorAll("[data-quality-width]")
         for (index in 0 until buttons.length) {
             val button = buttons.item(index) as HTMLElement
-            button.setAttribute("aria-pressed", (!source && button.getAttribute("data-quality-width") == width).toString())
+            button.setAttribute(
+                "aria-pressed",
+                (!source && button.getAttribute("data-quality-width") == width).toString(),
+            )
         }
+        val quality =
+            if (source) {
+                "quality-source"
+            } else {
+                when (width) {
+                    "1280" -> "quality720"
+                    "1920" -> "quality1080"
+                    "3840" -> "quality4k"
+                    else -> "quality-source"
+                }
+            }
+        CoroutineScope(Dispatchers.Main).launch { runCatching { DesktopEnvironment.setTrayState(quality, true) } }
     }
 
     fun showGrid() {
         focusedTileId = null
         reflowScreens()
     }
+
     var selectedOutputDeviceId: String? = null
     private var focusedTileId: String? = null
     private var outputMuted = window.localStorage.getItem("screenshare.outputMuted") == "true"
     private var noticeTimeout: Int? = null
     private var retryMediaKind = ""
 
-    fun showPermissionRecovery(kind: String, errorName: String?) {
-        document.getElementById("permission-title")?.textContent = when (kind) {
-            "camera" -> "Câmera indisponível"
-            "microphone" -> "Microfone indisponível"
-            else -> "Compartilhamento de tela indisponível"
-        }
+    fun showPermissionRecovery(
+        kind: String,
+        errorName: String?,
+    ) {
+        document.getElementById("permission-title")?.textContent =
+            when (kind) {
+                "camera" -> "Câmera indisponível"
+                "microphone" -> "Microfone indisponível"
+                else -> "Compartilhamento de tela indisponível"
+            }
         document.getElementById("permission-help")?.textContent = mediaPermissionHelp(kind, errorName)
         document.getElementById("permission-recovery")?.classList?.remove("hidden")
         retryMediaKind = kind
         document.getElementById("retry-media")?.asDynamic()?.onclick = {
             document.getElementById("permission-recovery")?.classList?.add("hidden")
-            val buttonId = when (retryMediaKind) {
-                "camera" -> "cameraBtn"
-                "microphone" -> "micToggle"
-                else -> "shareScreenBtn"
-            }
+            val buttonId =
+                when (retryMediaKind) {
+                    "camera" -> "cameraBtn"
+                    "microphone" -> "micToggle"
+                    else -> "shareScreenBtn"
+                }
             document.getElementById(buttonId)?.asDynamic()?.click()
             null
         }
@@ -72,8 +131,10 @@ object InterfaceMutations {
             null
         }
     }
+
     val screenVolumes: MutableMap<String, Int> = mutableMapOf()
     private val screenLastAudibleVolumes: MutableMap<String, Int> = mutableMapOf()
+
     fun showError(message: String) {
         val notice = document.getElementById("ui-notice") as HTMLElement
         noticeTimeout?.let { window.clearTimeout(it) }
@@ -81,6 +142,7 @@ object InterfaceMutations {
         notice.classList.remove("hidden")
         noticeTimeout = window.setTimeout({ notice.classList.add("hidden") }, 6_000)
     }
+
     fun navigateToRoomScreen(
         roomId: String,
         username: String,
@@ -90,13 +152,13 @@ object InterfaceMutations {
         Elements.appScreen.classList.remove("hidden")
 
         val actualUrl = URL(window.location.href)
-        val newUrl = "${actualUrl.origin}/?roomId=$roomId"
-        window.history.pushState(null, "", newUrl)
+        actualUrl.searchParams.set("roomId", roomId)
+        window.history.pushState(null, "", actualUrl.href)
     }
 
     fun addMessageToChat(
         message: ChatMessage,
-        localUsername: String,
+        localSocketId: String?,
     ) {
         val messageElement = document.createElement("div") as HTMLDivElement
 
@@ -104,7 +166,7 @@ object InterfaceMutations {
             Date(message.timestamp)
                 .toLocaleTimeString("pt-BR", js("({ hour: '2-digit', minute: '2-digit' })"))
 
-        val isCurrentUser = message.username == localUsername
+        val isCurrentUser = message.senderSocketId != null && message.senderSocketId == localSocketId
 
         val initials = message.username.getUsernameInitials()
 
@@ -144,7 +206,7 @@ object InterfaceMutations {
         messageElement.appendChild(wrapper)
         Elements.chatMessages.appendChild(messageElement)
 
-        messageElement.scrollIntoView(js("{ behavior: 'smooth', block: 'end' }"))
+        Elements.chatMessages.scrollTop = Elements.chatMessages.scrollHeight.toDouble()
     }
 
     fun addOrUpdateScreenTile(
@@ -192,7 +254,8 @@ object InterfaceMutations {
         video.muted = isLocal || outputMuted
         video.setAttribute("playsinline", "")
         video.srcObject = stream
-        video.addEventListener("pause", { video.play() })
+        // Removing a tile also fires pause; only resume attached videos and ignore aborted play().
+        video.addEventListener("pause", { if (video.isConnected) video.play().catch { } })
         video.addEventListener("click", { e -> e.preventDefault() })
         tile.appendChild(video)
 
@@ -221,16 +284,7 @@ object InterfaceMutations {
         })
         controls.appendChild(fullscreenButton)
 
-        val viewButton = document.createElement("button") as HTMLButtonElement
-        viewButton.type = "button"
-        viewButton.className = "glass-chip view-source"
-        viewButton.textContent = "Visualizar tela"
-        viewButton.addEventListener("click", { event ->
-            event.preventDefault()
-            event.stopPropagation()
-            focusOnTile(tileId)
-        })
-        controls.appendChild(viewButton)
+        controls.appendChild(participantOptionsButton(username))
 
         val volumeChip = document.createElement("div") as HTMLElement
         volumeChip.className = "glass-chip"
@@ -288,12 +342,13 @@ object InterfaceMutations {
             event.preventDefault()
             event.stopPropagation()
             val currentVolume = volumeSlider.value.toInt()
-            val nextVolume = if (currentVolume == 0) {
-                screenLastAudibleVolumes[tileId]?.takeIf { it > 0 } ?: 100
-            } else {
-                screenLastAudibleVolumes[tileId] = currentVolume
-                0
-            }
+            val nextVolume =
+                if (currentVolume == 0) {
+                    screenLastAudibleVolumes[tileId]?.takeIf { it > 0 } ?: 100
+                } else {
+                    screenLastAudibleVolumes[tileId] = currentVolume
+                    0
+                }
             applyScreenVolume(nextVolume)
         })
         applyScreenVolume(initialVolume)
@@ -304,11 +359,11 @@ object InterfaceMutations {
 
         tile.appendChild(controls)
 
-        tile.addEventListener("click", {
-            setFocusedTile(tileId)
+        tile.addEventListener("click", { event ->
+            if (event.target.asDynamic().closest("button, input") == null) setFocusedTile(tileId)
         })
         tile.addEventListener("keydown", { event ->
-            if (event.asDynamic().key == "Enter" || event.asDynamic().key == " ") {
+            if (event.target == tile && (event.asDynamic().key == "Enter" || event.asDynamic().key == " ")) {
                 event.preventDefault()
                 setFocusedTile(tileId)
             }
@@ -405,18 +460,25 @@ object InterfaceMutations {
     }
 
     fun updateShareControls(isLocalSharing: Boolean) {
-        document.getElementById("tray-screen")?.textContent = if (isLocalSharing) "Tela compartilhada · Parar" else "Compartilhar tela ou janela…"
+        (document.querySelector("#tray-screen span") as? HTMLElement)?.textContent =
+            if (isLocalSharing) "Parar compartilhamento" else "Compartilhar tela"
+        document.getElementById("tray-screen")?.setAttribute("aria-pressed", isLocalSharing.toString())
         if (isLocalSharing) {
-            Elements.stopScreenShareButton.classList.remove("hidden")
-            Elements.shareScreenButton.classList.add("hidden")
-            if (DesktopCaptureBridge.isAvailable) {
-                Elements.changeDesktopAudioButton.classList.remove("hidden")
-            }
+            swapToggle(show = Elements.stopScreenShareButton, hide = Elements.shareScreenButton)
         } else {
-            Elements.stopScreenShareButton.classList.add("hidden")
-            Elements.shareScreenButton.classList.remove("hidden")
-            Elements.changeDesktopAudioButton.classList.add("hidden")
+            swapToggle(show = Elements.shareScreenButton, hide = Elements.stopScreenShareButton)
         }
+    }
+
+    // Hiding the focused toggle would drop keyboard focus to <body>; hand it to its counterpart.
+    private fun swapToggle(
+        show: HTMLElement,
+        hide: HTMLElement,
+    ) {
+        val hadFocus = document.activeElement == hide
+        show.classList.remove("hidden")
+        hide.classList.add("hidden")
+        if (hadFocus) show.focus()
     }
 
     fun reopenDesktopShareWizard() {
@@ -424,13 +486,14 @@ object InterfaceMutations {
     }
 
     fun updateCameraControls(isLocalCameraOn: Boolean) {
-        document.getElementById("tray-camera")?.textContent = if (isLocalCameraOn) "Câmera ativa · Parar" else "Câmera desligada · Ligar"
+        document.getElementById("tray-camera")?.apply {
+            textContent = if (isLocalCameraOn) "Parar câmera" else "Ligar câmera"
+            setAttribute("aria-pressed", isLocalCameraOn.toString())
+        }
         if (isLocalCameraOn) {
-            Elements.stopCameraButton.classList.remove("hidden")
-            Elements.cameraButton.classList.add("hidden")
+            swapToggle(show = Elements.stopCameraButton, hide = Elements.cameraButton)
         } else {
-            Elements.stopCameraButton.classList.add("hidden")
-            Elements.cameraButton.classList.remove("hidden")
+            swapToggle(show = Elements.cameraButton, hide = Elements.stopCameraButton)
         }
     }
 
@@ -479,7 +542,8 @@ object InterfaceMutations {
         video.muted = isLocal || outputMuted
         video.setAttribute("playsinline", "")
         video.srcObject = stream
-        video.addEventListener("pause", { video.play() })
+        // Removing a tile also fires pause; only resume attached videos and ignore aborted play().
+        video.addEventListener("pause", { if (video.isConnected) video.play().catch { } })
         video.addEventListener("click", { e -> e.preventDefault() })
         tile.appendChild(video)
 
@@ -507,29 +571,32 @@ object InterfaceMutations {
             }
         })
         controls.appendChild(fullscreenButton)
-        val viewButton = document.createElement("button") as HTMLButtonElement
-        viewButton.type = "button"
-        viewButton.className = "glass-chip view-source"
-        viewButton.textContent = "Visualizar câmera"
-        viewButton.addEventListener("click", { event ->
-            event.preventDefault()
-            event.stopPropagation()
-            focusOnTile(tileId)
-        })
-        controls.appendChild(viewButton)
+        controls.appendChild(participantOptionsButton(username))
         tile.appendChild(controls)
 
-        tile.addEventListener("click", {
-            setFocusedTile(tileId)
+        tile.addEventListener("click", { event ->
+            if (event.target.asDynamic().closest("button, input") == null) setFocusedTile(tileId)
         })
         tile.addEventListener("keydown", { event ->
-            if (event.asDynamic().key == "Enter" || event.asDynamic().key == " ") {
+            if (event.target == tile && (event.asDynamic().key == "Enter" || event.asDynamic().key == " ")) {
                 event.preventDefault()
                 setFocusedTile(tileId)
             }
         })
 
         return tile
+    }
+
+    fun participantOptionsButton(username: String): HTMLButtonElement {
+        val button = document.createElement("button") as HTMLButtonElement
+        button.type = "button"
+        button.className = "glass-chip participant-options"
+        button.textContent = "⋯"
+        button.setAttribute("data-participant-options", "")
+        button.setAttribute("aria-label", "Opções de $username")
+        button.setAttribute("aria-haspopup", "dialog")
+        button.title = "Opções de $username"
+        return button
     }
 
     fun removeCameraTile(tileId: String) {
@@ -545,6 +612,7 @@ object InterfaceMutations {
         userId: String,
         stream: MediaStream,
     ) {
+        document.getElementById("remote-audio-$userId")?.let { it.parentElement?.removeChild(it) }
         val audioElement =
             (document.createElement("audio") as HTMLAudioElement).apply {
                 id = "remote-audio-$userId"
@@ -556,7 +624,7 @@ object InterfaceMutations {
         document.body?.appendChild(audioElement)
 
         if (!selectedOutputDeviceId.isNullOrBlank()) {
-            runCatching { audioElement.asDynamic().setSinkId(selectedOutputDeviceId) }
+            setSinkId(audioElement, selectedOutputDeviceId!!)
         }
     }
 
@@ -573,7 +641,10 @@ object InterfaceMutations {
         val previousOutput = window.localStorage.getItem("screenshare.outputDeviceId") ?: Elements.outputDevices.value
         val previousCamera = Elements.cameraDevices.value
 
-        val devices = window.navigator.mediaDevices.enumerateDevices().await()
+        val devices =
+            window.navigator.mediaDevices
+                .enumerateDevices()
+                .await()
         val inputSelect = Elements.inputDevices
         val outputSelect = Elements.outputDevices
         val cameraSelect = Elements.cameraDevices
@@ -617,10 +688,17 @@ object InterfaceMutations {
 
     fun toggleOutputMute() {
         outputMuted = !outputMuted
+        CoroutineScope(
+            Dispatchers.Main,
+        ).launch { runCatching { DesktopEnvironment.setTrayState("output", outputMuted) } }
         window.localStorage.setItem("screenshare.outputMuted", outputMuted.toString())
         Elements.outputToggle.classList.toggle("muted", outputMuted)
         val label = if (outputMuted) "Ativar saída de áudio" else "Silenciar saída de áudio"
-        document.getElementById("tray-output")?.textContent = label
+        document.getElementById("tray-output")?.apply {
+            textContent = if (outputMuted) "Ativar áudio" else "Silenciar áudio"
+            setAttribute("aria-label", label)
+            setAttribute("aria-pressed", outputMuted.toString())
+        }
         Elements.outputToggle.title = label
         Elements.outputToggle.setAttribute("aria-label", label)
         val audioElements = document.getElementsByTagName("audio")
@@ -638,9 +716,16 @@ object InterfaceMutations {
     }
 
     fun restoreOutputState() {
+        CoroutineScope(
+            Dispatchers.Main,
+        ).launch { runCatching { DesktopEnvironment.setTrayState("output", outputMuted) } }
         Elements.outputToggle.classList.toggle("muted", outputMuted)
         val label = if (outputMuted) "Ativar saída de áudio" else "Silenciar saída de áudio"
-        document.getElementById("tray-output")?.textContent = label
+        document.getElementById("tray-output")?.apply {
+            textContent = if (outputMuted) "Ativar áudio" else "Silenciar áudio"
+            setAttribute("aria-label", label)
+            setAttribute("aria-pressed", outputMuted.toString())
+        }
         Elements.outputToggle.title = label
         Elements.outputToggle.setAttribute("aria-label", label)
     }
@@ -658,19 +743,27 @@ object InterfaceMutations {
         applyOutputDeviceToElements(deviceId)
     }
 
+    // setSinkId rejects asynchronously (e.g. AbortError on detached elements), which runCatching can't catch.
+    private fun setSinkId(
+        element: Any,
+        deviceId: String,
+    ) {
+        runCatching { element.asDynamic().setSinkId(deviceId)?.catch { _: dynamic -> } }
+    }
+
     private fun applyOutputDeviceToElements(deviceId: String) {
         val audioElements = document.getElementsByTagName("audio")
         for (i in 0 until audioElements.length) {
             val element = audioElements.item(i) ?: continue
             if (element.id.startsWith("remote-audio-")) {
-                runCatching { element.asDynamic().setSinkId(deviceId) }
+                setSinkId(element, deviceId)
             }
         }
         val screenTiles = document.getElementsByClassName("screen-tile")
         for (i in 0 until screenTiles.length) {
             val tile = screenTiles.item(i) as? HTMLElement ?: continue
             val video = tile.querySelector("video") ?: continue
-            runCatching { video.asDynamic().setSinkId(deviceId) }
+            setSinkId(video, deviceId)
         }
     }
 
@@ -684,7 +777,11 @@ object InterfaceMutations {
         }
 
     fun updateAudioControls(isMicMuted: Boolean) {
-        document.getElementById("tray-mic")?.textContent = if (isMicMuted) "Microfone desligado · Ativar" else "Microfone ativo · Silenciar"
+        document.getElementById("tray-mic")?.apply {
+            textContent = if (isMicMuted) "Ativar microfone" else "Silenciar mic."
+            setAttribute("aria-label", if (isMicMuted) "Ativar microfone" else "Silenciar microfone")
+            setAttribute("aria-pressed", (!isMicMuted).toString())
+        }
         val micSlash = document.getElementById("micSlash")!!
         val micStatus = document.getElementById("micStatus")!!
 

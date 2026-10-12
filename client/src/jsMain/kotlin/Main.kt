@@ -35,7 +35,6 @@ fun main() {
                 handler = ::handlePacket,
                 onClose = {
                     session?.prepareForReconnect()
-                    InterfaceMutations.showError("Conexão interrompida. Tentando reconectar…")
                 },
             )
         }
@@ -72,10 +71,6 @@ fun main() {
         onStartScreenShare = { width, height, fps, useSourceResolution, audioMode, processId ->
             getSessionOrAlert().handleStartScreenShare(width, height, fps, useSourceResolution, audioMode, processId)
         },
-        onChangeDesktopAudio = {
-            val button = kotlinx.browser.document.getElementById("shareScreenBtn") as org.w3c.dom.HTMLButtonElement
-            button.click()
-        },
         onStopScreenShare = {
             getSessionOrAlert().handleStopScreenShare()
         },
@@ -108,6 +103,10 @@ fun main() {
     }
 
     if (DesktopEnvironment.isAvailable) {
+        kotlinx.browser.document
+            .getElementById("startup-option")
+            ?.classList
+            ?.remove("hidden")
         val usernameInput = kotlinx.browser.document.getElementById("username") as org.w3c.dom.HTMLInputElement
         val roomInput = kotlinx.browser.document.getElementById("roomId") as org.w3c.dom.HTMLInputElement
         val startupToggle = kotlinx.browser.document.getElementById("start-at-login") as org.w3c.dom.HTMLInputElement
@@ -117,7 +116,10 @@ fun main() {
             runCatching { DesktopEnvironment.autoStartEnabled() }.onSuccess { startupToggle.checked = it }
             if (startupToggle.checked && usernameInput.value.isNotBlank() && roomInput.value.isNotBlank()) {
                 DesktopEnvironment.viewerMode = "hidden"
-                kotlinx.browser.document.getElementById("joinBtn")?.asDynamic()?.click()
+                kotlinx.browser.document
+                    .getElementById("joinBtn")
+                    ?.asDynamic()
+                    ?.click()
                 runCatching { DesktopEnvironment.hideMainWindow() }
             }
         }
@@ -132,72 +134,160 @@ fun main() {
         })
     }
 
+    fun leaveRoom() {
+        val draft = ui.Elements.messageInput.value
+        if (draft.isNotBlank() &&
+            !window.confirm("Há uma mensagem não enviada. Sair da sala e descartar o rascunho?")
+        ) {
+            return
+        }
+        ui.Elements.cancelShare.click()
+        kotlinx.browser.document
+            .getElementById("permission-recovery")
+            ?.classList
+            ?.add("hidden")
+        session?.dispose()
+        session = null
+        websocketService.leaveRoom()
+        InterfaceMutations.setTrayRoom(null)
+        ui.mutations.UserListMutations.updateUserList(emptyList(), null)
+        ui.Elements.messageInput.value = ""
+        ui.Elements.roomIdInput.value = ""
+        ui.Elements.chatMessages.innerHTML = ""
+        ui.Elements.appScreen.classList
+            .add("hidden")
+        ui.Elements.joinScreen.classList
+            .remove("hidden")
+        val url =
+            org.w3c.dom.url
+                .URL(window.location.href)
+        url.searchParams.delete("roomId")
+        window.history.replaceState(null, "", url.href)
+        ui.Elements.usernameInput.focus()
+        websocketCoroutineScope.launch {
+            runCatching { DesktopEnvironment.setTrayState("remote", false) }
+            if (DesktopEnvironment.isAvailable) {
+                runCatching { DesktopEnvironment.showMainWindow() }
+                val startupToggle =
+                    kotlinx.browser.document.getElementById(
+                        "start-at-login",
+                    ) as org.w3c.dom.HTMLInputElement
+                runCatching { DesktopEnvironment.setAutoStart(false) }
+                    .onSuccess { startupToggle.checked = false }
+                    .onFailure { InterfaceMutations.showError("Não foi possível desativar o retorno automático.") }
+            }
+        }
+    }
+
     window.addEventListener("screenshare:tray-action", { event ->
         when ((event.asDynamic().detail as? String).orEmpty()) {
             "open" -> {
                 InterfaceMutations.showGrid()
                 websocketCoroutineScope.launch { runCatching { DesktopEnvironment.showMainWindow() } }
             }
-            "output" -> InterfaceMutations.toggleOutputMute()
-            "quit" -> window.asDynamic().__screenshareDesktopBridge.quitApp()
+
+            "output" -> {
+                InterfaceMutations.toggleOutputMute()
+            }
+
+            "quit" -> {
+                window.asDynamic().__screenshareDesktopBridge.quitApp()
+            }
+
             "quality-options" -> {
-                hideAfterLocalShare = true
-                kotlinx.browser.document.getElementById("shareScreenBtn")?.asDynamic()?.click()
+                hideAfterLocalShare = DesktopEnvironment.isAvailable && DesktopEnvironment.viewerMode == "compact"
+                kotlinx.browser.document
+                    .getElementById("shareScreenBtn")
+                    ?.asDynamic()
+                    ?.click()
             }
-            "mic" -> kotlinx.browser.document.getElementById("micToggle")?.asDynamic()?.click()
+
+            "mic" -> {
+                kotlinx.browser.document
+                    .getElementById("micToggle")
+                    ?.asDynamic()
+                    ?.click()
+            }
+
             "camera" -> {
-                hideAfterLocalShare = true
+                hideAfterLocalShare = DesktopEnvironment.isAvailable && DesktopEnvironment.viewerMode == "compact"
                 val id = if (session?.cameraSharing?.localCameraStream == null) "cameraBtn" else "stopCameraBtn"
-                kotlinx.browser.document.getElementById(id)?.asDynamic()?.click()
+                kotlinx.browser.document
+                    .getElementById(id)
+                    ?.asDynamic()
+                    ?.click()
             }
+
             "screen" -> {
-                hideAfterLocalShare = true
-                val buttonId = if (session?.screenSharing?.localScreenStream == null) "shareScreenBtn" else "stopSharingBtn"
-                kotlinx.browser.document.getElementById(buttonId)?.asDynamic()?.click()
+                hideAfterLocalShare = DesktopEnvironment.isAvailable && DesktopEnvironment.viewerMode == "compact"
+                val buttonId =
+                    if (session?.screenSharing?.localScreenStream ==
+                        null
+                    ) {
+                        "shareScreenBtn"
+                    } else {
+                        "stopSharingBtn"
+                    }
+                kotlinx.browser.document
+                    .getElementById(buttonId)
+                    ?.asDynamic()
+                    ?.click()
             }
-            "quality720" -> kotlinx.browser.document.querySelector("[data-width='1280']")?.asDynamic()?.click()
-            "quality1080" -> kotlinx.browser.document.querySelector("[data-width='1920']")?.asDynamic()?.click()
-            "quality4k" -> kotlinx.browser.document.querySelector("[data-width='3840']")?.asDynamic()?.click()
-            "switch" -> {
-                session?.dispose()
-                session = null
-                InterfaceMutations.setTrayRoom(null)
-                ui.mutations.UserListMutations.updateUserList(emptyList(), "")
-                websocketCoroutineScope.launch { runCatching { DesktopEnvironment.showMainWindow() } }
-                websocketService.leaveRoom()
-                val roomInput = kotlinx.browser.document.getElementById("roomId") as? org.w3c.dom.HTMLInputElement
-                if (roomInput != null) roomInput.value = ""
-                kotlinx.browser.document.getElementById("app-screen")?.classList?.add("hidden")
-                kotlinx.browser.document.getElementById("join-screen")?.classList?.remove("hidden")
+
+            "quality720" -> {
+                kotlinx.browser.document
+                    .querySelector("[data-width='1280']")
+                    ?.asDynamic()
+                    ?.click()
             }
-            "leave" -> {
-                session?.dispose()
-                session = null
-                InterfaceMutations.setTrayRoom(null)
-                ui.mutations.UserListMutations.updateUserList(emptyList(), "")
-                websocketService.leaveRoom()
-                websocketCoroutineScope.launch {
-                    val startupToggle = kotlinx.browser.document.getElementById("start-at-login") as? org.w3c.dom.HTMLInputElement
-                    runCatching { DesktopEnvironment.setAutoStart(false) }
-                        .onSuccess { if (startupToggle != null) startupToggle.checked = false }
-                        .onFailure {
-                            if (startupToggle != null) startupToggle.checked = true
-                            InterfaceMutations.showError("Não foi possível desativar o retorno automático.")
-                        }
-                }
-                kotlinx.browser.document.getElementById("app-screen")?.classList?.add("hidden")
-                kotlinx.browser.document.getElementById("join-screen")?.classList?.remove("hidden")
+
+            "quality1080" -> {
+                kotlinx.browser.document
+                    .querySelector("[data-width='1920']")
+                    ?.asDynamic()
+                    ?.click()
+            }
+
+            "quality4k" -> {
+                kotlinx.browser.document
+                    .querySelector("[data-width='3840']")
+                    ?.asDynamic()
+                    ?.click()
+            }
+
+            "switch", "leave" -> {
+                leaveRoom()
             }
         }
     })
     kotlinx.browser.document.addEventListener("visibilitychange", {
-        session?.setVideoReception(shouldReceiveVideo(DesktopEnvironment.isAvailable, DesktopEnvironment.viewerMode, kotlinx.browser.document.asDynamic().hidden as Boolean))
+        session?.setVideoReception(
+            shouldReceiveVideo(
+                DesktopEnvironment.isAvailable,
+                DesktopEnvironment.viewerMode,
+                kotlinx.browser.document
+                    .asDynamic()
+                    .hidden as Boolean,
+            ),
+        )
     })
     window.addEventListener("screenshare:viewer-mode", { event ->
         val mode = event.asDynamic().detail as? String ?: "hidden"
         DesktopEnvironment.viewerMode = mode
-        if (mode != "hidden") kotlinx.browser.document.body?.classList?.toggle("compact-tray", mode == "compact")
-        session?.setVideoReception(shouldReceiveVideo(true, mode, kotlinx.browser.document.asDynamic().hidden as Boolean))
+        if (mode != "hidden") {
+            kotlinx.browser.document.body
+                ?.classList
+                ?.toggle("compact-tray", mode == "compact")
+        }
+        session?.setVideoReception(
+            shouldReceiveVideo(
+                true,
+                mode,
+                kotlinx.browser.document
+                    .asDynamic()
+                    .hidden as Boolean,
+            ),
+        )
     })
     window.addEventListener("screenshare:session-media-available", { event ->
         session?.setMediaAvailable(event.asDynamic().detail == true)

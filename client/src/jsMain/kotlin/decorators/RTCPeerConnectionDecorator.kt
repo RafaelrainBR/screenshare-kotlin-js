@@ -45,11 +45,12 @@ class RTCPeerConnectionDecorator(
         val transceivers = windowRTCPeerConnection.getTransceivers() as Array<dynamic>
         transceivers.forEach { transceiver ->
             if (transceiver.receiver.track.kind == "video") {
-                transceiver.direction = when {
-                    transceiver.sender.track != null -> if (enabled) "sendrecv" else "sendonly"
-                    enabled -> "recvonly"
-                    else -> "inactive"
-                }
+                transceiver.direction =
+                    when {
+                        transceiver.sender.track != null -> if (enabled) "sendrecv" else "sendonly"
+                        enabled -> "recvonly"
+                        else -> "inactive"
+                    }
             }
         }
     }
@@ -172,7 +173,8 @@ class RTCPeerConnectionDecorator(
 
     fun setRemoteDescription(description: RTCSessionDescription): Promise<Json> {
         remoteSet = true
-        return windowRTCPeerConnection.setRemoteDescription(description)
+        return windowRTCPeerConnection
+            .setRemoteDescription(description)
             .then { value ->
                 drainPendingCandidates()
                 value

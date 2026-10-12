@@ -14,6 +14,7 @@ class DesktopEnvironmentTest {
         assertEquals(true, shouldReceiveVideo(true, "room", false))
         assertEquals(true, shouldReceiveVideo(false, "compact", false))
     }
+
     @Test
     fun browserUsesCurrentPageOrigin() {
         val endpoint =

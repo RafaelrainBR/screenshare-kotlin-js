@@ -4,9 +4,9 @@ import hideAfterLocalShare
 import kotlinx.browser.window
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
+import platform.DesktopEnvironment
 import screenshare.common.ChatMessage
 import screenshare.common.SocketUser
-import platform.DesktopEnvironment
 import ui.InterfaceMutations
 import ui.mutations.UserListMutations
 import kotlin.js.Date
@@ -20,7 +20,10 @@ class Session(
     coroutineScope: CoroutineScope,
 ) : CoroutineScope by coroutineScope {
     private var disposed = false
+    private var mediaAvailable =
+        !DesktopEnvironment.isAvailable || window.asDynamic().__screenshareDesktopBridge.mediaAvailable != false
     private val mediaCaptureGate = MediaCaptureGate()
+
     // Incremented synchronously by every user action. A delayed display picker
     // result is therefore unable to publish a share after stop, room exit, or
     // a newer replacement request.
@@ -45,10 +48,16 @@ class Session(
     val peerConnections = PeerConnections(voiceChat, screenSharing, cameraSharing)
 
     init {
-        peerConnections.setVideoReception(platform.shouldReceiveVideo(DesktopEnvironment.isAvailable, DesktopEnvironment.viewerMode, kotlinx.browser.document.asDynamic().hidden as Boolean))
-        if (DesktopEnvironment.isAvailable) {
-            mediaCaptureGate.setAvailable(window.asDynamic().__screenshareDesktopBridge.mediaAvailable != false)
-        }
+        peerConnections.setVideoReception(
+            platform.shouldReceiveVideo(
+                DesktopEnvironment.isAvailable,
+                DesktopEnvironment.viewerMode,
+                kotlinx.browser.document
+                    .asDynamic()
+                    .hidden as Boolean,
+            ),
+        )
+        mediaCaptureGate.setAvailable(false)
         UserListMutations.clearUserMediaSharing()
         launch {
             InterfaceMutations.navigateToRoomScreen(
@@ -59,30 +68,29 @@ class Session(
                 roomId = localRoomId,
                 username = localUsername,
             )
-            websocketService.requestMediaState(localRoomId)
             runCatching {
                 InterfaceMutations.populateAudioDevices()
             }.onFailure {
                 console.warn("Não foi possível atualizar os dispositivos de áudio")
             }
-            InterfaceMutations.addMessageToChat(
-                ChatMessage(
-                    username = "Sistema",
-                    content = "Você entrou na sala $localRoomId",
-                    Date().getTime().toLong(),
-                ),
-                localUsername = localUsername,
-            )
         }
     }
 
-    fun handleMessageSend(message: String) =
-        launch {
-            websocketService.sendChatMessage(
-                roomId = localRoomId,
-                message = message,
-            )
-        }
+    suspend fun handleMessageSend(message: String) {
+        check(!disposed) { "Room was left" }
+        websocketService.sendChatMessage(localRoomId, message)
+    }
+
+    fun confirmRoomJoined(socketId: String) {
+        localSocketId = socketId
+        mediaCaptureGate.setAvailable(mediaAvailable)
+        InterfaceMutations.updateRoomConnection(true)
+        InterfaceMutations.addMessageToChat(
+            ChatMessage("Sistema", "Você entrou na sala $localRoomId", Date().getTime().toLong()),
+            localSocketId,
+        )
+        launch { websocketService.requestMediaState(localRoomId) }
+    }
 
     fun handleMicButtonToggle() =
         launch {
@@ -131,10 +139,6 @@ class Session(
         val generation = ++screenShareGeneration
         launch {
             if (disposed || !request() || generation != screenShareGeneration) return@launch
-            if (screenSharing.localScreenStream != null) {
-                screenSharing.stopScreenSharing(recreatePeerConnections = { recreatePeerConnections() })
-                websocketService.stopScreenSharing(localRoomId)
-            }
             runCatching {
                 screenSharing.setupLocalScreenStream(
                     isRequestCurrent = { request() && generation == screenShareGeneration },
@@ -178,7 +182,7 @@ class Session(
         ++screenShareGeneration
         launch {
             screenSharing.stopScreenSharing(recreatePeerConnections = { recreatePeerConnections() })
-            websocketService.stopScreenSharing(localRoomId)
+            runCatching { websocketService.stopScreenSharing(localRoomId) }
             runCatching { DesktopEnvironment.setTrayState("screen", false) }
             if (hideAfterLocalShare) {
                 hideAfterLocalShare = false
@@ -223,7 +227,7 @@ class Session(
     fun handleStopCameraShare() =
         launch {
             cameraSharing.stopCameraSharing(recreatePeerConnections = { recreatePeerConnections() })
-            websocketService.stopCameraShare(localRoomId)
+            runCatching { websocketService.stopCameraShare(localRoomId) }
             runCatching { DesktopEnvironment.setTrayState("camera", false) }
             if (hideAfterLocalShare) {
                 hideAfterLocalShare = false
@@ -231,27 +235,28 @@ class Session(
             }
         }
 
-    fun handleCameraDeviceChange(deviceId: String) = launch {
-        if (disposed || !mediaCaptureGate.available) return@launch
-        val request = mediaCaptureGate.request()
-        val previous = selectedCameraDeviceId
-        selectedCameraDeviceId = deviceId.takeIf { it.isNotBlank() }
-        if (cameraSharing.localCameraStream == null) return@launch
-        runCatching {
-            cameraSharing.setupLocalCameraStream(
-                isRequestCurrent = request,
-                recreatePeerConnections = { recreatePeerConnections() },
-                onStreamEnd = { handleStopCameraShare() },
-                deviceId = selectedCameraDeviceId,
-            )
-            InterfaceMutations.populateAudioDevices()
-        }.onFailure {
-            if (!request()) return@launch
-            selectedCameraDeviceId = previous
-            InterfaceMutations.restoreCameraDevice(previous)
-            InterfaceMutations.showError("Não foi possível trocar a câmera. Escolha outro dispositivo.")
+    fun handleCameraDeviceChange(deviceId: String) =
+        launch {
+            if (disposed || !mediaCaptureGate.available) return@launch
+            val request = mediaCaptureGate.request()
+            val previous = selectedCameraDeviceId
+            selectedCameraDeviceId = deviceId.takeIf { it.isNotBlank() }
+            if (cameraSharing.localCameraStream == null) return@launch
+            runCatching {
+                cameraSharing.setupLocalCameraStream(
+                    isRequestCurrent = request,
+                    recreatePeerConnections = { recreatePeerConnections() },
+                    onStreamEnd = { handleStopCameraShare() },
+                    deviceId = selectedCameraDeviceId,
+                )
+                InterfaceMutations.populateAudioDevices()
+            }.onFailure {
+                if (!request()) return@launch
+                selectedCameraDeviceId = previous
+                InterfaceMutations.restoreCameraDevice(previous)
+                InterfaceMutations.showError("Não foi possível trocar a câmera. Escolha outro dispositivo.")
+            }
         }
-    }
 
     fun handleMicInputDeviceChange(deviceId: String) =
         launch {
@@ -292,16 +297,25 @@ class Session(
         InterfaceMutations.setOutputDevice(deviceId)
     }
 
-    fun setVideoReception(enabled: Boolean) =
-        peerConnections.setVideoReception(enabled)
+    fun setVideoReception(enabled: Boolean) = peerConnections.setVideoReception(enabled)
 
     fun prepareForReconnect() {
+        mediaCaptureGate.setAvailable(false)
         stopSendingMedia(recreatePeers = false)
         peerConnections.closeAll()
-        screenSharing.remoteScreenStreams.keys.toList().forEach(screenSharing::stopRemoteScreen)
-        cameraSharing.remoteCameraStreams.keys.toList().forEach(cameraSharing::stopRemoteCamera)
+        screenSharing.remoteScreenStreams.keys
+            .toList()
+            .forEach(screenSharing::stopRemoteScreen)
+        cameraSharing.remoteCameraStreams.keys
+            .toList()
+            .forEach(cameraSharing::stopRemoteCamera)
         voiceChat.clearRemoteAudio()
         UserListMutations.clearUserMediaSharing()
+        localSocketId = null
+        userList = emptyList()
+        UserListMutations.updateUserList(emptyList(), null)
+        InterfaceMutations.updateRoomConnection(false, "Sem conexão. Tentando reconectar…")
+        launch { runCatching { DesktopEnvironment.setTrayState("remote", false) } }
     }
 
     /** Releases local capture without attempting room signaling during page exit. */
@@ -315,6 +329,15 @@ class Session(
         voiceChat.stopLocalMic()
         InterfaceMutations.updateAudioControls(isMicMuted = true)
         peerConnections.closeAll()
+        screenSharing.remoteScreenStreams.keys
+            .toList()
+            .forEach(screenSharing::stopRemoteScreen)
+        cameraSharing.remoteCameraStreams.keys
+            .toList()
+            .forEach(cameraSharing::stopRemoteCamera)
+        voiceChat.clearRemoteAudio()
+        UserListMutations.clearUserMediaSharing()
+        hideAfterLocalShare = false
         launch {
             runCatching { DesktopEnvironment.setTrayState("mic", false) }
             runCatching { DesktopEnvironment.setTrayState("camera", false) }
@@ -323,7 +346,8 @@ class Session(
     }
 
     fun setMediaAvailable(available: Boolean) {
-        mediaCaptureGate.setAvailable(available)
+        mediaAvailable = available
+        mediaCaptureGate.setAvailable(available && websocketService.isRoomJoined)
         if (!available) stopSendingMedia()
     }
 

@@ -8,9 +8,9 @@ import decorators.upgradeAudioQualitySdp
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.await
 import kotlinx.coroutines.launch
+import org.w3c.dom.mediacapture.MediaStreamTrack
 import kotlin.js.Json
 import kotlin.js.json
-import org.w3c.dom.mediacapture.MediaStreamTrack
 
 class PeerConnections(
     private val voiceChat: VoiceChat,
@@ -36,12 +36,18 @@ class PeerConnections(
     private val receivedVideoCount = mutableMapOf<String, Int>()
     private var videoReceptionEnabled = true
 
-    fun markScreenSharing(socketId: String, active: Boolean) {
+    fun markScreenSharing(
+        socketId: String,
+        active: Boolean,
+    ) {
         if (active) screenShareSockets.add(socketId) else screenShareSockets.remove(socketId)
         if (!active) receivedVideoCount.remove(socketId)
     }
 
-    fun markCameraSharing(socketId: String, active: Boolean) {
+    fun markCameraSharing(
+        socketId: String,
+        active: Boolean,
+    ) {
         if (active) cameraShareSockets.add(socketId) else cameraShareSockets.remove(socketId)
         if (!active) receivedVideoCount.remove(socketId)
     }
@@ -231,9 +237,11 @@ class PeerConnections(
                 when {
                     // Câmera sozinha: flag é suficiente (não há track de tela).
                     sharingCamera && !sharingScreen -> true
+
                     // Ambos ativos: o remetente adiciona tela antes de câmera,
                     // então o 1º track é tela e os seguintes câmera.
                     sharingCamera && videoIndex > 0 -> true
+
                     else -> false
                 }
 
@@ -254,7 +262,10 @@ class PeerConnections(
                         makingOffer[socketId] = true
                         val offer = peerConnection.iceRestartOffer().await()
                         val sdp = upgradeAudioQualitySdp(offer["sdp"] as String)
-                        peerConnection.setLocalDescription(json("type" to offer["type"] as String, "sdp" to sdp)).await()
+                        peerConnection
+                            .setLocalDescription(
+                                json("type" to offer["type"] as String, "sdp" to sdp),
+                            ).await()
                         websocketService.sendDescription(
                             roomId = roomId,
                             targetId = socketId,

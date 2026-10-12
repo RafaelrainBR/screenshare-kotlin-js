@@ -2,8 +2,8 @@ package platform
 
 import io.ktor.http.URLProtocol
 import io.ktor.http.Url
-import kotlinx.coroutines.await
 import kotlinx.browser.window
+import kotlinx.coroutines.await
 import org.w3c.dom.url.URLSearchParams
 
 data class WebSocketEndpoint(
@@ -35,9 +35,19 @@ object DesktopEnvironment {
         (window.asDynamic().__screenshareDesktopBridge.showMainWindow() as kotlin.js.Promise<dynamic>).await()
     }
 
-    suspend fun setTrayState(kind: String, active: Boolean, participants: Int? = null) {
+    suspend fun setTrayState(
+        kind: String,
+        active: Boolean,
+        participants: Int? = null,
+    ) {
         if (!isAvailable) return
-        (window.asDynamic().__screenshareDesktopBridge.setTrayState(kind, active, participants) as kotlin.js.Promise<dynamic>).await()
+        (
+            window.asDynamic().__screenshareDesktopBridge.setTrayState(
+                kind,
+                active,
+                participants,
+            ) as kotlin.js.Promise<dynamic>
+        ).await()
     }
 
     val serverUrl: String?
@@ -54,8 +64,11 @@ object DesktopEnvironment {
         }
 }
 
-fun shouldReceiveVideo(isDesktop: Boolean, viewerMode: String, pageHidden: Boolean): Boolean =
-    !pageHidden && (!isDesktop || viewerMode == "room")
+fun shouldReceiveVideo(
+    isDesktop: Boolean,
+    viewerMode: String,
+    pageHidden: Boolean,
+): Boolean = !pageHidden && (!isDesktop || viewerMode == "room")
 
 fun resolveWebSocketEndpoint(
     locationProtocol: String,
