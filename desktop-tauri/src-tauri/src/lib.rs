@@ -6,18 +6,25 @@ mod session_media;
 use capture::{sources::Source, thumb::Thumbnail, AudioChunk};
 #[cfg(target_os = "windows")]
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Mutex;
 #[cfg(target_os = "windows")]
 use std::sync::Arc;
-use tauri::{menu::{Menu, MenuItem}, tray::{MouseButton, MouseButtonState, TrayIcon, TrayIconBuilder, TrayIconEvent}, Emitter, Manager, State};
+use std::sync::Mutex;
 #[cfg(target_os = "windows")]
 use tauri::ipc::Channel;
+use tauri::{
+    menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu},
+    tray::{MouseButton, MouseButtonState, TrayIcon, TrayIconBuilder, TrayIconEvent},
+    Emitter, Manager, State,
+};
 
 struct TrayUiState {
     tray: TrayIcon,
     mic: MenuItem<tauri::Wry>,
     camera: MenuItem<tauri::Wry>,
     screen: MenuItem<tauri::Wry>,
+    output: MenuItem<tauri::Wry>,
+    leave: MenuItem<tauri::Wry>,
+    qualities: [CheckMenuItem<tauri::Wry>; 3],
     participants: u32,
     mic_active: bool,
     camera_active: bool,
@@ -39,31 +46,81 @@ fn set_tray_state(
     match kind.as_str() {
         "mic" => {
             tray.mic_active = active;
-            tray.mic.set_text(if active { "Microfone ativo · Silenciar" } else { "Microfone silenciado · Ativar" })
+            tray.mic
+                .set_text(if active {
+                    "Microfone ativo · Silenciar"
+                } else {
+                    "Microfone silenciado · Ativar"
+                })
                 .map_err(|_| "tray-menu-unavailable")?;
         }
         "camera" => {
             tray.camera_active = active;
-            tray.camera.set_text(if active { "Câmera ativa · Parar" } else { "Câmera desligada · Ligar" })
+            tray.camera
+                .set_text(if active {
+                    "Câmera ativa · Parar"
+                } else {
+                    "Câmera desligada · Ligar"
+                })
                 .map_err(|_| "tray-menu-unavailable")?;
         }
         "screen" => {
             tray.screen_active = active;
-            tray.screen.set_text(if active { "Tela compartilhada · Parar" } else { "Compartilhar tela ou janela…" })
+            tray.screen
+                .set_text(if active {
+                    "Tela compartilhada · Parar"
+                } else {
+                    "Compartilhar tela ou janela…"
+                })
                 .map_err(|_| "tray-menu-unavailable")?;
         }
         "remote" => {
             tray.remote_sharing = active;
         }
+        "room" => {
+            tray.leave
+                .set_enabled(active)
+                .map_err(|_| "tray-menu-unavailable")?;
+        }
+        "connection" => {
+            for item in [&tray.mic, &tray.camera, &tray.screen] {
+                item.set_enabled(active)
+                    .map_err(|_| "tray-menu-unavailable")?;
+            }
+        }
+        "output" => {
+            tray.output
+                .set_text(if active {
+                    "Áudio silenciado · Ativar"
+                } else {
+                    "Silenciar áudio"
+                })
+                .map_err(|_| "tray-menu-unavailable")?;
+        }
+        "quality720" | "quality1080" | "quality4k" | "quality-source" => {
+            for (item, id) in tray
+                .qualities
+                .iter()
+                .zip(["quality720", "quality1080", "quality4k"])
+            {
+                item.set_checked(kind == id)
+                    .map_err(|_| "tray-menu-unavailable")?;
+            }
+        }
         "participants" => {}
         _ => return Err("unknown-tray-state".into()),
     }
     let tooltip = if tray.remote_sharing {
-        format!("Screenshare · {} participantes · compartilhamento disponível", tray.participants)
+        format!(
+            "Screenshare · {} participantes · compartilhamento disponível",
+            tray.participants
+        )
     } else {
         format!("Screenshare · {} participantes", tray.participants)
     };
-    tray.tray.set_tooltip(Some(tooltip)).map_err(|_| "tray-icon-unavailable".to_string())
+    tray.tray
+        .set_tooltip(Some(tooltip))
+        .map_err(|_| "tray-icon-unavailable".to_string())
 }
 #[cfg(target_os = "windows")]
 struct CaptureHandle {
@@ -186,22 +243,130 @@ fn capture_thumbnail(hwnd: u64) -> Result<Option<Thumbnail>, String> {
 
 #[tauri::command]
 fn hide_main_window(window: tauri::WebviewWindow) -> Result<(), String> {
-    window.hide().and_then(|_| window.emit("viewer-mode", "hidden")).map_err(|_| "window-hide-failed".to_string())
+    window
+        .hide()
+        .and_then(|_| window.emit("viewer-mode", "hidden"))
+        .map_err(|_| "window-hide-failed".to_string())
 }
 
 #[tauri::command]
 fn show_main_window(window: tauri::WebviewWindow) -> Result<(), String> {
-    present_window(&window, false)
+    present_window(&window, false, None)
 }
 
-fn present_window(window: &tauri::WebviewWindow, compact: bool) -> Result<(), String> {
-    let (width, height, min_width, min_height) = if compact { (400.0, 560.0, 360.0, 320.0) } else { (1280.0, 800.0, 960.0, 640.0) };
-    window.emit("viewer-mode", if compact { "compact" } else { "room" })
-        .and_then(|_| window.set_min_size(Some(tauri::LogicalSize::new(min_width, min_height))))
+fn present_window(
+    window: &tauri::WebviewWindow,
+    compact: bool,
+    tray_rect: Option<tauri::Rect>,
+) -> Result<(), String> {
+    let (mut width, mut height, min_width, min_height): (f64, f64, f64, f64) = if compact {
+        (430.0, 660.0, 390.0, 520.0)
+    } else {
+        (1280.0, 800.0, 960.0, 640.0)
+    };
+    let scale = window
+        .scale_factor()
+        .map_err(|_| "window-monitor-unavailable")?;
+    let monitor = if let Some(rect) = tray_rect {
+        let position = rect.position.to_physical::<f64>(scale);
+        window.monitor_from_point(position.x, position.y)
+    } else {
+        window.current_monitor()
+    }
+    .map_err(|_| "window-monitor-unavailable")?;
+    if let Some(monitor) = monitor {
+        let available = monitor
+            .work_area()
+            .size
+            .to_logical::<f64>(monitor.scale_factor());
+        let outer = window
+            .outer_size()
+            .map_err(|_| "window-size-unavailable")?
+            .to_logical::<f64>(scale);
+        let inner = window
+            .inner_size()
+            .map_err(|_| "window-size-unavailable")?
+            .to_logical::<f64>(scale);
+        width = width.min((available.width - (outer.width - inner.width)).max(1.0));
+        height = height.min((available.height - (outer.height - inner.height)).max(1.0));
+    }
+    window
+        .unminimize()
+        .and_then(|_| window.unmaximize())
+        .and_then(|_| window.emit("viewer-mode", if compact { "compact" } else { "room" }))
+        .and_then(|_| {
+            window.set_min_size(Some(tauri::LogicalSize::new(
+                min_width.min(width),
+                min_height.min(height),
+            )))
+        })
         .and_then(|_| window.set_size(tauri::LogicalSize::new(width, height)))
+        .and_then(|_| if compact { Ok(()) } else { window.center() })
+        .and_then(|_| {
+            if let Some(rect) = tray_rect {
+                position_window_near_tray(window, rect)
+            } else {
+                Ok(())
+            }
+        })
         .and_then(|_| window.show())
         .and_then(|_| window.set_focus())
         .map_err(|_| "window-show-failed".to_string())
+}
+
+fn position_window_near_tray(
+    window: &tauri::WebviewWindow,
+    rect: tauri::Rect,
+) -> tauri::Result<()> {
+    use tauri::PhysicalPosition;
+
+    let scale = window.scale_factor()?;
+    let tray_position = rect.position.to_physical::<f64>(scale);
+    let tray_size = rect.size.to_physical::<f64>(scale);
+    let tray_left = tray_position.x;
+    let tray_top = tray_position.y;
+    let tray_width = tray_size.width;
+    let tray_height = tray_size.height;
+    let window_size = window.outer_size()?;
+    let monitor = window
+        .monitor_from_point(tray_left, tray_top)?
+        .or(window.primary_monitor()?);
+
+    let (x, y) = if let Some(monitor) = monitor {
+        let area = monitor.work_area();
+        tray_window_position(
+            (tray_left, tray_top, tray_width, tray_height),
+            (window_size.width as f64, window_size.height as f64),
+            (
+                area.position.x as f64,
+                area.position.y as f64,
+                area.size.width as f64,
+                area.size.height as f64,
+            ),
+        )
+    } else {
+        (
+            tray_left + tray_width - window_size.width as f64,
+            tray_top + tray_height,
+        )
+    };
+
+    window.set_position(PhysicalPosition::new(x as i32, y as i32))
+}
+
+fn tray_window_position(
+    tray: (f64, f64, f64, f64),
+    window: (f64, f64),
+    area: (f64, f64, f64, f64),
+) -> (f64, f64) {
+    let x = (tray.0 + tray.2 - window.0).clamp(area.0, area.0 + (area.2 - window.0).max(0.0));
+    let y = if tray.1 >= area.1 + area.3 / 2.0 {
+        tray.1 - window.1
+    } else {
+        tray.1 + tray.3
+    }
+    .clamp(area.1, area.1 + (area.3 - window.1).max(0.0));
+    (x, y)
 }
 
 #[tauri::command]
@@ -211,10 +376,10 @@ fn quit_app(app: tauri::AppHandle) {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let builder = tauri::Builder::default()
-        .plugin(tauri_plugin_single_instance::init(|app, _, _| {
+    let builder =
+        tauri::Builder::default().plugin(tauri_plugin_single_instance::init(|app, _, _| {
             if let Some(window) = app.get_webview_window("main") {
-                let _ = present_window(&window, false);
+                let _ = present_window(&window, false, None);
             }
         }));
     #[cfg(target_os = "windows")]
@@ -234,33 +399,97 @@ pub fn run() {
             set_tray_state
         ]);
     #[cfg(not(target_os = "windows"))]
-    let builder = builder.invoke_handler(tauri::generate_handler![hide_main_window, show_main_window, quit_app, set_tray_state]);
+    let builder = builder.invoke_handler(tauri::generate_handler![
+        hide_main_window,
+        show_main_window,
+        quit_app,
+        set_tray_state
+    ]);
     builder
         .setup(|app| {
             #[cfg(target_os = "macos")]
             session_media::install(app.handle());
             use tauri_plugin_autostart::MacosLauncher;
-            app.handle().plugin(tauri_plugin_autostart::init(MacosLauncher::LaunchAgent, None))?;
+            app.handle().plugin(tauri_plugin_autostart::init(
+                MacosLauncher::LaunchAgent,
+                None,
+            ))?;
             let open = MenuItem::with_id(app, "open", "Abrir sala", true, None::<&str>)?;
-            let mic = MenuItem::with_id(app, "mic", "Microfone silenciado · Ativar", true, None::<&str>)?;
-            let camera = MenuItem::with_id(app, "camera", "Câmera desligada · Ligar", true, None::<&str>)?;
-            let q720 = MenuItem::with_id(app, "quality720", "Qualidade: 720p", true, None::<&str>)?;
-            let q1080 = MenuItem::with_id(app, "quality1080", "Qualidade: 1080p", true, None::<&str>)?;
-            let q4k = MenuItem::with_id(app, "quality4k", "Qualidade: 4K", true, None::<&str>)?;
-            let screen = MenuItem::with_id(app, "screen", "Compartilhar tela ou janela…", true, None::<&str>)?;
-            let switch_room = MenuItem::with_id(app, "switch", "Trocar de sala…", true, None::<&str>)?;
-            let leave = MenuItem::with_id(app, "leave", "Sair da sala", true, None::<&str>)?;
+            let mic = MenuItem::with_id(
+                app,
+                "mic",
+                "Microfone silenciado · Ativar",
+                false,
+                None::<&str>,
+            )?;
+            let camera = MenuItem::with_id(
+                app,
+                "camera",
+                "Câmera desligada · Ligar",
+                false,
+                None::<&str>,
+            )?;
+            let output = MenuItem::with_id(app, "output", "Silenciar áudio", true, None::<&str>)?;
+            let q720 =
+                CheckMenuItem::with_id(app, "quality720", "720p", true, false, None::<&str>)?;
+            let q1080 =
+                CheckMenuItem::with_id(app, "quality1080", "1080p", true, true, None::<&str>)?;
+            let q4k = CheckMenuItem::with_id(app, "quality4k", "4K", true, false, None::<&str>)?;
+            let screen = MenuItem::with_id(
+                app,
+                "screen",
+                "Compartilhar tela ou janela…",
+                false,
+                None::<&str>,
+            )?;
+            let switch_room =
+                MenuItem::with_id(app, "switch", "Trocar de sala…", true, None::<&str>)?;
+            let leave = MenuItem::with_id(app, "leave", "Sair da sala", false, None::<&str>)?;
             let quit = MenuItem::with_id(app, "quit", "Encerrar app", true, None::<&str>)?;
-            let menu = Menu::with_items(app, &[&open, &mic, &camera, &q720, &q1080, &q4k, &screen, &switch_room, &leave, &quit])?;
-            let icon = app.default_window_icon().cloned().ok_or("missing app icon")?;
+            let quality = Submenu::with_items(
+                app,
+                "Qualidade da próxima tela",
+                true,
+                &[&q720, &q1080, &q4k],
+            )?;
+            let media_separator = PredefinedMenuItem::separator(app)?;
+            let room_separator = PredefinedMenuItem::separator(app)?;
+            let quit_separator = PredefinedMenuItem::separator(app)?;
+            let menu = Menu::with_items(
+                app,
+                &[
+                    &open,
+                    &media_separator,
+                    &mic,
+                    &camera,
+                    &output,
+                    &screen,
+                    &quality,
+                    &room_separator,
+                    &switch_room,
+                    &leave,
+                    &quit_separator,
+                    &quit,
+                ],
+            )?;
+            let icon = app
+                .default_window_icon()
+                .cloned()
+                .ok_or("missing app icon")?;
             let tray = TrayIconBuilder::new()
                 .icon(icon)
                 .menu(&menu)
                 .show_menu_on_left_click(false)
                 .on_tray_icon_event(|tray, event| {
-                    if matches!(event, TrayIconEvent::Click { button: MouseButton::Left, button_state: MouseButtonState::Up, .. }) {
+                    if let TrayIconEvent::Click {
+                        button: MouseButton::Left,
+                        button_state: MouseButtonState::Up,
+                        rect,
+                        ..
+                    } = event
+                    {
                         if let Some(window) = tray.app_handle().get_webview_window("main") {
-                            let _ = present_window(&window, true);
+                            let _ = present_window(&window, true, Some(rect));
                         }
                     }
                 })
@@ -270,9 +499,25 @@ pub fn run() {
                         app.exit(0);
                     } else if let Some(window) = app.get_webview_window("main") {
                         if action == "open" || action == "switch" {
-                            let _ = present_window(&window, false);
+                            let _ = present_window(&window, false, None);
                         } else if action == "screen" || action == "camera" {
-                            let _ = present_window(&window, true);
+                            let starting = app
+                                .state::<Mutex<TrayUiState>>()
+                                .lock()
+                                .map(|state| {
+                                    if action == "screen" {
+                                        !state.screen_active
+                                    } else {
+                                        !state.camera_active
+                                    }
+                                })
+                                .unwrap_or(false);
+                            if starting
+                                && (!window.is_visible().unwrap_or(false)
+                                    || window.is_minimized().unwrap_or(false))
+                            {
+                                let _ = present_window(&window, true, None);
+                            }
                         }
                         let _ = app.emit("tray-action", action);
                     }
@@ -283,6 +528,9 @@ pub fn run() {
                 mic,
                 camera,
                 screen,
+                output,
+                leave,
+                qualities: [q720, q1080, q4k],
                 participants: 0,
                 mic_active: false,
                 camera_active: false,
@@ -311,6 +559,38 @@ mod tests {
     use super::*;
     use std::sync::atomic::AtomicUsize;
     use std::sync::Barrier;
+
+    #[test]
+    fn tray_panel_on_small_monitor_keeps_top_left_accessible() {
+        assert_eq!(
+            tray_window_position(
+                (600.0, 450.0, 20.0, 20.0),
+                (700.0, 680.0),
+                (0.0, 0.0, 640.0, 480.0)
+            ),
+            (0.0, 0.0)
+        );
+    }
+
+    #[test]
+    fn tray_panel_stays_in_work_area_on_negative_monitor() {
+        assert_eq!(
+            tray_window_position(
+                (-30.0, 1040.0, 20.0, 40.0),
+                (430.0, 660.0),
+                (-1920.0, 0.0, 1920.0, 1040.0)
+            ),
+            (-440.0, 380.0)
+        );
+        assert_eq!(
+            tray_window_position(
+                (-1900.0, 0.0, 20.0, 30.0),
+                (430.0, 660.0),
+                (-1920.0, 30.0, 1920.0, 1050.0)
+            ),
+            (-1920.0, 30.0)
+        );
+    }
 
     #[test]
     fn installing_a_capture_joins_the_previous_worker() {
