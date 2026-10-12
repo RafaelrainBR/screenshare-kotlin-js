@@ -703,6 +703,8 @@ pub fn run() {
         set_tray_state
     ]);
     builder
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .setup(|app| {
             #[cfg(target_os = "macos")]
             session_media::install(app.handle());

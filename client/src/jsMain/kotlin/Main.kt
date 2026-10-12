@@ -136,6 +136,15 @@ fun main() {
                 runCatching { DesktopEnvironment.showMainWindow() }
             }
         }
+        websocketCoroutineScope.launch {
+            // Offline or no release yet: no banner, nothing to report.
+            runCatching { DesktopEnvironment.checkForUpdate() }.getOrNull()?.let {
+                showUpdateBanner(
+                    it,
+                    websocketCoroutineScope,
+                )
+            }
+        }
         startupToggle.addEventListener("change", {
             websocketCoroutineScope.launch {
                 val requested = startupToggle.checked
@@ -325,4 +334,36 @@ fun getSessionOrAlert(): Session {
         throw IllegalStateException("Session is null")
     }
     return session!!
+}
+
+private fun showUpdateBanner(
+    update: DesktopEnvironment.AvailableUpdate,
+    scope: kotlinx.coroutines.CoroutineScope,
+) {
+    val document = kotlinx.browser.document
+    val banner = document.getElementById("update-banner") as org.w3c.dom.HTMLElement
+    val text = document.getElementById("update-text") as org.w3c.dom.HTMLElement
+    val progress = document.getElementById("update-progress") as org.w3c.dom.HTMLProgressElement
+    val button = document.getElementById("update-btn") as org.w3c.dom.HTMLButtonElement
+    text.textContent = "Versão ${update.version} disponível"
+    banner.classList.remove("hidden")
+    button.addEventListener("click", {
+        // Never drop an active room to install.
+        if (session != null) {
+            InterfaceMutations.showError("Saia da sala para atualizar.")
+            return@addEventListener
+        }
+        button.disabled = true
+        button.textContent = "Atualizando…"
+        progress.classList.remove("hidden")
+        scope.launch {
+            runCatching { DesktopEnvironment.installUpdate { progress.value = it } }.onFailure {
+                button.disabled = false
+                button.textContent = "Atualizar e reiniciar"
+                progress.classList.add("hidden")
+                text.innerHTML =
+                    "Falha ao atualizar. <a href=\"https://github.com/RafaelrainBR/screenshare-kotlin-js/releases/latest\" target=\"_blank\" rel=\"noopener\">Baixar manualmente</a>"
+            }
+        }
+    })
 }

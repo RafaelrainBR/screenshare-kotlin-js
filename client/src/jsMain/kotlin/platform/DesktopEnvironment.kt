@@ -30,6 +30,24 @@ object DesktopEnvironment {
     suspend fun launchedAtLogin(): Boolean =
         (window.asDynamic().__screenshareDesktopBridge.launchedAtLogin() as kotlin.js.Promise<Boolean>).await()
 
+    data class AvailableUpdate(
+        val version: String,
+        val notes: String,
+    )
+
+    suspend fun checkForUpdate(): AvailableUpdate? {
+        if (!isAvailable) return null
+        val update =
+            (window.asDynamic().__screenshareDesktopBridge.checkForUpdate() as kotlin.js.Promise<dynamic>)
+                .await()
+        return if (update == null) null else AvailableUpdate(update.version as String, update.notes as String)
+    }
+
+    suspend fun installUpdate(onProgress: (Double) -> Unit) {
+        if (!isAvailable) return
+        (window.asDynamic().__screenshareDesktopBridge.installUpdate(onProgress) as kotlin.js.Promise<dynamic>).await()
+    }
+
     suspend fun hideMainWindow() {
         (window.asDynamic().__screenshareDesktopBridge.hideMainWindow() as kotlin.js.Promise<dynamic>).await()
     }

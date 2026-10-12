@@ -1,9 +1,13 @@
 package platform
 
 import io.ktor.http.URLProtocol
+import kotlinx.coroutines.DelicateCoroutinesApi
+import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.promise
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertNull
 
 class DesktopEnvironmentTest {
     @Test
@@ -59,6 +63,13 @@ class DesktopEnvironmentTest {
             )
         }
     }
+
+    @OptIn(DelicateCoroutinesApi::class)
+    @Test
+    fun updateCheckWithoutDesktopBridgeIsNull() =
+        GlobalScope.promise {
+            assertNull(DesktopEnvironment.checkForUpdate())
+        }
 
     @Test
     fun nativeAudioNeedsDesktopBridgeAndGenerator() {

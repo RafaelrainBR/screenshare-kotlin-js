@@ -39,8 +39,18 @@
       }
     ]
   },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDU2MjJCRThERURGOTgxMjEKUldRaGdmbnRqYjRpVnViS09Lczl1U3dHS3BQVlBubk54d2tCNmIzQUVxZmZROENheUFqRlczY1gK",
+      "endpoints": [
+        "https://github.com/RafaelrainBR/screenshare-kotlin-js/releases/latest/download/latest.json"
+      ],
+      "windows": { "installMode": "passive" }
+    }
+  },
   "bundle": {
     "active": true,
+    "createUpdaterArtifacts": true,
     "targets": "all",
     "icon": ["icons/icon.ico", "icons/icon.icns", "icons/icon.png"],
     "shortDescription": "P2P screen sharing using the canonical Kotlin client",

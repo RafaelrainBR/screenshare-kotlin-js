@@ -1,5 +1,7 @@
 import { Channel, invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
+import { check, type Update } from '@tauri-apps/plugin-updater'
+import { relaunch } from '@tauri-apps/plugin-process'
 
 const frames = 480
 const channels = 2
@@ -132,6 +134,25 @@ async function stopSystemAudio(track?: unknown): Promise<void> {
   if (current === active) current = undefined
 }
 
+let pendingUpdate: Update | null = null
+
+async function checkForUpdate(): Promise<{ version: string; notes: string } | null> {
+  pendingUpdate = await check()
+  return pendingUpdate ? { version: pendingUpdate.version, notes: pendingUpdate.body ?? '' } : null
+}
+
+async function installUpdate(onProgress: (fraction: number) => void): Promise<void> {
+  if (!pendingUpdate) return
+  let total = 0
+  let done = 0
+  await pendingUpdate.downloadAndInstall((event) => {
+    if (event.event === 'Started') total = event.data.contentLength ?? 0
+    if (event.event === 'Progress') { done += event.data.chunkLength; if (total) onProgress(done / total) }
+  })
+  // On Windows the NSIS installer already closed the app before this point.
+  await relaunch()
+}
+
 type VideoRequest = { hwnd?: number; rect?: [number, number, number, number]; fps: number }
 type VideoMetrics = { received: number; written: number; droppedWriter: number; latencyUs: number[] }
 const sharedHeader = 16
@@ -197,7 +218,7 @@ async function startVideo(request: VideoRequest, onEnded?: (error: string) => vo
   return sink.track
 }
 
-const screenRecordingDenied = 'Permita a Gravação de Tela para o Screenshare em Ajustes do Sistema › Privacidade e Segurança e abra o app de novo.'
+const screenRecordingDenied = 'Permita a Gravação de Tela para o Screenshare em Ajustes do Sistema › Privacidade e Segurança e abra o app de novo. Se já estava permitido (por exemplo, após uma atualização), remova o Screenshare da lista e adicione de novo.'
 
 type VideoSink = { track: MediaStreamTrack; frame: (message: any) => void; close: () => Promise<void> }
 
@@ -289,6 +310,8 @@ function videoSummary() {
   mediaAvailable: true,
   autoStartEnabled: () => invoke<boolean>('plugin:autostart|is_enabled'),
   setAutoStart: (enabled: boolean) => invoke(enabled ? 'plugin:autostart|enable' : 'plugin:autostart|disable'),
+  checkForUpdate,
+  installUpdate,
   launchedAtLogin: () => invoke<boolean>('launched_at_login'),
   hideMainWindow: () => invoke('hide_main_window'),
   showMainWindow: () => invoke('show_main_window'),
