@@ -132,6 +132,14 @@ fun main() {
                 }
             }
         })
+    } else {
+        // ui.js already filled the room from ?roomId=; a saved name then rejoins directly (reload or room link).
+        val savedName = window.localStorage.getItem("screenshare.lastUsername").orEmpty()
+        val urlRoom = ui.Elements.roomIdInput.value
+        ui.Elements.usernameInput.value = savedName
+        if (savedName.isNotBlank() && urlRoom.isNotBlank()) {
+            ui.Elements.joinButton.click()
+        }
     }
 
     fun leaveRoom() {
