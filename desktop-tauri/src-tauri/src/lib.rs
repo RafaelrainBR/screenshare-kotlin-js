@@ -274,6 +274,7 @@ fn present_window(
         window.current_monitor()
     }
     .map_err(|_| "window-monitor-unavailable")?;
+    let mut frame = (0.0, 0.0);
     if let Some(monitor) = monitor {
         let available = monitor
             .work_area()
@@ -287,9 +288,13 @@ fn present_window(
             .inner_size()
             .map_err(|_| "window-size-unavailable")?
             .to_logical::<f64>(scale);
-        width = width.min((available.width - (outer.width - inner.width)).max(1.0));
-        height = height.min((available.height - (outer.height - inner.height)).max(1.0));
+        frame = (outer.width - inner.width, outer.height - inner.height);
+        width = width.min((available.width - frame.0).max(1.0));
+        height = height.min((available.height - frame.1).max(1.0));
     }
+    // outer_size() still reports the old size right after set_size on macOS, so anchor with the requested one.
+    let target =
+        tauri::LogicalSize::new(width + frame.0, height + frame.1).to_physical::<f64>(scale);
     window
         .unminimize()
         .and_then(|_| window.unmaximize())
@@ -304,7 +309,7 @@ fn present_window(
         .and_then(|_| if compact { Ok(()) } else { window.center() })
         .and_then(|_| {
             if let Some(rect) = tray_rect {
-                position_window_near_tray(window, rect)
+                position_window_near_tray(window, rect, target)
             } else {
                 Ok(())
             }
@@ -317,6 +322,7 @@ fn present_window(
 fn position_window_near_tray(
     window: &tauri::WebviewWindow,
     rect: tauri::Rect,
+    window_size: tauri::PhysicalSize<f64>,
 ) -> tauri::Result<()> {
     use tauri::PhysicalPosition;
 
@@ -327,7 +333,6 @@ fn position_window_near_tray(
     let tray_top = tray_position.y;
     let tray_width = tray_size.width;
     let tray_height = tray_size.height;
-    let window_size = window.outer_size()?;
     let monitor = window
         .monitor_from_point(tray_left, tray_top)?
         .or(window.primary_monitor()?);
@@ -336,7 +341,7 @@ fn position_window_near_tray(
         let area = monitor.work_area();
         tray_window_position(
             (tray_left, tray_top, tray_width, tray_height),
-            (window_size.width as f64, window_size.height as f64),
+            (window_size.width, window_size.height),
             (
                 area.position.x as f64,
                 area.position.y as f64,
@@ -346,7 +351,7 @@ fn position_window_near_tray(
         )
     } else {
         (
-            tray_left + tray_width - window_size.width as f64,
+            tray_left + tray_width - window_size.width,
             tray_top + tray_height,
         )
     };
