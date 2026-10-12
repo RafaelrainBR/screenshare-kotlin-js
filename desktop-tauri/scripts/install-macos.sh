@@ -28,6 +28,5 @@ rm -rf "$DEST/Screenshare.app"
 mv "$TMP/Screenshare.app" "$DEST/"
 
 echo "Instalado em $DEST/Screenshare.app"
-echo "Na primeira captura, permita Gravação de Tela em Ajustes do Sistema > Privacidade e Segurança."
-echo "Depois de atualizar, se a captura parar, remova e adicione o Screenshare de novo nessa lista."
+echo "Ao compartilhar, o macOS mostra o próprio seletor para escolher a tela ou a janela."
 open "$DEST/Screenshare.app"

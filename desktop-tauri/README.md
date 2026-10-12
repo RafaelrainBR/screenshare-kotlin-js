@@ -79,9 +79,8 @@ tar -czf Screenshare-macos-arm64.tar.gz -C src-tauri/target/release/bundle/macos
 gh release create v0.7.0 Screenshare-macos-arm64.tar.gz scripts/install-macos.sh
 ```
 
-The ad hoc signature changes on every build, so macOS may drop the Screen
-Recording permission after an update; the user removes and re-adds the app in
-Privacy & Security.
+Screen sharing goes through the macOS system picker, which is the consent itself:
+no Screen Recording permission was requested on macOS 26 (verified with v0.7.0).
 
 Release builds connect to the current Kotlin production endpoint at
 `wss://screen-share.fly.dev`. The endpoint is passed as a startup query parameter
