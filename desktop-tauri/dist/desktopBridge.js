@@ -159,6 +159,169 @@
     });
   }
 
+  // node_modules/@tauri-apps/plugin-updater/dist-js/index.js
+  var Update = class extends Resource {
+    /**
+     * Creates an update from the metadata returned by the backend.
+     * You should not need to call this yourself, use {@linkcode check} instead.
+     *
+     * @param metadata The update information returned by the backend, including the resource identifier of the update.
+     *
+     * @example
+     * ```typescript
+     * import { check } from '@tauri-apps/plugin-updater';
+     * // the update instance is created for you by `check`
+     * const update = await check();
+     * ```
+     */
+    constructor(metadata) {
+      super(metadata.rid);
+      this.available = true;
+      this.currentVersion = metadata.currentVersion;
+      this.version = metadata.version;
+      this.date = metadata.date;
+      this.body = metadata.body;
+      this.rawJson = metadata.rawJson;
+    }
+    /**
+     * Downloads the updater package. Call {@linkcode install} later to install it.
+     *
+     * @example
+     * ```typescript
+     * import { check } from '@tauri-apps/plugin-updater';
+     *
+     * const update = await check();
+     * if (update) {
+     *   let downloaded = 0;
+     *   await update.download((event) => {
+     *     if (event.event === 'Progress') {
+     *       downloaded += event.data.chunkLength;
+     *       console.log(`downloaded ${downloaded} bytes`);
+     *     }
+     *   });
+     *   await update.install();
+     * }
+     * ```
+     *
+     * @param onEvent Callback invoked with a `Started` event when the first chunk is received, a `Progress` event for every downloaded chunk and a `Finished` event when the download completes.
+     * @param options The headers and the timeout to use for the download request.
+     */
+    async download(onEvent, options) {
+      convertToRustHeaders(options);
+      const channel = new Channel();
+      if (onEvent) {
+        channel.onmessage = onEvent;
+      }
+      const downloadedBytesRid = await invoke("plugin:updater|download", {
+        onEvent: channel,
+        rid: this.rid,
+        ...options
+      });
+      this.downloadedBytes = new Resource(downloadedBytesRid);
+    }
+    /**
+     * Install downloaded updater package. Must be called after {@linkcode download}.
+     *
+     * ## Platform-specific:
+     *
+     * - **Windows:** This function exits the app after launching the updater installer successfully
+     * - **macOS / Linux:** You need to relaunch the app to run the newly install version
+     *
+     * @example
+     * ```typescript
+     * import { check } from '@tauri-apps/plugin-updater';
+     *
+     * const update = await check();
+     * if (update) {
+     *   await update.download();
+     *   await update.install();
+     * }
+     * ```
+     *
+     * @param options Options for the installation, such as whether the Windows installer should restart the app afterwards.
+     */
+    async install(options) {
+      if (!this.downloadedBytes) {
+        throw new Error("Update.install called before Update.download");
+      }
+      await invoke("plugin:updater|install", {
+        updateRid: this.rid,
+        bytesRid: this.downloadedBytes.rid,
+        ...options
+      });
+      this.downloadedBytes = void 0;
+    }
+    /**
+     * Downloads the updater package and installs it
+     *
+     * ## Platform-specific:
+     *
+     * - **Windows:** This function exits the app after launching the updater installer successfully
+     * - **macOS / Linux:** You need to relaunch the app to run the newly install version
+     *
+     * @example
+     * ```typescript
+     * import { check } from '@tauri-apps/plugin-updater';
+     *
+     * const update = await check();
+     * if (update) {
+     *   await update.downloadAndInstall((event) => {
+     *     console.log(event.event);
+     *   });
+     * }
+     * ```
+     *
+     * @param onEvent Callback invoked with a `Started` event when the first chunk is received, a `Progress` event for every downloaded chunk and a `Finished` event when the download completes.
+     * @param options The headers and the timeout to use for the download request, and the installation options.
+     */
+    async downloadAndInstall(onEvent, options) {
+      convertToRustHeaders(options);
+      const channel = new Channel();
+      if (onEvent) {
+        channel.onmessage = onEvent;
+      }
+      await invoke("plugin:updater|download_and_install", {
+        onEvent: channel,
+        rid: this.rid,
+        ...options
+      });
+    }
+    /**
+     * Releases the update resource and the downloaded bytes held by the backend.
+     *
+     * @example
+     * ```typescript
+     * import { check } from '@tauri-apps/plugin-updater';
+     *
+     * const update = await check();
+     * if (update) {
+     *   await update.close();
+     * }
+     * ```
+     */
+    async close() {
+      await this.downloadedBytes?.close();
+      await super.close();
+    }
+  };
+  async function check(options) {
+    convertToRustHeaders(options);
+    const metadata = await invoke("plugin:updater|check", {
+      ...options
+    });
+    return metadata ? new Update(metadata) : null;
+  }
+  function convertToRustHeaders(options) {
+    if (options?.headers) {
+      options.headers = Array.from(new Headers(options.headers).entries());
+    }
+  }
+
+  // node_modules/@tauri-apps/plugin-process/dist-js/index.js
+  async function relaunch() {
+    await invoke("plugin:process|restart");
+  }
+
   // src/desktopBridge.ts
   var frames = 480;
   var channels = 2;
@@ -293,6 +456,24 @@
     await active?.stop();
     if (current === active) current = void 0;
   }
+  var pendingUpdate = null;
+  async function checkForUpdate() {
+    pendingUpdate = await check();
+    return pendingUpdate ? { version: pendingUpdate.version, notes: pendingUpdate.body ?? "" } : null;
+  }
+  async function installUpdate(onProgress) {
+    if (!pendingUpdate) return;
+    let total = 0;
+    let done = 0;
+    await pendingUpdate.downloadAndInstall((event) => {
+      if (event.event === "Started") total = event.data.contentLength ?? 0;
+      if (event.event === "Progress") {
+        done += event.data.chunkLength;
+        if (total) onProgress(done / total);
+      }
+    });
+    await relaunch();
+  }
   var sharedHeader = 16;
   var currentVideo;
   var videoMetrics = { received: 0, written: 0, droppedWriter: 0, latencyUs: [] };
@@ -354,7 +535,7 @@
     }
     return sink.track;
   }
-  var screenRecordingDenied = "Permita a Grava\xE7\xE3o de Tela para o Screenshare em Ajustes do Sistema \u203A Privacidade e Seguran\xE7a e abra o app de novo.";
+  var screenRecordingDenied = "Permita a Grava\xE7\xE3o de Tela para o Screenshare em Ajustes do Sistema \u203A Privacidade e Seguran\xE7a e abra o app de novo. Se j\xE1 estava permitido (por exemplo, ap\xF3s uma atualiza\xE7\xE3o), remova o Screenshare da lista e adicione de novo.";
   function noteFrame(wallUs) {
     videoMetrics.received++;
     if (videoMetrics.latencyUs.push(Date.now() * 1e3 - wallUs) > 600) videoMetrics.latencyUs.shift();
@@ -464,6 +645,8 @@
     mediaAvailable: true,
     autoStartEnabled: () => invoke("plugin:autostart|is_enabled"),
     setAutoStart: (enabled) => invoke(enabled ? "plugin:autostart|enable" : "plugin:autostart|disable"),
+    checkForUpdate,
+    installUpdate,
     launchedAtLogin: () => invoke("launched_at_login"),
     hideMainWindow: () => invoke("hide_main_window"),
     showMainWindow: () => invoke("show_main_window"),
