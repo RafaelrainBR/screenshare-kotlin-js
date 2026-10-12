@@ -56,7 +56,12 @@ fun Application.module() {
             logger.info("New connection: $clientIp")
 
             val connectUser: suspend (JoinRoom) -> Unit = { joinRoomPacket ->
-                roomUser = RoomUser.create(session = this, username = joinRoomPacket.username)
+                roomUser =
+                    RoomUser.create(
+                        session = this,
+                        username = joinRoomPacket.username,
+                        clientVersion = joinRoomPacket.clientVersion,
+                    )
                 roomId = joinRoomPacket.roomId
 
                 val room = rooms.computeIfAbsent(roomId) { Room.create(roomId) }

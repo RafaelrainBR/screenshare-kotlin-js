@@ -50,6 +50,7 @@ class Room(
     suspend fun addUser(user: RoomUser) {
         user.start(scope) { removeUser(user) }
         users[user.id] = user
+        if (user.clientVersion >= 2) user.sendPacket(Packet.RoomJoined(id, user.id))
         sendMessageHistory(user)
         notifyUserJoin(user)
     }
@@ -74,6 +75,8 @@ class Room(
                         username = user.username,
                         content = packet.message,
                         timestamp = System.currentTimeMillis(),
+                        senderSocketId = user.id,
+                        clientMessageId = packet.clientMessageId,
                     )
                 messages.add(chatMessage)
                 broadcast(ChatMessageReceived(roomId = id, message = chatMessage))

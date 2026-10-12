@@ -19,6 +19,7 @@ sealed class Packet {
         @SerialName("rid")
         val roomId: String,
         val username: String,
+        val clientVersion: Int = 1,
     ) : Packet()
 
     @Serializable
@@ -28,6 +29,7 @@ sealed class Packet {
         val roomId: String,
         @SerialName("msg")
         val message: String,
+        val clientMessageId: String? = null,
     ) : Packet()
 
     @Serializable
@@ -116,6 +118,15 @@ sealed class Packet {
         @SerialName("sid")
         val socketId: String,
         val username: String,
+    ) : Packet()
+
+    @Serializable
+    @SerialName("room-joined")
+    data class RoomJoined(
+        @SerialName("rid")
+        val roomId: String,
+        @SerialName("sid")
+        val socketId: String,
     ) : Packet()
 
     @Serializable
@@ -249,6 +260,7 @@ sealed class Packet {
             is StopCameraShare,
             -> CLIENT
 
+            is RoomJoined,
             is UserConnected,
             is UserDisconnected,
             is ChatMessageReceived,
