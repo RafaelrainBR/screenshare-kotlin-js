@@ -69,6 +69,14 @@ class RTCPeerConnectionDecorator(
 
     fun hasTrack(track: MediaStreamTrack): Boolean = senderForTrack(track.id) != null
 
+    // A stopped track left on its sender keeps the m-line "sendonly"; every renegotiation then
+    // re-fires `track` on the viewer with that dead track.
+    fun removeEndedSenders() {
+        getSenders()
+            .filter { sender -> sender.track?.readyState == "ended" }
+            .forEach { sender -> windowRTCPeerConnection.removeTrack(sender) }
+    }
+
     fun replaceTrack(
         oldTrackId: String?,
         newTrack: MediaStreamTrack,
@@ -160,7 +168,9 @@ class RTCPeerConnectionDecorator(
     val signalingState: String
         get() = windowRTCPeerConnection.signalingState as String
 
-    fun rollback(): Promise<Json> = windowRTCPeerConnection.rollback() as Promise<Json>
+    // RTCPeerConnection has no rollback(); the spec rolls back through setLocalDescription.
+    fun rollback(): Promise<Json> =
+        windowRTCPeerConnection.setLocalDescription(js("({ type: 'rollback' })")) as Promise<Json>
 
     fun onIceCandidateAdd(block: (Json?) -> Unit) {
         windowRTCPeerConnection.onicecandidate = { event: dynamic ->
@@ -205,8 +215,9 @@ class RTCPeerConnectionDecorator(
         }
     }
 
-    fun iceRestartOffer(): Promise<Json> =
-        windowRTCPeerConnection.createOffer(js("{ iceRestart: true }")) as Promise<Json>
+    fun restartIce() {
+        windowRTCPeerConnection.restartIce()
+    }
 
     fun close() {
         windowRTCPeerConnection.close()
