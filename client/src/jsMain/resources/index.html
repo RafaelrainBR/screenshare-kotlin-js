@@ -128,7 +128,7 @@
           <div id="chat-messages" class="custom-scroll" role="log" aria-label="Mensagens" aria-live="polite"></div>
           <form class="composer" id="chat-form">
             <input id="message-input" class="input" autocomplete="off" placeholder="Mensagem" aria-label="Mensagem">
-            <button id="send-message-btn" class="btn btn-primary" type="submit" aria-label="Enviar mensagem">Enviar</button>
+            <button id="send-message-btn" class="btn btn-primary" type="submit" aria-label="Enviar mensagem" title="Enviar mensagem"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M22 2 11 13M22 2l-7 20-4-9-9-4z"/></svg></button>
           </form>
         </div>
       </aside>
@@ -142,9 +142,9 @@
     <p id="tray-connection-status" class="connection-status" role="status">Entre em uma sala para usar a mídia.</p>
     <div class="tray-media" aria-label="Controles da sala">
       <button id="tray-screen" type="button" class="btn btn-primary" data-tray-action="screen" data-needs-room disabled aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="14" rx="2"/><path d="M8 21h8m-4-3v3"/></svg><span>Compartilhar tela</span></button>
-      <button id="tray-mic" type="button" class="btn" data-tray-action="mic" data-needs-room disabled aria-pressed="false">Ativar microfone</button>
-      <button id="tray-camera" type="button" class="btn" data-tray-action="camera" data-needs-room disabled aria-pressed="false">Ligar câmera</button>
-      <button id="tray-output" type="button" class="btn" data-tray-action="output" aria-pressed="false">Silenciar áudio</button>
+      <button id="tray-mic" type="button" class="btn" data-tray-action="mic" data-needs-room disabled aria-pressed="false" aria-label="Ativar microfone" title="Ativar microfone"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 5a3 3 0 0 1 6 0v6a3 3 0 0 1-6 0V5ZM5 11a7 7 0 0 0 14 0M12 18v3M8 21h8"/><line class="slash" x1="3" y1="3" x2="21" y2="21"/></svg></button>
+      <button id="tray-camera" type="button" class="btn" data-tray-action="camera" data-needs-room disabled aria-pressed="false" aria-label="Ligar câmera" title="Ligar câmera"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="6" width="12" height="12" rx="2"/><path d="m15 10 6-3v10l-6-3"/><line class="slash" x1="3" y1="3" x2="21" y2="21"/></svg></button>
+      <button id="tray-output" type="button" class="btn" data-tray-action="output" aria-pressed="false" aria-label="Silenciar saída de áudio" title="Silenciar saída de áudio"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 5 6 9H3v6h3l5 4V5ZM15 9a4 4 0 0 1 0 6M18 6a8 8 0 0 1 0 12"/><line class="slash" x1="3" y1="3" x2="21" y2="21"/></svg></button>
     </div>
     <section class="tray-quality-section" aria-label="Qualidade de compartilhamento"><h2>Qualidade da próxima tela</h2>
     <div class="tray-quality" aria-label="Qualidade de compartilhamento">
@@ -152,12 +152,12 @@
       <button type="button" class="btn" data-tray-action="quality1080" data-quality-width="1920" aria-pressed="true">1080p</button>
       <button type="button" class="btn" data-tray-action="quality4k" data-quality-width="3840" aria-pressed="false">4K</button>
     </div>
-      <button type="button" class="tray-quality-more" data-tray-action="quality-options" data-needs-room disabled>Mais opções <span aria-hidden="true">›</span></button>
+      <button type="button" class="tray-quality-more" data-tray-action="quality-options" data-needs-room disabled>Mais opções <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 5 7 7-7 7"/></svg></button>
     </section>
     <div id="user-list" class="tray-participants" role="list" aria-label="Participantes e mídias"></div>
     <footer class="tray-footer">
-      <button type="button" class="btn btn-primary" data-tray-action="open">Abrir sala</button>
-      <button type="button" class="btn btn-ghost" data-tray-action="leave" data-needs-room disabled>Sair da sala</button>
+      <button type="button" class="btn" data-tray-action="open"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 4h6v6M20 4l-9 9M18 14v4a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4"/></svg>Abrir sala</button>
+      <button type="button" class="btn btn-error tray-leave" data-tray-action="leave" data-needs-room disabled aria-label="Sair da sala" title="Sair da sala"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 4h4a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-4M10 16l-4-4 4-4M6 12h10"/></svg></button>
     </footer>
   </section>
   <div id="participant-context" class="context-menu hidden" role="dialog" aria-label="Opções do participante"></div>

@@ -176,18 +176,11 @@ object UserListMutations {
         isMicMuted: Boolean,
     ) {
         mutedUsers[socketId] = isMicMuted
-        val element = document.getElementById("micIcon-user-$socketId")
-        if (element != null) {
-            if (isMicMuted) {
-                element.classList.add("text-error")
-                element.classList.remove("text-success")
-                element.classList.remove("hidden")
-            } else {
-                element.classList.add("text-success")
-                element.classList.remove("text-error")
-                element.classList.add("hidden")
-            }
-        }
+        // Re-renders rebuild from currentUsers; keep that snapshot in step with live mute events.
+        val target = if (socketId == "self") currentLocalSocketId else socketId
+        currentUsers = currentUsers.map { if (it.socketId == target) it.copy(isMuted = isMicMuted) else it }
+        document.getElementById("micIcon-user-$socketId")?.let { applyMicState(it as HTMLElement, isMicMuted) }
+        (document.getElementById("user-list-$socketId") as? HTMLElement)?.let(::labelUserListItem)
         syncAvatarTiles()
     }
 
@@ -209,73 +202,37 @@ object UserListMutations {
             val tile = videos.item(index) as? HTMLElement ?: continue
             if (tile.getAttribute("data-owner-id") == socketId) tile.classList.toggle("speaking", isSpeaking)
         }
-        val avatarCircle = document.querySelector("article#user-list-$socketId .avatar-circle") as? HTMLElement
-        if (avatarCircle != null) {
-            if (isSpeaking) {
-                avatarCircle.classList.add("ring-2", "ring-success", "ring-offset-2", "ring-offset-base-100")
-            } else {
-                avatarCircle.classList.remove("ring-2", "ring-success", "ring-offset-2", "ring-offset-base-100")
-            }
-        }
+        document.getElementById("user-list-$socketId")?.classList?.toggle("speaking", isSpeaking)
     }
 
     private fun createUserListItem(
         user: SocketUser,
         localSocketId: String?,
     ): HTMLElement {
+        val isCurrentUser = user.socketId == localSocketId
+        val owner = if (isCurrentUser) "self" else user.socketId
         val article = document.createSafeElement("article") as HTMLElement
         article.setAttribute("role", "listitem")
-        article.style.apply {
-            padding = "0.75rem"
-            marginBottom = "0.5rem"
-        }
+        article.className = "tray-user"
+        article.id = "user-list-$owner"
+        if (owner in speakingUsers) article.classList.add("speaking")
 
-        val isCurrentUser = user.socketId == localSocketId
-        val initials = user.username.getUsernameInitials()
-
-        val container = document.createSafeElement("div") as HTMLElement
-        container.style.apply {
-            display = "flex"
-            alignItems = "center"
-            columnGap = "0.75rem"
-        }
-
-        val avatar = createAvatar(initials)
-        container.appendChild(avatar)
-
-        val userInfo = document.createSafeElement("div") as HTMLElement
-        userInfo.className = "tray-user-info"
+        val row = document.createSafeElement("div") as HTMLElement
+        row.className = "tray-user-row"
+        row.appendChild(createAvatar(user.username.getUsernameInitials()))
 
         val nameSpan = document.createSafeElement("span") as HTMLSpanElement
-        nameSpan.textContent =
-            buildString {
-                append(user.username)
-                if (isCurrentUser) {
-                    append(" (Você)")
-                }
-            }
-        nameSpan.style.fontWeight = "400"
-        userInfo.appendChild(nameSpan)
+        nameSpan.className = "tray-user-name"
+        nameSpan.textContent = if (isCurrentUser) "${user.username} (Você)" else user.username
+        row.appendChild(nameSpan)
 
-        val sharingScreen = user.socketId in screenSharers
-        val sharingCamera = user.socketId in cameraSharers
-        val status = document.createSafeElement("span") as HTMLElement
-        status.className = "tray-user-status"
-        status.textContent =
-            when {
-                sharingScreen -> "Compartilhando tela"
-                sharingCamera -> "Compartilhando câmera"
-                else -> "Conectado"
-            }
-        if (sharingScreen || sharingCamera) status.classList.add("sharing")
-        userInfo.appendChild(status)
-
-        container.appendChild(userInfo)
-
-        val micIcon = createMicIcon(user.socketId, user.isMuted)
-        container.appendChild(micIcon)
-
-        article.appendChild(container)
+        val icons = document.createSafeElement("span") as HTMLElement
+        icons.className = "tray-user-icons"
+        if (user.socketId in screenSharers) icons.appendChild(stateIcon("Compartilhando tela", SCREEN_ICON))
+        if (user.socketId in cameraSharers) icons.appendChild(stateIcon("Câmera ligada", CAMERA_ICON))
+        icons.appendChild(createMicIcon(owner, mutedUsers[owner] ?: user.isMuted))
+        row.appendChild(icons)
+        article.appendChild(row)
 
         if (!isCurrentUser) {
             article.appendChild(createVolumeControl(user.socketId, user.username))
@@ -310,9 +267,32 @@ object UserListMutations {
             }
         }
 
-        article.id = "user-list-${if (isCurrentUser) "self" else user.socketId}"
-
+        labelUserListItem(article)
         return article
+    }
+
+    // The row's accessible name summarises the name plus the state icons.
+    private fun labelUserListItem(article: HTMLElement) {
+        val name = article.querySelector(".tray-user-name")?.textContent.orEmpty()
+        val states = article.querySelectorAll(".tray-user-icons [aria-label]")
+        val summary =
+            (0 until states.length).mapNotNull { index ->
+                (states.item(index) as? HTMLElement)?.getAttribute("aria-label")
+            }
+        article.setAttribute("aria-label", (listOf(name) + summary).joinToString(", "))
+    }
+
+    private fun stateIcon(
+        label: String,
+        svg: String,
+    ): HTMLElement {
+        val span = document.createSafeElement("span") as HTMLSpanElement
+        span.className = "state-icon"
+        span.setAttribute("role", "img")
+        span.setAttribute("aria-label", label)
+        span.title = label
+        span.innerHTML = svg
+        return span
     }
 
     private fun createVolumeControl(
@@ -320,13 +300,7 @@ object UserListMutations {
         username: String,
     ): HTMLElement {
         val wrapper = document.createSafeElement("div") as HTMLElement
-        wrapper.style.apply {
-            display = "flex"
-            alignItems = "center"
-            columnGap = "0.5rem"
-            marginTop = "0.5rem"
-            paddingLeft = "2.75rem"
-        }
+        wrapper.className = "tray-user-volume"
 
         val volumeIcon = document.createSafeElement("span") as HTMLElement
         volumeIcon.innerHTML =
@@ -364,44 +338,39 @@ object UserListMutations {
 
     private fun createAvatar(initials: String): HTMLElement {
         val avatar = document.createSafeElement("div") as HTMLElement
-        avatar.style.apply {
-            width = "2rem"
-            height = "2rem"
-            borderRadius = "50%"
-            display = "flex"
-            alignItems = "center"
-            justifyContent = "center"
-            fontSize = "0.75rem"
-            fontWeight = "700"
-        }
         avatar.className = "avatar-circle"
-
+        avatar.setAttribute("aria-hidden", "true")
         avatar.textContent = initials.sanitizeHTML()
         return avatar
     }
 
     private fun createMicIcon(
-        userId: String,
+        owner: String,
         isMuted: Boolean,
     ): HTMLElement {
-        val span = document.createSafeElement("span") as HTMLSpanElement
-        span.id = "micIcon-user-$userId"
-        span.innerHTML =
-            """
-            <svg id="micIcon" class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path id="micIconPath" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"/>
-                <line id="micSlash" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" x1="4" y1="4" x2="20" y2="20"/>
-            </svg>
-            """.trimIndent()
-
-        span.style.fontSize = "1.25rem"
-        span.setAttribute("aria-label", if (isMuted) "Mudo" else "Microfone ativo")
-        span.className =
-            if (isMuted) {
-                "text-error"
-            } else {
-                "hidden"
-            }
+        val span = stateIcon("", MIC_ICON)
+        span.id = "micIcon-user-$owner"
+        applyMicState(span, isMuted)
         return span
     }
+
+    private fun applyMicState(
+        icon: HTMLElement,
+        isMuted: Boolean,
+    ) {
+        val label = if (isMuted) "Mudo" else "Microfone ativo"
+        icon.classList.add("state-mic")
+        icon.classList.toggle("muted", isMuted)
+        icon.setAttribute("aria-label", label)
+        icon.title = label
+    }
+
+    private const val MIC_ICON =
+        "<svg viewBox='0 0 24 24'><path d='M9 5a3 3 0 0 1 6 0v6a3 3 0 0 1-6 0V5Z'/>" +
+            "<path d='M5 11a7 7 0 0 0 14 0M12 18v3M8 21h8'/>" +
+            "<line class='slash' x1='3' y1='3' x2='21' y2='21'/></svg>"
+    private const val SCREEN_ICON =
+        "<svg viewBox='0 0 24 24'><rect x='3' y='4' width='18' height='14' rx='2'/><path d='M8 21h8M12 18v3'/></svg>"
+    private const val CAMERA_ICON =
+        "<svg viewBox='0 0 24 24'><rect x='3' y='6' width='12' height='12' rx='2'/><path d='m15 10 6-3v10l-6-3'/></svg>"
 }
