@@ -114,13 +114,17 @@ fun main() {
         roomInput.value = window.localStorage.getItem("screenshare.lastRoomId").orEmpty()
         websocketCoroutineScope.launch {
             runCatching { DesktopEnvironment.autoStartEnabled() }.onSuccess { startupToggle.checked = it }
+            // The native side already opened the window, or kept it hidden for a login launch.
+            val atLogin = runCatching { DesktopEnvironment.launchedAtLogin() }.getOrDefault(false)
             if (startupToggle.checked && usernameInput.value.isNotBlank() && roomInput.value.isNotBlank()) {
-                DesktopEnvironment.viewerMode = "hidden"
+                if (atLogin) DesktopEnvironment.viewerMode = "hidden"
                 kotlinx.browser.document
                     .getElementById("joinBtn")
                     ?.asDynamic()
                     ?.click()
-                runCatching { DesktopEnvironment.hideMainWindow() }
+            } else if (atLogin) {
+                // Nothing to rejoin: a tray icon alone would look like the app failed to start.
+                runCatching { DesktopEnvironment.showMainWindow() }
             }
         }
         startupToggle.addEventListener("change", {
