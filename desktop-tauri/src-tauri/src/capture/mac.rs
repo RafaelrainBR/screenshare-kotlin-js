@@ -42,10 +42,17 @@ pub enum Target {
 }
 
 /// Keeps a stream running; dropping it stops the capture.
-pub struct Capture(SCStream);
+pub enum Capture {
+    Stream(SCStream),
+    AppAudio {
+        _capture: super::mac_audio::AppAudioCapture,
+    },
+}
 impl Drop for Capture {
     fn drop(&mut self) {
-        let _ = self.0.stop_capture();
+        if let Self::Stream(stream) = self {
+            let _ = stream.stop_capture();
+        }
     }
 }
 
@@ -155,9 +162,11 @@ pub fn capture_thumbnail(target: Target) -> Result<Option<Thumbnail>, String> {
         .with_width(width)
         .with_height(height)
         .with_pixel_format(PixelFormat::BGRA);
-    let Ok(sample) = screencapturekit::screenshot_manager::SCScreenshotManager::capture_sample_buffer(
-        &filter, &config,
-    ) else {
+    let Ok(sample) =
+        screencapturekit::screenshot_manager::SCScreenshotManager::capture_sample_buffer(
+            &filter, &config,
+        )
+    else {
         return Ok(None);
     };
     let Some(buffer) = sample.pixel_buffer() else {
@@ -203,7 +212,14 @@ pub fn start_video(
         &filter,
         &config,
         ErrorHandler::new(move |_| {
-            on_end(if is_window { "window-closed" } else { "capture-failed" }.into())
+            on_end(
+                if is_window {
+                    "window-closed"
+                } else {
+                    "capture-failed"
+                }
+                .into(),
+            )
         }),
     )
     .map_err(|_| "capture-failed")?;
@@ -242,7 +258,7 @@ pub fn start_video(
         )
         .map_err(|_| "capture-failed")?;
     stream.start_capture().map_err(|_| "capture-failed")?;
-    Ok(Capture(stream))
+    Ok(Capture::Stream(stream))
 }
 
 /// System audio (every app but this one), or the audio of the app `pid`.
@@ -252,25 +268,27 @@ pub fn start_audio(
     on_end: impl Fn() + Send + Sync + 'static,
 ) -> Result<Capture, String> {
     let content = content()?;
+    if let Some(pid) = pid {
+        if !content
+            .applications()
+            .iter()
+            .any(|app| app.process_id() == pid)
+        {
+            return Err("process-not-found".into());
+        }
+        return super::mac_audio::AppAudioCapture::start(pid, on_audio)
+            .map(|capture| Capture::AppAudio { _capture: capture });
+    }
     let display = content
         .displays()
         .into_iter()
         .next()
         .ok_or("no-default-render-device")?;
-    let builder = SCContentFilter::create().with_display(&display);
-    let filter = match pid {
-        Some(pid) => {
-            let apps = content.applications();
-            let app = apps
-                .iter()
-                .find(|app| app.process_id() == pid)
-                .ok_or("process-not-found")?;
-            builder.with_including_applications(&[app], &[])
-        }
-        None => builder.with_excluding_windows(&[]),
-    }
-    .build()
-    .map_err(|_| "capture-failed")?;
+    let filter = SCContentFilter::create()
+        .with_display(&display)
+        .with_excluding_windows(&[])
+        .build()
+        .map_err(|_| "capture-failed")?;
     // Video is required by the stream but unused: keep it tiny and rare.
     let config = SCStreamConfiguration::new()
         .with_width(2)
@@ -280,8 +298,9 @@ pub fn start_audio(
         .with_excludes_current_process_audio(true)
         .with_sample_rate(48_000)
         .with_channel_count(2);
-    let mut stream = SCStream::new_with_delegate(&filter, &config, ErrorHandler::new(move |_| on_end()))
-        .map_err(|_| "capture-failed")?;
+    let mut stream =
+        SCStream::new_with_delegate(&filter, &config, ErrorHandler::new(move |_| on_end()))
+            .map_err(|_| "capture-failed")?;
     let state = Mutex::new((Vec::new(), AudioClock::new()));
     stream
         .add_output_handler(
@@ -293,14 +312,18 @@ pub fn start_audio(
                 let pcm: Vec<u8> = match (list.get(0), list.get(1)) {
                     (Some(left), Some(right)) => left
                         .data()
-                        .chunks_exact(4)
-                        .zip(right.data().chunks_exact(4))
-                        .flat_map(|(l, r)| [l, r].concat())
+                        .as_chunks::<4>()
+                        .0
+                        .iter()
+                        .zip(right.data().as_chunks::<4>().0.iter())
+                        .flat_map(|(l, r)| l.iter().chain(r.iter()).copied())
                         .collect(),
                     (Some(mono), None) => mono
                         .data()
-                        .chunks_exact(4)
-                        .flat_map(|s| [s, s].concat())
+                        .as_chunks::<4>()
+                        .0
+                        .iter()
+                        .flat_map(|s| s.iter().chain(s.iter()).copied())
                         .collect(),
                     _ => return,
                 };
@@ -318,5 +341,5 @@ pub fn start_audio(
         )
         .map_err(|_| "capture-failed")?;
     stream.start_capture().map_err(|_| "capture-failed")?;
-    Ok(Capture(stream))
+    Ok(Capture::Stream(stream))
 }

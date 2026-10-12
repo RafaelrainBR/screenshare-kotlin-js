@@ -2,6 +2,8 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>NSAudioCaptureUsageDescription</key>
+	<string>Permite compartilhar o áudio do aplicativo escolhido com a sala.</string>
 	<key>NSCameraUsageDescription</key>
 	<string>Permite compartilhar sua câmera com a sala.</string>
 	<key>NSMicrophoneUsageDescription</key>

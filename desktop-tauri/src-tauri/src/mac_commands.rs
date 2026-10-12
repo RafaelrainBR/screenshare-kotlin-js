@@ -110,7 +110,7 @@ pub async fn start_system_audio(
     start_audio(None, on_audio, state)
 }
 
-/// ScreenCaptureKit captures per app, which already covers its helper processes.
+/// Core Audio taps include the chosen app's descendant audio processes.
 #[tauri::command]
 pub async fn start_process_audio(
     process_id: u32,
