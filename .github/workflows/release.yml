@@ -212,8 +212,8 @@ jobs:
             test "$(cat release-state)" = true
             gh release upload "$RELEASE_TAG" release-assets/* --clobber
           elif [ -f "$notes" ]; then
-            gh release create "$RELEASE_TAG" release-assets/* --target "$RELEASE_COMMIT" --draft --title "Screenshare ${RELEASE_TAG#v}" --notes-file "$notes"
+            gh release create "$RELEASE_TAG" release-assets/* --verify-tag --draft --title "Screenshare ${RELEASE_TAG#v}" --notes-file "$notes"
           else
-            gh release create "$RELEASE_TAG" release-assets/* --target "$RELEASE_COMMIT" --draft --title "Screenshare ${RELEASE_TAG#v}" --generate-notes
+            gh release create "$RELEASE_TAG" release-assets/* --verify-tag --draft --title "Screenshare ${RELEASE_TAG#v}" --generate-notes
           fi
           gh release edit "$RELEASE_TAG" --draft=false --latest
