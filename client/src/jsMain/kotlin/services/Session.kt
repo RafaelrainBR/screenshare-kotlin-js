@@ -158,8 +158,10 @@ class Session(
                 // The OS picker is allowed to be cancelled. Keep the user in the room
                 // with a recovery path instead of leaving a partial share behind.
                 InterfaceMutations.reopenDesktopShareWizard()
-                if (it is DesktopCaptureException) {
-                    // Native capture needs no permission; it failed on the chosen source.
+                if (it is DesktopCaptureException && it.code == "screen-recording-denied") {
+                    InterfaceMutations.showError(it.message ?: "")
+                } else if (it is DesktopCaptureException) {
+                    // On Windows native capture needs no permission; it failed on the chosen source.
                     InterfaceMutations.showError(
                         "Não foi possível compartilhar ${nativeSource?.title ?: "a fonte"}. Escolha outra ou tente de novo.",
                     )

@@ -12,6 +12,7 @@ import org.w3c.dom.HTMLElement
 import org.w3c.dom.HTMLSelectElement
 import org.w3c.dom.ImageData
 import platform.DesktopCaptureBridge
+import platform.DesktopCaptureException
 import platform.DesktopCaptureSource
 import platform.DesktopCaptureSourceKind
 import services.ScreenSharing
@@ -224,7 +225,7 @@ private fun setupShareQualityModal(
     }
 }
 
-/** Windows: one dialog picks the source, its audio and the frame rate; no OS picker follows. */
+/** Desktop (Windows, macOS): one dialog picks the source, its audio and the frame rate; no OS picker follows. */
 internal fun openNativeShareWizard() {
     stopSourceRefresh()
     selectedSource = null
@@ -304,10 +305,11 @@ private fun refreshSources(
                     renderSources(ordered)
                 }
                 updateSourceState()
-            }.onFailure {
+            }.onFailure { error ->
                 if (generation == sourceRefreshGeneration) {
                     Elements.shareSourceState.textContent =
-                        "Não foi possível atualizar as telas e janelas. Tente novamente."
+                        (error as? DesktopCaptureException)?.takeIf { it.code == "screen-recording-denied" }?.message
+                            ?: "Não foi possível atualizar as telas e janelas. Tente novamente."
                 }
             }
         if (generation == sourceRefreshGeneration) sourceRefreshInFlight = false

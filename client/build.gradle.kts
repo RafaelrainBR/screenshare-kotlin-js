@@ -57,7 +57,7 @@ if (providers.gradleProperty("screenshare.desktop.bridge").isPresent) {
         // the browser-safe placeholder only in this opted-in task.
         duplicatesStrategy = DuplicatesStrategy.INCLUDE
         from(rootProject.layout.projectDirectory.dir("desktop-tauri/dist")) {
-            include("desktopBridge.js")
+            include("desktopBridge.js", "videoWorker.js", "audioWorklet.js")
         }
     }
 }

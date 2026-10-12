@@ -6,7 +6,7 @@
     "dev": "..\\gradlew.bat --project-dir .. desktopDev",
     "build": "..\\gradlew.bat --project-dir .. desktopBuild",
     "tauri": "tauri",
-    "build-bridge": "esbuild src/desktopBridge.ts --bundle --format=iife --platform=browser --target=es2022 --outfile=dist/desktopBridge.js"
+    "build-bridge": "esbuild src/desktopBridge.ts src/videoWorker.ts src/audioWorklet.ts --bundle --format=iife --platform=browser --target=es2022 --outdir=dist"
   },
   "devDependencies": {
     "@tauri-apps/api": "2.12.1",

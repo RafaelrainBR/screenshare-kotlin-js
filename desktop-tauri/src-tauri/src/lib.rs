@@ -1,5 +1,7 @@
-#[cfg(target_os = "windows")]
+#[cfg(any(target_os = "windows", target_os = "macos"))]
 mod capture;
+#[cfg(target_os = "macos")]
+mod mac_commands;
 #[cfg(target_os = "macos")]
 mod session_media;
 #[cfg(target_os = "windows")]
@@ -633,7 +635,23 @@ pub fn run() {
             quit_app,
             set_tray_state
         ]);
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(target_os = "macos")]
+    let builder = builder
+        .manage(mac_commands::MacCaptureState::default())
+        .invoke_handler(tauri::generate_handler![
+            mac_commands::start_system_audio,
+            mac_commands::start_process_audio,
+            mac_commands::stop_audio,
+            mac_commands::start_video_capture,
+            mac_commands::stop_video_capture,
+            mac_commands::enumerate_sources,
+            mac_commands::capture_thumbnail,
+            hide_main_window,
+            show_main_window,
+            quit_app,
+            set_tray_state
+        ]);
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
     let builder = builder.invoke_handler(tauri::generate_handler![
         hide_main_window,
         show_main_window,

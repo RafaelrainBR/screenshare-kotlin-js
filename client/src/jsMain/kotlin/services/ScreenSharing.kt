@@ -35,7 +35,7 @@ class ScreenSharing(
     enum class DesktopAudioMode { NONE, SYSTEM, PROCESS }
 
     /**
-     * [nativeSource] (Windows desktop) captures that screen or window natively,
+     * [nativeSource] (Windows and macOS desktop) captures that screen or window natively,
      * without the WebView picker, sharing bar or border. Otherwise the standard
      * getDisplayMedia picker chooses the source.
      */
@@ -101,7 +101,7 @@ class ScreenSharing(
             nativeSystemAudioSupported(
                 isDesktop = DesktopCaptureBridge.isAvailable,
                 bridgeAvailable = DesktopCaptureBridge.isAvailable,
-                generatorAvailable = jsTypeOf(window.asDynamic().MediaStreamTrackGenerator) != "undefined",
+                generatorAvailable = window.asDynamic().__screenshareDesktopBridge?.nativeAudio == true,
             )
         ) {
             runCatching {
