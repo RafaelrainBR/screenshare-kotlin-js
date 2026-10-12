@@ -21,7 +21,6 @@ class PeerConnections(
 
     // Perfect-negotiation state, keyed by socketId (see MDN "Perfect Negotiation").
     private val makingOffer = mutableMapOf<String, Boolean>()
-    private val ignoreOffer = mutableMapOf<String, Boolean>()
     private val isPolite = mutableMapOf<String, Boolean>()
 
     // Sinalização local de quais compartilhamentos cada peer está transmitindo.
@@ -83,6 +82,8 @@ class PeerConnections(
     }
 
     private fun addTracksIfNotPresent(peerConnection: RTCPeerConnectionDecorator) {
+        peerConnection.removeEndedSenders()
+
         screenSharing.localScreenStream?.getTracks()?.forEach { track ->
             if (!peerConnection.hasTrack(track)) {
                 peerConnection.addTrack(track, screenSharing.localScreenStream!!)
@@ -151,7 +152,6 @@ class PeerConnections(
         addTracksIfNotPresent(peerConnection)
 
         makingOffer[socketId] = false
-        ignoreOffer[socketId] = false
         isPolite[socketId] = !isInitiator
 
         peerConnection.onIceCandidateAdd { iceCandidate ->
@@ -213,6 +213,9 @@ class PeerConnections(
 
         peerConnection.onTrack { streams ->
             val remoteStream = streams[0]
+            // Renegotiation re-fires `track` for a share we already stopped (older senders keep
+            // the dead track); showing it would replace a live screen with a frozen/gray one.
+            if (remoteStream.getTracks().all { it.asDynamic().readyState == "ended" }) return@onTrack
             val isVideo = remoteStream.getVideoTracks().isNotEmpty()
             if (!isVideo) {
                 voiceChat.handleRemoteAudio(socketId, remoteStream)
@@ -245,29 +248,10 @@ class PeerConnections(
 
         // Reconexão automática: se a conexão cai (troca de NAT/CGNAT, queda
         // transitória), faz ICE restart reenviando um novo offer. Evita forçar
-        // o usuário a recarregar a página.
+        // o usuário a recarregar a página. restartIce dispara negotiationneeded,
+        // então o offer segue o caminho normal, com resolução de glare.
         peerConnection.onConnectionStateChange { state ->
-            if (state == "failed") {
-                coroutineScope.launch {
-                    runCatching {
-                        makingOffer[socketId] = true
-                        val offer = peerConnection.iceRestartOffer().await()
-                        val sdp = upgradeAudioQualitySdp(offer["sdp"] as String)
-                        peerConnection
-                            .setLocalDescription(
-                                json("type" to offer["type"] as String, "sdp" to sdp),
-                            ).await()
-                        websocketService.sendDescription(
-                            roomId = roomId,
-                            targetId = socketId,
-                            description = mapOf("type" to offer["type"] as String, "sdp" to sdp),
-                        )
-                    }.onFailure {
-                        console.warn("Não foi possível recuperar a conexão de mídia")
-                    }
-                    makingOffer[socketId] = false
-                }
-            }
+            if (state == "failed") peerConnection.restartIce()
         }
 
         peers[socketId] = peerConnection
@@ -298,7 +282,6 @@ class PeerConnections(
         peers.values.forEach { it.close() }
         peers.clear()
         makingOffer.clear()
-        ignoreOffer.clear()
         isPolite.clear()
         screenShareSockets.clear()
         cameraShareSockets.clear()
@@ -332,25 +315,14 @@ class PeerConnections(
     ) {
         peers[senderId]?.let { peerConnection ->
 
-            // Handle glare: if we're mid-negotiation (not stable), an incoming
-            // offer may collide with our own offer. The polite peer rolls back.
-            if (peerConnection.signalingState != "stable") {
-                val polite = isPolite[senderId] ?: true
-                if (!polite) {
-                    ignoreOffer[senderId] = true
-                    return@let
-                }
-                peerConnection.rollback().await()
-            }
+            // Glare: the impolite peer ignores the incoming offer (the polite side
+            // will answer ours); the polite peer rolls back its own offer.
+            val collision = makingOffer[senderId] == true || peerConnection.signalingState != "stable"
+            if (collision && isPolite[senderId] == false) return@let
+            if (peerConnection.signalingState != "stable") peerConnection.rollback().await()
 
             peerConnection.setRemoteDescription(RTCSessionDescription(descriptionJson)).await()
             peerConnection.setVideoReception(videoReceptionEnabled)
-
-            if (ignoreOffer[senderId] == true) {
-                ignoreOffer[senderId] = false
-                peerConnection.rollback().await()
-                return@let
-            }
 
             val answer = peerConnection.createAnswer().await()
             val answerSdp = upgradeAudioQualitySdp(answer["sdp"] as String)
