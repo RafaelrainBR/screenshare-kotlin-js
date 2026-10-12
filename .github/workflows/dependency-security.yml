@@ -28,4 +28,5 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libglib2.0-dev
-          cargo test --locked --manifest-path desktop-tauri/src-tauri/Cargo.toml -p glib --release --lib test_variant_str_iter
+          glib_manifest=$(cargo metadata --locked --manifest-path desktop-tauri/src-tauri/Cargo.toml --format-version 1 | python3 -c 'import json, sys; print(next(p["manifest_path"] for p in json.load(sys.stdin)["packages"] if p["name"] == "glib"))')
+          cargo test --manifest-path "$glib_manifest" --release --lib test_variant_str_iter
