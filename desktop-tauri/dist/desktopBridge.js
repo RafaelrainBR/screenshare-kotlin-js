@@ -247,6 +247,97 @@
     await active?.stop();
     if (current === active) current = void 0;
   }
+  var sharedHeader = 16;
+  var currentVideo;
+  var videoMetrics = { received: 0, written: 0, droppedWriter: 0, latencyUs: [] };
+  var sharedSlots = /* @__PURE__ */ new Map();
+  function releaseSharedSlots(keepGeneration) {
+    for (const [slot, buffer] of sharedSlots) {
+      if (buffer.generation === keepGeneration) continue;
+      sharedSlots.delete(slot);
+      globalThis.chrome.webview.releaseBuffer(buffer.data);
+    }
+  }
+  globalThis.chrome?.webview?.addEventListener("sharedbufferreceived", (event) => {
+    const { generation, slot } = event.additionalData;
+    releaseSharedSlots(generation);
+    const data = event.getBuffer();
+    new Uint8Array(data)[0] = 0;
+    sharedSlots.set(slot, { generation, data });
+  });
+  async function startVideo(request) {
+    const g = globalThis;
+    if (typeof g.MediaStreamTrackGenerator === "undefined" || typeof g.VideoFrame === "undefined") {
+      throw new NativeCaptureError("generator-unavailable", "MediaStreamTrackGenerator n\xE3o est\xE1 dispon\xEDvel neste WebView.");
+    }
+    await stopVideo();
+    videoMetrics = { received: 0, written: 0, droppedWriter: 0, latencyUs: [] };
+    const generator = new g.MediaStreamTrackGenerator({ kind: "video" });
+    const writer = generator.writable.getWriter();
+    const channel = new Channel();
+    let stopped = false;
+    let capture;
+    const write = (data, width, height, timestampUs, wallUs) => {
+      videoMetrics.received++;
+      if (videoMetrics.latencyUs.push(Date.now() * 1e3 - wallUs) > 600) videoMetrics.latencyUs.shift();
+      if (stopped) return;
+      if (writer.desiredSize !== null && writer.desiredSize <= 0) {
+        videoMetrics.droppedWriter++;
+        return;
+      }
+      const frame = new g.VideoFrame(data, { format: "BGRA", codedWidth: width, codedHeight: height, timestamp: timestampUs });
+      videoMetrics.written++;
+      writer.write(frame).catch(() => {
+        frame.close();
+        void capture.stop();
+      });
+    };
+    channel.onmessage = (message) => {
+      if (message?.slot !== void 0) {
+        const buffer = sharedSlots.get(message.slot);
+        if (buffer?.generation !== message.generation) return;
+        try {
+          write(new Uint8Array(buffer.data, sharedHeader, message.width * message.height * 4), message.width, message.height, message.timestampUs, message.wallUs);
+        } finally {
+          new Uint8Array(buffer.data)[0] = 0;
+        }
+      } else if (message?.ended) {
+        void capture.stop();
+      }
+    };
+    capture = {
+      async stop() {
+        if (stopped) return;
+        stopped = true;
+        const owns = currentVideo === capture;
+        if (owns) currentVideo = void 0;
+        channel.onmessage = () => {
+        };
+        if (owns) await invoke("stop_video_capture").catch(() => {
+        });
+        if (owns) releaseSharedSlots();
+        await writer.close().catch(() => {
+        });
+        generator.stop();
+      }
+    };
+    currentVideo = capture;
+    try {
+      await invoke("start_video_capture", { request, onFrame: channel });
+    } catch (error) {
+      await capture.stop();
+      throw new NativeCaptureError(String(error).includes("shared-buffer") ? "shared-buffer-unavailable" : "capture-failed", "N\xE3o foi poss\xEDvel iniciar a captura de v\xEDdeo.");
+    }
+    return generator;
+  }
+  async function stopVideo() {
+    await currentVideo?.stop();
+  }
+  function videoSummary() {
+    const sorted = [...videoMetrics.latencyUs].sort((a, b) => a - b);
+    const at = (q) => sorted.length ? Math.round(sorted[Math.min(sorted.length - 1, Math.floor(q * sorted.length))]) : null;
+    return { received: videoMetrics.received, written: videoMetrics.written, droppedWriter: videoMetrics.droppedWriter, latencyUsP50: at(0.5), latencyUsP95: at(0.95), latencyUsMax: at(1) };
+  }
   globalThis.__screenshareDesktopBridge = {
     startSystemAudio: async () => {
       try {
@@ -266,6 +357,9 @@
     enumerateSources: () => invoke("enumerate_sources"),
     captureThumbnail: (hwnd) => invoke("capture_thumbnail", { hwnd }),
     getAudioMetrics: () => ({ ...metrics }),
+    startVideoCapture: startVideo,
+    stopVideoCapture: stopVideo,
+    getVideoMetrics: async () => ({ js: videoSummary(), native: await invoke("video_capture_metrics") }),
     // This capability covers Windows capture commands, not the common shell API.
     isAvailable: navigator.userAgent.includes("Windows"),
     mediaAvailable: true,

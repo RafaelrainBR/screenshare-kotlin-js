@@ -2970,6 +2970,7 @@ dependencies = [
  "tauri-plugin-autostart",
  "tauri-plugin-single-instance",
  "wasapi",
+ "webview2-com",
  "windows",
 ]
 

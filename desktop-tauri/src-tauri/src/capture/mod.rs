@@ -2,8 +2,10 @@ use serde::Serialize;
 
 pub mod loopback;
 pub mod process;
+pub mod shared;
 pub mod sources;
 pub mod thumb;
+pub mod video;
 
 pub const FRAMES_PER_CHUNK: usize = 480;
 pub const CHANNELS: usize = 2;

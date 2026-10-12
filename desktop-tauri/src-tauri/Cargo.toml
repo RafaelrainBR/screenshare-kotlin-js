@@ -25,9 +25,15 @@ objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std"
 objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSNotification", "NSDistributedNotificationCenter", "NSOperation", "NSObject", "NSString", "block2"] }
 [target.'cfg(windows)'.dependencies]
 wasapi = "0.24"
+webview2-com = "0.39"
 windows = { version = "0.62", features = [
   "Win32_Foundation",
   "Win32_System_Threading",
   "Win32_UI_WindowsAndMessaging",
   "Win32_Graphics_Gdi",
+  "Win32_Graphics_Direct3D",
+  "Win32_Graphics_Direct3D11",
+  "Win32_Graphics_Dxgi",
+  "Win32_Graphics_Dxgi_Common",
+  "Win32_Graphics_Dwm",
 ] }

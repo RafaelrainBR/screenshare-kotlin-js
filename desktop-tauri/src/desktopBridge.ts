@@ -99,6 +99,99 @@ async function stopSystemAudio(): Promise<void> {
   if (current === active) current = undefined
 }
 
+type VideoRequest = { hwnd?: number; rect?: [number, number, number, number]; fps: number }
+type VideoMetrics = { received: number; written: number; droppedWriter: number; latencyUs: number[] }
+const sharedHeader = 16
+let currentVideo: { stop: () => Promise<void> } | undefined
+let videoMetrics: VideoMetrics = { received: 0, written: 0, droppedWriter: 0, latencyUs: [] }
+// Shared memory slots stay mapped for the whole capture; frames only name a slot.
+const sharedSlots = new Map<number, { generation: number; data: ArrayBuffer }>()
+function releaseSharedSlots(keepGeneration?: number) {
+  for (const [slot, buffer] of sharedSlots) {
+    if (buffer.generation === keepGeneration) continue
+    sharedSlots.delete(slot)
+    ;(globalThis as any).chrome.webview.releaseBuffer(buffer.data)
+  }
+}
+;(globalThis as any).chrome?.webview?.addEventListener('sharedbufferreceived', (event: any) => {
+  const { generation, slot } = event.additionalData
+  releaseSharedSlots(generation)
+  const data: ArrayBuffer = event.getBuffer()
+  // A frame announced before its slot arrived was skipped: free the slot again.
+  new Uint8Array(data)[0] = 0
+  sharedSlots.set(slot, { generation, data })
+})
+
+async function startVideo(request: VideoRequest): Promise<MediaStreamTrack> {
+  const g = globalThis as any
+  if (typeof g.MediaStreamTrackGenerator === 'undefined' || typeof g.VideoFrame === 'undefined') {
+    throw new NativeCaptureError('generator-unavailable', 'MediaStreamTrackGenerator não está disponível neste WebView.')
+  }
+  await stopVideo()
+  videoMetrics = { received: 0, written: 0, droppedWriter: 0, latencyUs: [] }
+  const generator = new g.MediaStreamTrackGenerator({ kind: 'video' })
+  const writer = generator.writable.getWriter()
+  const channel = new Channel<any>()
+  let stopped = false
+  let capture: { stop: () => Promise<void> }
+  const write = (data: Uint8Array, width: number, height: number, timestampUs: number, wallUs: number) => {
+    videoMetrics.received++
+    // Bounded sample window for latency percentiles.
+    if (videoMetrics.latencyUs.push(Date.now() * 1000 - wallUs) > 600) videoMetrics.latencyUs.shift()
+    if (stopped) return
+    // Never queue behind a slow encoder: drop instead.
+    if (writer.desiredSize !== null && writer.desiredSize <= 0) { videoMetrics.droppedWriter++; return }
+    const frame = new g.VideoFrame(data, { format: 'BGRA', codedWidth: width, codedHeight: height, timestamp: timestampUs })
+    videoMetrics.written++
+    writer.write(frame).catch(() => { frame.close(); void capture.stop() })
+  }
+  channel.onmessage = (message) => {
+    if (message?.slot !== undefined) {
+      const buffer = sharedSlots.get(message.slot)
+      if (buffer?.generation !== message.generation) return
+      try {
+        write(new Uint8Array(buffer.data, sharedHeader, message.width * message.height * 4), message.width, message.height, message.timestampUs, message.wallUs)
+      } finally {
+        // VideoFrame copied the pixels: hand the slot back to the capture thread.
+        new Uint8Array(buffer.data)[0] = 0
+      }
+    } else if (message?.ended) {
+      void capture.stop()
+    }
+  }
+  capture = {
+    async stop() {
+      if (stopped) return
+      stopped = true
+      const owns = currentVideo === capture
+      if (owns) currentVideo = undefined
+      channel.onmessage = () => {}
+      if (owns) await invoke('stop_video_capture').catch(() => {})
+      if (owns) releaseSharedSlots()
+      await writer.close().catch(() => {})
+      generator.stop()
+    },
+  }
+  currentVideo = capture
+  try {
+    await invoke('start_video_capture', { request, onFrame: channel })
+  } catch (error) {
+    await capture.stop()
+    throw new NativeCaptureError(String(error).includes('shared-buffer') ? 'shared-buffer-unavailable' : 'capture-failed', 'Não foi possível iniciar a captura de vídeo.')
+  }
+  return generator as MediaStreamTrack
+}
+
+async function stopVideo(): Promise<void> {
+  await currentVideo?.stop()
+}
+
+function videoSummary() {
+  const sorted = [...videoMetrics.latencyUs].sort((a, b) => a - b)
+  const at = (q: number) => sorted.length ? Math.round(sorted[Math.min(sorted.length - 1, Math.floor(q * sorted.length))]) : null
+  return { received: videoMetrics.received, written: videoMetrics.written, droppedWriter: videoMetrics.droppedWriter, latencyUsP50: at(0.5), latencyUsP95: at(0.95), latencyUsMax: at(1) }
+}
+
 ;(globalThis as any).__screenshareDesktopBridge = {
   startSystemAudio: async () => {
     try { return await startSystemAudio() } catch (error) { throw errorFor(error) }
@@ -108,6 +201,9 @@ async function stopSystemAudio(): Promise<void> {
   enumerateSources: () => invoke<NativeSource[]>('enumerate_sources'),
   captureThumbnail: (hwnd: number) => invoke('capture_thumbnail', { hwnd }),
   getAudioMetrics: () => ({ ...metrics }),
+  startVideoCapture: startVideo,
+  stopVideoCapture: stopVideo,
+  getVideoMetrics: async () => ({ js: videoSummary(), native: await invoke('video_capture_metrics') }),
   // This capability covers Windows capture commands, not the common shell API.
   isAvailable: navigator.userAgent.includes('Windows'),
   mediaAvailable: true,

@@ -254,6 +254,122 @@ fn hide_window(window: &tauri::WebviewWindow) -> tauri::Result<()> {
     window.emit("viewer-mode", "hidden")
 }
 
+#[cfg(target_os = "windows")]
+struct VideoCaptureState {
+    capture: CaptureState,
+    metrics: Mutex<Option<Arc<capture::video::VideoMetrics>>>,
+    generation: std::sync::atomic::AtomicU64,
+}
+
+#[cfg(target_os = "windows")]
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct VideoRequest {
+    hwnd: Option<u64>,
+    rect: Option<(i32, i32, u32, u32)>,
+    fps: u32,
+}
+
+/// Frames travel through WebView2 shared memory; the channel only announces them
+/// (raw frame bytes over IPC were measured at ~8 fps for 1080p and rejected).
+#[tauri::command]
+#[cfg(target_os = "windows")]
+async fn start_video_capture(
+    window: tauri::WebviewWindow,
+    request: VideoRequest,
+    on_frame: Channel,
+    state: State<'_, VideoCaptureState>,
+) -> Result<(), String> {
+    use capture::video::{capture_video_loop, VideoMetrics, VideoSource};
+    use tauri::ipc::InvokeResponseBody;
+    use windows::Win32::UI::WindowsAndMessaging::{
+        GetSystemMetrics, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN,
+    };
+    let source = match (request.hwnd, request.rect) {
+        (Some(hwnd), _) => {
+            VideoSource::Window(windows::Win32::Foundation::HWND(hwnd as usize as *mut _))
+        }
+        (None, Some((left, top, width, height))) => VideoSource::Screen {
+            left,
+            top,
+            width,
+            height,
+        },
+        _ => return Err("invalid-source".into()),
+    };
+    // The previous worker must stop before its shared memory is replaced.
+    stop_active(&state.capture)?;
+    let generation = state.generation.fetch_add(1, Ordering::AcqRel) + 1;
+    // A window can grow up to the virtual screen while it is captured.
+    let max_bytes = unsafe {
+        GetSystemMetrics(SM_CXVIRTUALSCREEN) as usize
+            * GetSystemMetrics(SM_CYVIRTUALSCREEN) as usize
+            * 4
+    };
+    let (tx, rx) = std::sync::mpsc::channel();
+    window
+        .with_webview(move |webview| {
+            let _ = tx.send(capture::shared::create_ring(
+                &webview, generation, max_bytes,
+            ));
+        })
+        .map_err(|_| "shared-buffer-unsupported")?;
+    let slots = rx
+        .recv_timeout(std::time::Duration::from_secs(5))
+        .map_err(|_| "shared-buffer-unsupported")??;
+    let metrics = Arc::new(VideoMetrics::default());
+    *state
+        .metrics
+        .lock()
+        .map_err(|_| "capture-state-unavailable")? = Some(metrics.clone());
+    let app = window.app_handle().clone();
+    let fps = request.fps;
+    install(&state.capture, move |running| {
+        let result = capture_video_loop(source, fps, running, metrics, |frame| {
+            let Some(slot) = slots.fill(frame.data) else {
+                return false;
+            };
+            on_frame
+                .send(InvokeResponseBody::Json(format!(
+                    r#"{{"generation":{generation},"slot":{slot},"width":{},"height":{},"timestampUs":{},"wallUs":{}}}"#,
+                    frame.width, frame.height, frame.timestamp_us, frame.wall_us
+                )))
+                .is_ok()
+        });
+        let _ = app.run_on_main_thread(move || capture::shared::release_ring(generation));
+        let error = result.err().unwrap_or_default();
+        let _ = on_frame.send(InvokeResponseBody::Json(format!(
+            r#"{{"ended":true,"error":{}}}"#,
+            serde_json::Value::String(error)
+        )));
+    })
+}
+
+#[tauri::command]
+#[cfg(target_os = "windows")]
+fn stop_video_capture(state: State<'_, VideoCaptureState>) -> Result<(), String> {
+    stop_active(&state.capture)
+}
+
+#[tauri::command]
+#[cfg(target_os = "windows")]
+fn video_capture_metrics(state: State<'_, VideoCaptureState>) -> serde_json::Value {
+    let Some(m) = state.metrics.lock().ok().and_then(|m| m.clone()) else {
+        return serde_json::Value::Null;
+    };
+    let get = |value: &std::sync::atomic::AtomicU64| value.load(Ordering::Relaxed);
+    serde_json::json!({
+        "ticks": get(&m.ticks),
+        "newFrames": get(&m.new_frames),
+        "delivered": get(&m.delivered),
+        "droppedBusy": get(&m.dropped_busy),
+        "lateTicks": get(&m.late_ticks),
+        "captureUsTotal": get(&m.capture_us_total),
+        "captureUsMax": get(&m.capture_us_max),
+        "minimizedTicks": get(&m.minimized_ticks),
+    })
+}
+
 #[tauri::command]
 fn hide_main_window(window: tauri::WebviewWindow) -> Result<(), String> {
     hide_window(&window).map_err(|_| "window-hide-failed".to_string())
@@ -473,10 +589,20 @@ pub fn run() {
         .manage(CaptureState {
             active: Mutex::new(None),
         })
+        .manage(VideoCaptureState {
+            capture: CaptureState {
+                active: Mutex::new(None),
+            },
+            metrics: Mutex::new(None),
+            generation: Default::default(),
+        })
         .invoke_handler(tauri::generate_handler![
             start_system_audio,
             start_process_audio,
             stop_audio,
+            start_video_capture,
+            stop_video_capture,
+            video_capture_metrics,
             enumerate_sources,
             capture_thumbnail,
             hide_main_window,
