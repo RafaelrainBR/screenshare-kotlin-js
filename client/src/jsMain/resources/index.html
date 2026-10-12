@@ -43,13 +43,37 @@
         <div class="dock" aria-label="Controles da sala">
           <span id="room-connection-status" class="dock-status" role="status">Conectando à sala…</span>
           <div class="dock-tools">
-          <div class="toolgroup">
+          <div class="toolgroup with-device">
             <button id="shareScreenBtn" class="btn icon-button" type="button" aria-label="Compartilhar tela" title="Compartilhar tela">
               <svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="14" rx="2"/><path d="M8 21h8M12 18v3"/></svg>
             </button>
             <button id="stopSharingBtn" class="btn btn-error icon-button hidden" type="button" aria-label="Parar compartilhamento" title="Parar compartilhamento">
               <svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="14" rx="2"/><path d="M9 8h6v6H9z"/></svg>
             </button>
+            <details id="share-picker" class="device-picker share-picker">
+              <summary aria-label="Ajustes da transmissão" title="Ajustes da transmissão"><svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg></summary>
+              <div class="picker-panel share-menu">
+                <div id="share-menu-main">
+                  <p class="share-menu-title">Transmissão <span id="share-menu-state" class="share-menu-state">Próxima tela</span></p>
+                  <div class="share-menu-presets" role="group" aria-label="O que você vai mostrar">
+                    <button type="button" data-menu-preset="GAME" aria-pressed="false">Jogo</button>
+                    <button type="button" data-menu-preset="VIDEO" aria-pressed="false">Vídeo</button>
+                    <button type="button" data-menu-preset="TEXT" aria-pressed="false">Código e texto</button>
+                  </div>
+                  <p id="share-menu-custom" class="share-menu-note hidden">Personalizado</p>
+                  <div class="share-menu-rows">
+                    <button type="button" class="share-menu-row" data-menu-field="share-fps"><span>Quadros/s</span><span class="share-menu-value"></span></button>
+                    <button type="button" class="share-menu-row" data-menu-field="share-priority"><span>Se piorar</span><span class="share-menu-value"></span></button>
+                    <button type="button" class="share-menu-row" data-menu-field="share-bitrate"><span>Bitrate</span><span class="share-menu-value"></span></button>
+                  </div>
+                  <button type="button" id="share-menu-source" class="share-menu-row share-menu-source">Escolher tela ou janela…</button>
+                </div>
+                <div id="share-menu-options" class="hidden">
+                  <button type="button" id="share-menu-back" class="share-menu-row share-menu-back"><span id="share-menu-options-title"></span></button>
+                  <div id="share-menu-list" role="radiogroup" aria-labelledby="share-menu-options-title"></div>
+                </div>
+              </div>
+            </details>
           </div>
           <span class="tool-separator"></span>
           <div class="toolgroup with-device">
@@ -152,39 +176,70 @@
     <div class="modal-panel">
       <p class="wizard-kicker">Compartilhamento de tela</p>
       <h2 id="share-wizard-title" class="modal-title">Preparar compartilhamento</h2>
-      <p id="share-wizard-desc" class="modal-desc">Escolha a qualidade. Na próxima etapa, selecione a tela ou janela.</p>
+      <p id="share-wizard-desc" class="modal-desc">Escolha o tipo de conteúdo. Na próxima etapa, selecione a tela ou janela.</p>
       <div id="share-source-step" class="modal-section hidden">
         <div class="audio-source-toolbar"><span class="field-label">O que compartilhar</span><button id="share-source-refresh" class="btn btn-ghost" type="button">Atualizar</button></div>
         <div id="share-source-grid" class="audio-source-grid" role="group" aria-label="Telas e janelas"></div>
         <p id="share-source-state" role="status"></p>
       </div>
-      <div id="share-audio-step" class="modal-section hidden">
-        <span class="field-label">Áudio</span>
-        <div class="audio-mode-grid">
-          <button type="button" id="share-audio-on" class="audio-mode-card" aria-pressed="false"><strong id="share-audio-on-title">Com áudio</strong><span id="share-audio-on-desc">Escolha uma tela ou janela.</span></button>
-          <button type="button" id="share-audio-off" class="audio-mode-card selected" aria-pressed="true"><strong>Sem áudio</strong><span>Compartilhar apenas a imagem.</span></button>
-        </div>
-      </div>
-      <details id="share-quality" class="modal-section share-quality" open>
-      <summary class="field-label">Qualidade <span id="share-quality-summary"></span></summary>
-      <div id="resolution-section" class="modal-section">
-        <span class="field-label">Resolução</span>
-        <div id="resolution-options" class="segmented">
-          <button type="button" class="btn quality-option" data-source="true">Fonte</button>
-          <button type="button" class="btn quality-option" data-width="1280" data-height="720">720p</button>
-          <button type="button" class="btn btn-primary quality-option" data-width="1920" data-height="1080">1080p</button>
-          <button type="button" class="btn quality-option" data-width="2560" data-height="1440">1440p</button>
-          <button type="button" class="btn quality-option" data-width="3840" data-height="2160">4K</button>
-        </div>
-      </div>
       <div class="modal-section">
-        <span class="field-label">Quadros por segundo</span>
-        <div id="framerate-options" class="segmented">
-          <button type="button" class="btn btn-primary quality-option" data-fps="30">30 fps</button>
-          <button type="button" class="btn quality-option" data-fps="60">60 fps</button>
+        <span class="field-label" id="share-preset-label">O que você vai mostrar</span>
+        <div id="share-preset-grid" class="audio-mode-grid" role="group" aria-labelledby="share-preset-label">
+          <button type="button" class="audio-mode-card" data-preset="GAME" aria-pressed="false"><strong>Jogo</strong><span>Ação fluida, 60 fps.</span></button>
+          <button type="button" class="audio-mode-card" data-preset="VIDEO" aria-pressed="false"><strong>Vídeo</strong><span>Filmes e séries, 30 fps.</span></button>
+          <button type="button" class="audio-mode-card" data-preset="TEXT" aria-pressed="false"><strong>Código e texto</strong><span>Letras nítidas, 10 fps.</span></button>
         </div>
+        <details id="share-quality" class="share-advanced">
+          <summary><span class="field-label">Ajustes avançados</span><span id="share-quality-summary"></span></summary>
+          <div class="advanced-grid">
+            <div class="advanced-field">
+              <label class="field-label" for="share-fps">Quadros por segundo</label>
+              <select id="share-fps" class="select">
+                <option value="5">5 fps</option>
+                <option value="10">10 fps</option>
+                <option value="15">15 fps</option>
+                <option value="30">30 fps</option>
+                <option value="60">60 fps</option>
+              </select>
+            </div>
+            <div class="advanced-field">
+              <label class="field-label" for="share-priority">Se a conexão piorar</label>
+              <select id="share-priority" class="select">
+                <option value="SHARPNESS">Manter nitidez</option>
+                <option value="BALANCED">Equilibrar</option>
+                <option value="SMOOTHNESS">Manter fluidez</option>
+              </select>
+            </div>
+            <div id="resolution-section" class="advanced-field">
+              <label class="field-label" for="share-resolution">Resolução</label>
+              <select id="share-resolution" class="select">
+                <option value="source">Fonte</option>
+                <option value="1280x720">720p</option>
+                <option value="1920x1080">1080p</option>
+                <option value="2560x1440">1440p</option>
+                <option value="3840x2160">4K</option>
+              </select>
+            </div>
+            <div class="advanced-field">
+              <label class="field-label" for="share-bitrate">Bitrate máximo</label>
+              <select id="share-bitrate" class="select" aria-describedby="share-bitrate-hint">
+                <option value="0">Automático</option>
+                <option value="4000000">4 Mbps</option>
+                <option value="8000000">8 Mbps</option>
+                <option value="15000000">15 Mbps</option>
+                <option value="25000000">25 Mbps</option>
+              </select>
+            </div>
+          </div>
+          <p id="share-bitrate-hint" class="advanced-hint hidden">Acima do seu upload, a imagem trava para todos.</p>
+        </details>
       </div>
-      </details>
+      <div id="share-audio-step" class="modal-section hidden">
+        <button type="button" id="share-audio-on" class="switch-row" role="switch" aria-checked="false" aria-labelledby="share-audio-on-title" aria-describedby="share-audio-on-desc">
+          <span class="switch-text"><strong id="share-audio-on-title">Áudio</strong><span id="share-audio-on-desc">Escolha uma tela ou janela.</span></span>
+          <span class="switch" aria-hidden="true"></span>
+        </button>
+      </div>
       <div class="modal-actions">
         <button id="cancel-share" type="button" class="btn btn-ghost">Cancelar</button>
         <button id="confirm-share" type="button" class="btn btn-primary">Escolher tela ou janela</button>

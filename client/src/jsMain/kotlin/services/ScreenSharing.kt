@@ -28,7 +28,7 @@ class ScreenSharing(
 
     var lastShareWidth: Int = 1920
     var lastShareHeight: Int = 1080
-    var lastShareFrameRate: Int = 30
+    var lastShareProfile: ShareProfile = SharePreset.VIDEO.profile
     private var nativeAudioTrack: MediaStreamTrack? = null
     private var nativeVideoTrack: MediaStreamTrack? = null
 
@@ -43,7 +43,7 @@ class ScreenSharing(
         isRequestCurrent: () -> Boolean,
         width: Int,
         height: Int,
-        frameRate: Int,
+        profile: ShareProfile,
         useSourceResolution: Boolean,
         desktopAudioMode: DesktopAudioMode = DesktopAudioMode.NONE,
         nativeSource: DesktopCaptureSource? = null,
@@ -52,7 +52,8 @@ class ScreenSharing(
     ) {
         lastShareWidth = width
         lastShareHeight = height
-        lastShareFrameRate = frameRate
+        lastShareProfile = profile
+        val frameRate = profile.fps
 
         val displayStream =
             if (nativeSource != null) {
@@ -167,6 +168,29 @@ class ScreenSharing(
             isLocal = true,
         )
         InterfaceMutations.updateShareControls(isLocalSharing = true)
+    }
+
+    /**
+     * Records [profile] for the next share and, while sharing, changes the capture
+     * frame rate in place. Returns whether a share is running.
+     */
+    suspend fun updateProfile(profile: ShareProfile): Boolean {
+        val previousFps = lastShareProfile.fps
+        lastShareProfile = profile
+        val track = localScreenStream?.getVideoTracks()?.firstOrNull() ?: return false
+        if (profile.fps != previousFps) {
+            runCatching {
+                if (nativeVideoTrack != null) {
+                    DesktopCaptureBridge.setVideoCaptureFps(profile.fps)
+                } else {
+                    // applyConstraints replaces every constraint, so keep the size ones.
+                    val constraints: dynamic = track.asDynamic().getConstraints()
+                    constraints.frameRate = json("ideal" to profile.fps, "max" to profile.fps)
+                    (track.asDynamic().applyConstraints(constraints) as kotlin.js.Promise<Any?>).await()
+                }
+            }.onFailure { console.warn("Não foi possível mudar os quadros por segundo da captura") }
+        }
+        return true
     }
 
     fun handleRemoteScreen(

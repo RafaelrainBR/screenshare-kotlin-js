@@ -527,6 +527,7 @@ object InterfaceMutations {
         (document.querySelector("#tray-screen span") as? HTMLElement)?.textContent =
             if (isLocalSharing) "Parar compartilhamento" else "Compartilhar tela"
         document.getElementById("tray-screen")?.setAttribute("aria-pressed", isLocalSharing.toString())
+        setShareMenuLive(isLocalSharing)
         if (isLocalSharing) {
             swapToggle(show = Elements.stopScreenShareButton, hide = Elements.shareScreenButton)
         } else {

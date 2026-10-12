@@ -279,6 +279,7 @@ function videoSummary() {
   getAudioMetrics: () => ({ ...metrics }),
   startVideoCapture: startVideo,
   stopVideoCapture: stopVideo,
+  setVideoCaptureFps: async (fps: number) => { if (currentVideo) await invoke('set_video_capture_fps', { fps }) },
   getVideoMetrics: async () => ({ js: videoSummary(), native: isMac ? null : await invoke('video_capture_metrics') }),
   // Native capture commands (Windows and macOS), not the common shell API.
   isAvailable: navigator.userAgent.includes('Windows') || isMac,
@@ -287,6 +288,7 @@ function videoSummary() {
   mediaAvailable: true,
   autoStartEnabled: () => invoke<boolean>('plugin:autostart|is_enabled'),
   setAutoStart: (enabled: boolean) => invoke(enabled ? 'plugin:autostart|enable' : 'plugin:autostart|disable'),
+  launchedAtLogin: () => invoke<boolean>('launched_at_login'),
   hideMainWindow: () => invoke('hide_main_window'),
   showMainWindow: () => invoke('show_main_window'),
   quitApp: () => invoke('quit_app'),
