@@ -287,6 +287,7 @@ function videoSummary() {
   mediaAvailable: true,
   autoStartEnabled: () => invoke<boolean>('plugin:autostart|is_enabled'),
   setAutoStart: (enabled: boolean) => invoke(enabled ? 'plugin:autostart|enable' : 'plugin:autostart|disable'),
+  launchedAtLogin: () => invoke<boolean>('launched_at_login'),
   hideMainWindow: () => invoke('hide_main_window'),
   showMainWindow: () => invoke('show_main_window'),
   quitApp: () => invoke('quit_app'),

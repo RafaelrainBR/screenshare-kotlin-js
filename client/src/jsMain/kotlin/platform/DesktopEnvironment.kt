@@ -27,6 +27,9 @@ object DesktopEnvironment {
         (window.asDynamic().__screenshareDesktopBridge.setAutoStart(enabled) as kotlin.js.Promise<dynamic>).await()
     }
 
+    suspend fun launchedAtLogin(): Boolean =
+        (window.asDynamic().__screenshareDesktopBridge.launchedAtLogin() as kotlin.js.Promise<Boolean>).await()
+
     suspend fun hideMainWindow() {
         (window.asDynamic().__screenshareDesktopBridge.hideMainWindow() as kotlin.js.Promise<dynamic>).await()
     }

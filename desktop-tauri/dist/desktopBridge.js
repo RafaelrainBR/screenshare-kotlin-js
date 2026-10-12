@@ -460,6 +460,7 @@
     mediaAvailable: true,
     autoStartEnabled: () => invoke("plugin:autostart|is_enabled"),
     setAutoStart: (enabled) => invoke(enabled ? "plugin:autostart|enable" : "plugin:autostart|disable"),
+    launchedAtLogin: () => invoke("launched_at_login"),
     hideMainWindow: () => invoke("hide_main_window"),
     showMainWindow: () => invoke("show_main_window"),
     quitApp: () => invoke("quit_app"),

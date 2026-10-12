@@ -274,8 +274,29 @@ const PANEL_SHOW_GRACE: Duration = Duration::from_millis(250);
 // Pressing the tray icon blurs the panel first; the click that follows must not reopen it.
 const PANEL_REOPEN_GUARD: Duration = Duration::from_millis(400);
 
+// Passed by the login item so a login launch stays in the tray.
+const AUTOSTART_ARG: &str = "--autostart";
+
+#[tauri::command]
+fn launched_at_login() -> bool {
+    std::env::args().any(|arg| arg == AUTOSTART_ARG)
+}
+
+/// The dock icon (and Cmd+Tab entry) follows the full window: an app living in the tray has neither.
+fn set_dock_visible(app: &tauri::AppHandle, visible: bool) {
+    #[cfg(target_os = "macos")]
+    let _ = app.set_activation_policy(if visible {
+        tauri::ActivationPolicy::Regular
+    } else {
+        tauri::ActivationPolicy::Accessory
+    });
+    #[cfg(not(target_os = "macos"))]
+    let _ = (app, visible);
+}
+
 fn hide_window(window: &tauri::WebviewWindow) -> tauri::Result<()> {
     window.hide()?;
+    set_dock_visible(window.app_handle(), false);
     window.emit("viewer-mode", "hidden")
 }
 
@@ -535,7 +556,10 @@ fn present_window(
                 Ok(())
             }
         })
-        .and_then(|_| window.show())
+        .and_then(|_| {
+            set_dock_visible(window.app_handle(), !compact);
+            window.show()
+        })
         .and_then(|_| window.set_focus())
         .map_err(|_| "window-show-failed".to_string())
 }
@@ -632,6 +656,7 @@ pub fn run() {
             capture_thumbnail,
             hide_main_window,
             show_main_window,
+            launched_at_login,
             quit_app,
             set_tray_state
         ]);
@@ -648,6 +673,7 @@ pub fn run() {
             mac_commands::capture_thumbnail,
             hide_main_window,
             show_main_window,
+            launched_at_login,
             quit_app,
             set_tray_state
         ]);
@@ -655,6 +681,7 @@ pub fn run() {
     let builder = builder.invoke_handler(tauri::generate_handler![
         hide_main_window,
         show_main_window,
+        launched_at_login,
         quit_app,
         set_tray_state
     ]);
@@ -662,11 +689,16 @@ pub fn run() {
         .setup(|app| {
             #[cfg(target_os = "macos")]
             session_media::install(app.handle());
-            use tauri_plugin_autostart::MacosLauncher;
+            use tauri_plugin_autostart::{MacosLauncher, ManagerExt};
             app.handle().plugin(tauri_plugin_autostart::init(
                 MacosLauncher::LaunchAgent,
-                None,
+                Some(vec![AUTOSTART_ARG]),
             ))?;
+            // Login items registered by older versions lack the flag; rewrite them.
+            let autolaunch = app.autolaunch();
+            if autolaunch.is_enabled().unwrap_or(false) {
+                let _ = autolaunch.enable();
+            }
             let open = MenuItem::with_id(app, "open", "Abrir sala", true, None::<&str>)?;
             let mic = MenuItem::with_id(
                 app,
@@ -780,6 +812,12 @@ pub fn run() {
                     tauri::WindowEvent::Focused(false) => hide_panel_on_blur(&handle),
                     _ => {}
                 });
+                // The window starts hidden so a login launch never flashes it; any other launch opens it.
+                if launched_at_login() {
+                    set_dock_visible(app.handle(), false);
+                } else {
+                    let _ = present_window(&window, false, None);
+                }
             }
             Ok(())
         })
