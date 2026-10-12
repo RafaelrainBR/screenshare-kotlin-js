@@ -20,10 +20,10 @@ async function newPage() {
   page.on('pageerror', error => { errors.push(error.message); console.log('pageerror', error.stack); });
   await page.route('http://localhost:8080/**', async route => {
     const url = new URL(route.request().url());
-    const name = url.pathname === '/' ? 'index.html' : basename(url.pathname);
+    const name = url.pathname === '/' ? 'index.html' : url.pathname.slice(1);
     try {
-      const source = ['index.html', 'ui.css', 'ui.js', 'desktopBridge.js'].includes(name) ? `client/src/jsMain/resources/${name}` : `client/build/dist/js/productionExecutable/${name}`;
-      await route.fulfill({ body: await readFile(resolve(source)), contentType: name.endsWith('.js') ? 'text/javascript' : name.endsWith('.css') ? 'text/css' : name.endsWith('.html') ? 'text/html' : 'application/octet-stream' });
+      const source = ['index.html', 'ui.css', 'ui.js', 'desktopBridge.js'].includes(name) || /^(brand|fonts)\//.test(name) ? `client/src/jsMain/resources/${name}` : `client/build/dist/js/productionExecutable/${basename(name)}`;
+      await route.fulfill({ body: await readFile(resolve(source)), contentType: name.endsWith('.js') ? 'text/javascript' : name.endsWith('.css') ? 'text/css' : name.endsWith('.html') ? 'text/html' : name.endsWith('.svg') ? 'image/svg+xml' : name.endsWith('.ttf') ? 'font/ttf' : 'application/octet-stream' });
     } catch { await route.continue(); }
   });
   await page.goto('http://localhost:8080/');
