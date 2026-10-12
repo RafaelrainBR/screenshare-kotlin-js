@@ -447,8 +447,6 @@ pub fn run() {
                 false,
                 None::<&str>,
             )?;
-            let switch_room =
-                MenuItem::with_id(app, "switch", "Trocar de sala…", true, None::<&str>)?;
             let leave = MenuItem::with_id(app, "leave", "Sair da sala", false, None::<&str>)?;
             let quit = MenuItem::with_id(app, "quit", "Encerrar app", true, None::<&str>)?;
             let quality = Submenu::with_items(
@@ -471,7 +469,6 @@ pub fn run() {
                     &screen,
                     &quality,
                     &room_separator,
-                    &switch_room,
                     &leave,
                     &quit_separator,
                     &quit,
@@ -503,7 +500,7 @@ pub fn run() {
                     if action == "quit" {
                         app.exit(0);
                     } else if let Some(window) = app.get_webview_window("main") {
-                        if action == "open" || action == "switch" {
+                        if action == "open" {
                             let _ = present_window(&window, false, None);
                         } else if action == "screen" || action == "camera" {
                             let starting = app

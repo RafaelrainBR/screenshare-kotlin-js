@@ -693,6 +693,7 @@ object InterfaceMutations {
         ).launch { runCatching { DesktopEnvironment.setTrayState("output", outputMuted) } }
         window.localStorage.setItem("screenshare.outputMuted", outputMuted.toString())
         Elements.outputToggle.classList.toggle("muted", outputMuted)
+        document.getElementById("outputSlash")?.classList?.toggle("hidden", !outputMuted)
         val label = if (outputMuted) "Ativar saída de áudio" else "Silenciar saída de áudio"
         document.getElementById("tray-output")?.apply {
             textContent = if (outputMuted) "Ativar áudio" else "Silenciar áudio"
@@ -720,6 +721,7 @@ object InterfaceMutations {
             Dispatchers.Main,
         ).launch { runCatching { DesktopEnvironment.setTrayState("output", outputMuted) } }
         Elements.outputToggle.classList.toggle("muted", outputMuted)
+        document.getElementById("outputSlash")?.classList?.toggle("hidden", !outputMuted)
         val label = if (outputMuted) "Ativar saída de áudio" else "Silenciar saída de áudio"
         document.getElementById("tray-output")?.apply {
             textContent = if (outputMuted) "Ativar áudio" else "Silenciar áudio"

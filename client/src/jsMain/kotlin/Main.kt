@@ -255,7 +255,7 @@ fun main() {
                     ?.click()
             }
 
-            "switch", "leave" -> {
+            "leave" -> {
                 leaveRoom()
             }
         }
