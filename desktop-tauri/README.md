@@ -60,6 +60,29 @@ client/build/dist/js/productionExecutable
 The configured Windows output is an NSIS installer under
 `desktop-tauri/src-tauri/target/release/bundle/nsis`.
 
+### macOS distribution without an Apple Developer account
+
+The bundle is ad hoc signed (`signingIdentity: "-"`) and not notarized, so a
+browser-downloaded DMG is blocked by Gatekeeper. Files fetched by `curl` carry
+no quarantine attribute, so friends install with:
+
+```bash
+curl -fsSL https://github.com/RafaelrainBR/screenshare-kotlin-js/releases/latest/download/install-macos.sh | bash
+```
+
+To publish, build on an Apple Silicon Mac and attach both files to a GitHub
+release under these exact names:
+
+```bash
+npm run tauri -- build --bundles app
+tar -czf Screenshare-macos-arm64.tar.gz -C src-tauri/target/release/bundle/macos Screenshare.app
+gh release create v0.7.0 Screenshare-macos-arm64.tar.gz scripts/install-macos.sh
+```
+
+The ad hoc signature changes on every build, so macOS may drop the Screen
+Recording permission after an update; the user removes and re-adds the app in
+Privacy & Security.
+
 Release builds connect to the current Kotlin production endpoint at
 `wss://screen-share.fly.dev`. The endpoint is passed as a startup query parameter
 and is only honored when the centralized Tauri environment check succeeds.
