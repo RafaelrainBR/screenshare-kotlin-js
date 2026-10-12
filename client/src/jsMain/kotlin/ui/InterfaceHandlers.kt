@@ -160,8 +160,12 @@ private fun setupShareQualityModal(
     Elements.cancelShare.addEventListener("click", { e ->
         e.preventDefault()
         stopAudioSourceRefresh()
-        hideAfterLocalShare = false
         Elements.qualityModal.classList.add("hidden")
+        // A wizard opened from the tray returns to the tray when cancelled.
+        if (hideAfterLocalShare) {
+            hideAfterLocalShare = false
+            CoroutineScope(Dispatchers.Main).launch { runCatching { platform.DesktopEnvironment.hideMainWindow() } }
+        }
     })
 
     val options = document.getElementsByClassName("quality-option")

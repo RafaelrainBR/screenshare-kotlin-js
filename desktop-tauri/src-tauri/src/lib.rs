@@ -9,6 +9,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 #[cfg(target_os = "windows")]
 use std::sync::Arc;
 use std::sync::Mutex;
+use std::time::{Duration, Instant};
 #[cfg(target_os = "windows")]
 use tauri::ipc::Channel;
 use tauri::{
@@ -26,9 +27,6 @@ struct TrayUiState {
     leave: MenuItem<tauri::Wry>,
     qualities: [CheckMenuItem<tauri::Wry>; 3],
     participants: u32,
-    mic_active: bool,
-    camera_active: bool,
-    screen_active: bool,
     remote_sharing: bool,
 }
 
@@ -45,7 +43,6 @@ fn set_tray_state(
     }
     match kind.as_str() {
         "mic" => {
-            tray.mic_active = active;
             tray.mic
                 .set_text(if active {
                     "Microfone ativo · Silenciar"
@@ -55,7 +52,6 @@ fn set_tray_state(
                 .map_err(|_| "tray-menu-unavailable")?;
         }
         "camera" => {
-            tray.camera_active = active;
             tray.camera
                 .set_text(if active {
                     "Câmera ativa · Parar"
@@ -65,7 +61,6 @@ fn set_tray_state(
                 .map_err(|_| "tray-menu-unavailable")?;
         }
         "screen" => {
-            tray.screen_active = active;
             tray.screen
                 .set_text(if active {
                     "Tela compartilhada · Parar"
@@ -241,12 +236,27 @@ fn capture_thumbnail(hwnd: u64) -> Result<Option<Thumbnail>, String> {
     )
 }
 
+/// Which mode the single window is in. Only the compact tray panel hides on blur.
+#[derive(Default)]
+struct PanelState {
+    compact: bool,
+    shown_at: Option<Instant>,
+    blurred_at: Option<Instant>,
+}
+
+// A blur queued before the panel finished showing must not close it again.
+const PANEL_SHOW_GRACE: Duration = Duration::from_millis(250);
+// Pressing the tray icon blurs the panel first; the click that follows must not reopen it.
+const PANEL_REOPEN_GUARD: Duration = Duration::from_millis(400);
+
+fn hide_window(window: &tauri::WebviewWindow) -> tauri::Result<()> {
+    window.hide()?;
+    window.emit("viewer-mode", "hidden")
+}
+
 #[tauri::command]
 fn hide_main_window(window: tauri::WebviewWindow) -> Result<(), String> {
-    window
-        .hide()
-        .and_then(|_| window.emit("viewer-mode", "hidden"))
-        .map_err(|_| "window-hide-failed".to_string())
+    hide_window(&window).map_err(|_| "window-hide-failed".to_string())
 }
 
 #[tauri::command]
@@ -254,11 +264,78 @@ fn show_main_window(window: tauri::WebviewWindow) -> Result<(), String> {
     present_window(&window, false, None)
 }
 
+fn hide_panel_on_blur(window: &tauri::WebviewWindow) {
+    let state = window.state::<Mutex<PanelState>>();
+    let Ok(mut panel) = state.lock() else { return };
+    let settled = panel
+        .shown_at
+        .is_some_and(|shown| shown.elapsed() >= PANEL_SHOW_GRACE);
+    if !panel.compact || !settled || !window.is_visible().unwrap_or(false) {
+        return;
+    }
+    panel.blurred_at = Some(Instant::now());
+    drop(panel);
+    let _ = hide_window(window);
+}
+
+fn toggle_tray_panel(window: &tauri::WebviewWindow, rect: tauri::Rect) -> Result<(), String> {
+    let visible = window.is_visible().unwrap_or(false) && !window.is_minimized().unwrap_or(false);
+    let (compact, just_blurred) = window
+        .state::<Mutex<PanelState>>()
+        .lock()
+        .map(|panel| {
+            (
+                panel.compact,
+                panel
+                    .blurred_at
+                    .is_some_and(|blurred| blurred.elapsed() < PANEL_REOPEN_GUARD),
+            )
+        })
+        .map_err(|_| "panel-state-unavailable")?;
+    match tray_click_action(visible, compact, just_blurred) {
+        TrayClick::FocusFull => window.set_focus().map_err(|_| "window-show-failed".into()),
+        TrayClick::HidePanel => hide_window(window).map_err(|_| "window-hide-failed".into()),
+        TrayClick::Ignore => Ok(()),
+        TrayClick::OpenPanel => present_window(window, true, Some(rect)),
+    }
+}
+
+#[derive(Debug, PartialEq)]
+enum TrayClick {
+    FocusFull,
+    HidePanel,
+    Ignore,
+    OpenPanel,
+}
+
+fn tray_click_action(visible: bool, compact: bool, just_blurred: bool) -> TrayClick {
+    match (visible, compact) {
+        (true, false) => TrayClick::FocusFull,
+        (true, true) => TrayClick::HidePanel,
+        // This click already closed the panel through its blur.
+        _ if just_blurred => TrayClick::Ignore,
+        _ => TrayClick::OpenPanel,
+    }
+}
+
 fn present_window(
     window: &tauri::WebviewWindow,
     compact: bool,
     tray_rect: Option<tauri::Rect>,
 ) -> Result<(), String> {
+    // Switch the mode before touching the window so blur events raised by the
+    // transition itself are judged against the new mode.
+    if let Ok(mut panel) = window.state::<Mutex<PanelState>>().lock() {
+        panel.compact = compact;
+        panel.shown_at = Some(Instant::now());
+    }
+    // Each mode owns these properties; restore them on every switch.
+    window
+        .set_decorations(!compact)
+        .and_then(|_| window.set_resizable(!compact))
+        .and_then(|_| window.set_skip_taskbar(compact))
+        .and_then(|_| window.set_always_on_top(compact))
+        .map_err(|_| "window-mode-failed")?;
     let (mut width, mut height, min_width, min_height): (f64, f64, f64, f64) = if compact {
         (430.0, 660.0, 390.0, 520.0)
     } else {
@@ -288,7 +365,10 @@ fn present_window(
             .inner_size()
             .map_err(|_| "window-size-unavailable")?
             .to_logical::<f64>(scale);
-        frame = (outer.width - inner.width, outer.height - inner.height);
+        // The undecorated panel has no frame; its outer size may still report the old decorations.
+        if !compact {
+            frame = (outer.width - inner.width, outer.height - inner.height);
+        }
         width = width.min((available.width - frame.0).max(1.0));
         height = height.min((available.height - frame.1).max(1.0));
     }
@@ -381,8 +461,9 @@ fn quit_app(app: tauri::AppHandle) {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let builder =
-        tauri::Builder::default().plugin(tauri_plugin_single_instance::init(|app, _, _| {
+    let builder = tauri::Builder::default()
+        .manage(Mutex::new(PanelState::default()))
+        .plugin(tauri_plugin_single_instance::init(|app, _, _| {
             if let Some(window) = app.get_webview_window("main") {
                 let _ = present_window(&window, false, None);
             }
@@ -491,10 +572,12 @@ pub fn run() {
                     } = event
                     {
                         if let Some(window) = tray.app_handle().get_webview_window("main") {
-                            let _ = present_window(&window, true, Some(rect));
+                            let _ = toggle_tray_panel(&window, rect);
                         }
                     }
                 })
+                // Flows that need a form open the full window from the frontend,
+                // which knows whether to hide it again afterwards.
                 .on_menu_event(|app, event| {
                     let action = event.id().as_ref();
                     if action == "quit" {
@@ -502,24 +585,6 @@ pub fn run() {
                     } else if let Some(window) = app.get_webview_window("main") {
                         if action == "open" {
                             let _ = present_window(&window, false, None);
-                        } else if action == "screen" || action == "camera" {
-                            let starting = app
-                                .state::<Mutex<TrayUiState>>()
-                                .lock()
-                                .map(|state| {
-                                    if action == "screen" {
-                                        !state.screen_active
-                                    } else {
-                                        !state.camera_active
-                                    }
-                                })
-                                .unwrap_or(false);
-                            if starting
-                                && (!window.is_visible().unwrap_or(false)
-                                    || window.is_minimized().unwrap_or(false))
-                            {
-                                let _ = present_window(&window, true, None);
-                            }
                         }
                         let _ = app.emit("tray-action", action);
                     }
@@ -534,20 +599,18 @@ pub fn run() {
                 leave,
                 qualities: [q720, q1080, q4k],
                 participants: 0,
-                mic_active: false,
-                camera_active: false,
-                screen_active: false,
                 remote_sharing: false,
             }));
 
             if let Some(window) = app.get_webview_window("main") {
-                let window_to_hide = window.clone();
-                window.on_window_event(move |event| {
-                    if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                let handle = window.clone();
+                window.on_window_event(move |event| match event {
+                    tauri::WindowEvent::CloseRequested { api, .. } => {
                         api.prevent_close();
-                        let _ = window_to_hide.hide();
-                        let _ = window_to_hide.emit("viewer-mode", "hidden");
+                        let _ = hide_window(&handle);
                     }
+                    tauri::WindowEvent::Focused(false) => hide_panel_on_blur(&handle),
+                    _ => {}
                 });
             }
             Ok(())
@@ -592,6 +655,16 @@ mod tests {
             ),
             (-1920.0, 30.0)
         );
+    }
+
+    #[test]
+    fn tray_click_focuses_full_window_and_toggles_panel() {
+        assert_eq!(tray_click_action(true, false, false), TrayClick::FocusFull);
+        assert_eq!(tray_click_action(true, true, false), TrayClick::HidePanel);
+        assert_eq!(tray_click_action(false, true, true), TrayClick::Ignore);
+        assert_eq!(tray_click_action(false, true, false), TrayClick::OpenPanel);
+        // A hidden full window opens as the panel.
+        assert_eq!(tray_click_action(false, false, false), TrayClick::OpenPanel);
     }
 
     #[test]

@@ -211,16 +211,12 @@ class Session(
                     return@launch
                 }
                 runCatching { DesktopEnvironment.setTrayState("camera", true) }
-                if (hideAfterLocalShare) {
-                    hideAfterLocalShare = false
-                    runCatching { DesktopEnvironment.hideMainWindow() }
-                }
                 runCatching { InterfaceMutations.populateAudioDevices() }
             }.onFailure {
                 if (!request()) return@launch
                 console.warn("Não foi possível acessar a câmera")
+                runCatching { DesktopEnvironment.showMainWindow() }
                 InterfaceMutations.showPermissionRecovery("camera", it.asDynamic().name as? String)
-                hideAfterLocalShare = false
             }
         }
 
@@ -229,10 +225,6 @@ class Session(
             cameraSharing.stopCameraSharing(recreatePeerConnections = { recreatePeerConnections() })
             runCatching { websocketService.stopCameraShare(localRoomId) }
             runCatching { DesktopEnvironment.setTrayState("camera", false) }
-            if (hideAfterLocalShare) {
-                hideAfterLocalShare = false
-                runCatching { DesktopEnvironment.hideMainWindow() }
-            }
         }
 
     fun handleCameraDeviceChange(deviceId: String) =

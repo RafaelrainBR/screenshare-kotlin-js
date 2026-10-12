@@ -26,7 +26,7 @@ svg { display: block; width: 19px; height: 19px; fill: none; stroke: currentColo
 .hidden { display: none !important; }
 .tray-panel { display: none; }
 body.compact-tray #join-screen, body.compact-tray #app-screen { display: none !important; }
-body.compact-tray .tray-panel { display: flex; flex-direction: column; height: 100dvh; padding: 16px; gap: 12px; overflow-y: auto; background: var(--surface); }
+body.compact-tray .tray-panel { display: flex; flex-direction: column; height: 100dvh; padding: 16px; gap: 12px; overflow-y: auto; background: var(--surface); box-shadow: inset 0 0 0 1px var(--line); }
 .tray-panel > :not(.tray-participants) { flex-shrink: 0; }
 .tray-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 44px; }
 .tray-header > div { min-width: 0; }
@@ -64,8 +64,6 @@ body.compact-tray .tray-participants .avatar-circle { width: 36px !important; he
 .tray-media #tray-screen[aria-pressed="true"] { border-color: var(--red); background: var(--surface-2); color: var(--red); }
 .tray-media #tray-mic[aria-pressed="true"], .tray-media #tray-camera[aria-pressed="true"] { border-color: var(--green); color: var(--green); }
 .tray-media #tray-output[aria-pressed="true"] { border-color: var(--red); color: var(--red); }
-body.compact-tray #quality-modal { padding: 12px; }
-body.compact-tray .modal-panel { width: 100%; max-height: calc(100dvh - 24px); }
 .w-4, .h-4 { width: 16px; height: 16px; }
 .w-5, .h-5 { width: 20px; height: 20px; }
 .w-6, .h-6 { width: 24px; height: 24px; }

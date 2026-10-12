@@ -179,8 +179,11 @@ document.addEventListener('keydown', event => {
       document.getElementById(dialog === permissionModal ? 'close-permission-help' : 'cancel-share').click();
       return;
     }
+    const contextOpen = !context.classList.contains('hidden');
     closeContext(true);
     document.querySelectorAll('.device-picker').forEach(picker => { picker.open = false; });
+    // Esc closes the tray panel; media keeps running in the hidden window.
+    if (!contextOpen && document.body.classList.contains('compact-tray')) globalThis.__screenshareDesktopBridge?.hideMainWindow();
     return;
   }
   const tile = document.activeElement?.closest('.participant-tile, .screen-tile');

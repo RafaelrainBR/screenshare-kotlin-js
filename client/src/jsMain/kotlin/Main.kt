@@ -187,6 +187,20 @@ fun main() {
         }
     }
 
+    // Forms never open inside the tray panel: they use the full window, which
+    // hides again when a flow started from the panel or tray menu finishes.
+    fun clickInFullWindow(buttonId: String) {
+        val fromTray = DesktopEnvironment.isAvailable && DesktopEnvironment.viewerMode != "room"
+        hideAfterLocalShare = fromTray
+        websocketCoroutineScope.launch {
+            if (fromTray) runCatching { DesktopEnvironment.showMainWindow() }
+            kotlinx.browser.document
+                .getElementById(buttonId)
+                ?.asDynamic()
+                ?.click()
+        }
+    }
+
     window.addEventListener("screenshare:tray-action", { event ->
         when ((event.asDynamic().detail as? String).orEmpty()) {
             "open" -> {
@@ -203,11 +217,7 @@ fun main() {
             }
 
             "quality-options" -> {
-                hideAfterLocalShare = DesktopEnvironment.isAvailable && DesktopEnvironment.viewerMode == "compact"
-                kotlinx.browser.document
-                    .getElementById("shareScreenBtn")
-                    ?.asDynamic()
-                    ?.click()
+                clickInFullWindow("shareScreenBtn")
             }
 
             "mic" -> {
@@ -218,7 +228,6 @@ fun main() {
             }
 
             "camera" -> {
-                hideAfterLocalShare = DesktopEnvironment.isAvailable && DesktopEnvironment.viewerMode == "compact"
                 val id = if (session?.cameraSharing?.localCameraStream == null) "cameraBtn" else "stopCameraBtn"
                 kotlinx.browser.document
                     .getElementById(id)
@@ -227,19 +236,14 @@ fun main() {
             }
 
             "screen" -> {
-                hideAfterLocalShare = DesktopEnvironment.isAvailable && DesktopEnvironment.viewerMode == "compact"
-                val buttonId =
-                    if (session?.screenSharing?.localScreenStream ==
-                        null
-                    ) {
-                        "shareScreenBtn"
-                    } else {
-                        "stopSharingBtn"
-                    }
-                kotlinx.browser.document
-                    .getElementById(buttonId)
-                    ?.asDynamic()
-                    ?.click()
+                if (session?.screenSharing?.localScreenStream == null) {
+                    clickInFullWindow("shareScreenBtn")
+                } else {
+                    kotlinx.browser.document
+                        .getElementById("stopSharingBtn")
+                        ?.asDynamic()
+                        ?.click()
+                }
             }
 
             "quality720" -> {
@@ -264,7 +268,16 @@ fun main() {
             }
 
             "leave" -> {
-                leaveRoom()
+                // The draft confirmation is a dialog; the panel would hide when it takes focus.
+                val draft = ui.Elements.messageInput.value
+                if (DesktopEnvironment.viewerMode == "compact" && draft.isNotBlank()) {
+                    websocketCoroutineScope.launch {
+                        runCatching { DesktopEnvironment.showMainWindow() }
+                        leaveRoom()
+                    }
+                } else {
+                    leaveRoom()
+                }
             }
         }
     })
