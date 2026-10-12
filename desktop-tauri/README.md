@@ -1,5 +1,30 @@
 # Screenshare Desktop (Tauri)
 
+## Publishing a release
+
+The [Release workflow](../.github/workflows/release.yml) runs when a tag such as
+`v0.9.0` is pushed. It checks that the tag matches the desktop package, npm lock,
+Cargo package/lock and Tauri versions, runs Kotlin and native tests, then builds
+Windows x64 (NSIS, MSI and portable EXE) and macOS Apple Silicon (ad hoc signed
+app archive and install script). Only after both builds pass does it publish the
+GitHub release with the files and `SHA256SUMS`.
+
+For the next release:
+
+1. Update the version in `package.json`, `package-lock.json`,
+   `src-tauri/Cargo.toml`, the `screenshare-desktop` entry in
+   `src-tauri/Cargo.lock`, and `src-tauri/tauri.conf.json`.
+2. Optionally add notes in `docs/releases/vX.Y.Z.md`; otherwise GitHub generates
+   notes from the merged changes.
+3. Commit and push to `master`, then run `git tag vX.Y.Z` and
+   `git push origin vX.Y.Z` from that commit.
+
+Re-run failed jobs in GitHub Actions to retry a failed build or publication.
+A partial publication stays as a draft until all uploads succeed; an already
+published release is never overwritten. No signing secrets are required for
+these unsigned/ad hoc builds. Manual capture and installer smoke tests remain
+necessary on real devices.
+
 This module is the Windows shell for the canonical Kotlin/JS client. It does not
 contain a second frontend, signaling protocol, or server.
 
