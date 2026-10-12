@@ -38,14 +38,14 @@ jobs:
       - name: Prepare release commit and tag
         id: source
         run: |
-          [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          [[ "$RELEASE_TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
           if git show-ref --verify --quiet "refs/tags/$RELEASE_TAG"; then
             git checkout --detach "$RELEASE_TAG"
           else
             node --input-type=module <<'NODE'
           import assert from 'node:assert/strict';
           import { readFileSync, writeFileSync } from 'node:fs';
-          assert.match(process.env.RELEASE_TAG, /^v\d+\.\d+\.\d+$/);
+          assert.match(process.env.RELEASE_TAG, /^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/);
           const version = process.env.RELEASE_TAG.slice(1);
           for (const name of ['package.json', 'package-lock.json', 'src-tauri/tauri.conf.json']) {
             const path = `desktop-tauri/${name}`;
@@ -95,7 +95,7 @@ jobs:
           import assert from 'node:assert/strict';
           import { readFileSync } from 'node:fs';
           const tag = process.env.RELEASE_TAG;
-          assert.match(tag, /^v\d+\.\d+\.\d+$/);
+          assert.match(tag, /^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/);
           const version = tag.slice(1);
           const read = path => readFileSync(`desktop-tauri/${path}`, 'utf8');
           const json = path => JSON.parse(read(path));
