@@ -1,5 +1,7 @@
-#[cfg(target_os = "windows")]
+#[cfg(any(target_os = "windows", target_os = "macos"))]
 mod capture;
+#[cfg(target_os = "macos")]
+mod mac_commands;
 #[cfg(target_os = "macos")]
 mod session_media;
 #[cfg(target_os = "windows")]
@@ -9,6 +11,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 #[cfg(target_os = "windows")]
 use std::sync::Arc;
 use std::sync::Mutex;
+use std::time::{Duration, Instant};
 #[cfg(target_os = "windows")]
 use tauri::ipc::Channel;
 use tauri::{
@@ -26,10 +29,19 @@ struct TrayUiState {
     leave: MenuItem<tauri::Wry>,
     qualities: [CheckMenuItem<tauri::Wry>; 3],
     participants: u32,
-    mic_active: bool,
-    camera_active: bool,
-    screen_active: bool,
     remote_sharing: bool,
+    /// Title of what this user shares, while sharing.
+    sharing: Option<String>,
+}
+
+/// Window titles can be very long; the menu and tooltip only fit a short name.
+fn short_title(title: &str) -> String {
+    const MAX: usize = 40;
+    if title.chars().count() <= MAX {
+        title.to_string()
+    } else {
+        format!("{}…", title.chars().take(MAX - 1).collect::<String>())
+    }
 }
 
 #[tauri::command]
@@ -37,6 +49,7 @@ fn set_tray_state(
     kind: String,
     active: bool,
     participants: Option<u32>,
+    detail: Option<String>,
     state: State<'_, Mutex<TrayUiState>>,
 ) -> Result<(), String> {
     let mut tray = state.lock().map_err(|_| "tray-state-unavailable")?;
@@ -45,7 +58,6 @@ fn set_tray_state(
     }
     match kind.as_str() {
         "mic" => {
-            tray.mic_active = active;
             tray.mic
                 .set_text(if active {
                     "Microfone ativo · Silenciar"
@@ -55,7 +67,6 @@ fn set_tray_state(
                 .map_err(|_| "tray-menu-unavailable")?;
         }
         "camera" => {
-            tray.camera_active = active;
             tray.camera
                 .set_text(if active {
                     "Câmera ativa · Parar"
@@ -65,13 +76,13 @@ fn set_tray_state(
                 .map_err(|_| "tray-menu-unavailable")?;
         }
         "screen" => {
-            tray.screen_active = active;
+            tray.sharing = active.then(|| short_title(detail.as_deref().unwrap_or("a tela")));
+            let text = match &tray.sharing {
+                Some(title) => format!("Compartilhando {title} · Parar"),
+                None => "Compartilhar tela ou janela…".into(),
+            };
             tray.screen
-                .set_text(if active {
-                    "Tela compartilhada · Parar"
-                } else {
-                    "Compartilhar tela ou janela…"
-                })
+                .set_text(text)
                 .map_err(|_| "tray-menu-unavailable")?;
         }
         "remote" => {
@@ -110,14 +121,12 @@ fn set_tray_state(
         "participants" => {}
         _ => return Err("unknown-tray-state".into()),
     }
-    let tooltip = if tray.remote_sharing {
-        format!(
-            "Screenshare · {} participantes · compartilhamento disponível",
-            tray.participants
-        )
-    } else {
-        format!("Screenshare · {} participantes", tray.participants)
-    };
+    let mut tooltip = format!("Screenshare · {} participantes", tray.participants);
+    if let Some(title) = &tray.sharing {
+        tooltip += &format!(" · Compartilhando {title}");
+    } else if tray.remote_sharing {
+        tooltip += " · compartilhamento disponível";
+    }
     tray.tray
         .set_tooltip(Some(tooltip))
         .map_err(|_| "tray-icon-unavailable".to_string())
@@ -234,19 +243,161 @@ fn enumerate_sources() -> Vec<Source> {
 }
 #[tauri::command]
 #[cfg(target_os = "windows")]
-fn capture_thumbnail(hwnd: u64) -> Result<Option<Thumbnail>, String> {
+fn capture_thumbnail(
+    hwnd: u64,
+    rect: Option<(i32, i32, i32, i32)>,
+) -> Result<Option<Thumbnail>, String> {
     capture::thumb::capture_thumbnail(
         windows::Win32::Foundation::HWND(hwnd as usize as *mut _),
+        rect.map(
+            |(left, top, right, bottom)| windows::Win32::Foundation::RECT {
+                left,
+                top,
+                right,
+                bottom,
+            },
+        ),
         capture::thumb::MAX_THUMB_DIM,
     )
 }
 
+/// Which mode the single window is in. Only the compact tray panel hides on blur.
+#[derive(Default)]
+struct PanelState {
+    compact: bool,
+    shown_at: Option<Instant>,
+    blurred_at: Option<Instant>,
+}
+
+// A blur queued before the panel finished showing must not close it again.
+const PANEL_SHOW_GRACE: Duration = Duration::from_millis(250);
+// Pressing the tray icon blurs the panel first; the click that follows must not reopen it.
+const PANEL_REOPEN_GUARD: Duration = Duration::from_millis(400);
+
+fn hide_window(window: &tauri::WebviewWindow) -> tauri::Result<()> {
+    window.hide()?;
+    window.emit("viewer-mode", "hidden")
+}
+
+#[cfg(target_os = "windows")]
+struct VideoCaptureState {
+    capture: CaptureState,
+    metrics: Mutex<Option<Arc<capture::video::VideoMetrics>>>,
+    generation: std::sync::atomic::AtomicU64,
+}
+
+#[cfg(target_os = "windows")]
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct VideoRequest {
+    hwnd: Option<u64>,
+    rect: Option<(i32, i32, u32, u32)>,
+    fps: u32,
+}
+
+/// Frames travel through WebView2 shared memory; the channel only announces them
+/// (raw frame bytes over IPC were measured at ~8 fps for 1080p and rejected).
+#[tauri::command]
+#[cfg(target_os = "windows")]
+async fn start_video_capture(
+    window: tauri::WebviewWindow,
+    request: VideoRequest,
+    on_frame: Channel,
+    state: State<'_, VideoCaptureState>,
+) -> Result<(), String> {
+    use capture::video::{capture_video_loop, VideoMetrics, VideoSource};
+    use tauri::ipc::InvokeResponseBody;
+    use windows::Win32::UI::WindowsAndMessaging::{
+        GetSystemMetrics, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN,
+    };
+    let source = match (request.hwnd, request.rect) {
+        (Some(hwnd), _) => {
+            VideoSource::Window(windows::Win32::Foundation::HWND(hwnd as usize as *mut _))
+        }
+        (None, Some((left, top, width, height))) => VideoSource::Screen {
+            left,
+            top,
+            width,
+            height,
+        },
+        _ => return Err("invalid-source".into()),
+    };
+    // The previous worker must stop before its shared memory is replaced.
+    stop_active(&state.capture)?;
+    let generation = state.generation.fetch_add(1, Ordering::AcqRel) + 1;
+    // A window can grow up to the virtual screen while it is captured.
+    let max_bytes = unsafe {
+        GetSystemMetrics(SM_CXVIRTUALSCREEN) as usize
+            * GetSystemMetrics(SM_CYVIRTUALSCREEN) as usize
+            * 4
+    };
+    let (tx, rx) = std::sync::mpsc::channel();
+    window
+        .with_webview(move |webview| {
+            let _ = tx.send(capture::shared::create_ring(
+                &webview, generation, max_bytes,
+            ));
+        })
+        .map_err(|_| "shared-buffer-unsupported")?;
+    let slots = rx
+        .recv_timeout(std::time::Duration::from_secs(5))
+        .map_err(|_| "shared-buffer-unsupported")??;
+    let metrics = Arc::new(VideoMetrics::default());
+    *state
+        .metrics
+        .lock()
+        .map_err(|_| "capture-state-unavailable")? = Some(metrics.clone());
+    let app = window.app_handle().clone();
+    let fps = request.fps;
+    install(&state.capture, move |running| {
+        let result = capture_video_loop(source, fps, running, metrics, |frame| {
+            let Some(slot) = slots.fill(frame.data) else {
+                return false;
+            };
+            on_frame
+                .send(InvokeResponseBody::Json(format!(
+                    r#"{{"generation":{generation},"slot":{slot},"width":{},"height":{},"timestampUs":{},"wallUs":{}}}"#,
+                    frame.width, frame.height, frame.timestamp_us, frame.wall_us
+                )))
+                .is_ok()
+        });
+        let _ = app.run_on_main_thread(move || capture::shared::release_ring(generation));
+        let error = result.err().unwrap_or_default();
+        let _ = on_frame.send(InvokeResponseBody::Json(format!(
+            r#"{{"ended":true,"error":{}}}"#,
+            serde_json::Value::String(error)
+        )));
+    })
+}
+
+#[tauri::command]
+#[cfg(target_os = "windows")]
+fn stop_video_capture(state: State<'_, VideoCaptureState>) -> Result<(), String> {
+    stop_active(&state.capture)
+}
+
+#[tauri::command]
+#[cfg(target_os = "windows")]
+fn video_capture_metrics(state: State<'_, VideoCaptureState>) -> serde_json::Value {
+    let Some(m) = state.metrics.lock().ok().and_then(|m| m.clone()) else {
+        return serde_json::Value::Null;
+    };
+    let get = |value: &std::sync::atomic::AtomicU64| value.load(Ordering::Relaxed);
+    serde_json::json!({
+        "ticks": get(&m.ticks),
+        "newFrames": get(&m.new_frames),
+        "delivered": get(&m.delivered),
+        "droppedBusy": get(&m.dropped_busy),
+        "lateTicks": get(&m.late_ticks),
+        "captureUsTotal": get(&m.capture_us_total),
+        "captureUsMax": get(&m.capture_us_max),
+        "minimizedTicks": get(&m.minimized_ticks),
+    })
+}
+
 #[tauri::command]
 fn hide_main_window(window: tauri::WebviewWindow) -> Result<(), String> {
-    window
-        .hide()
-        .and_then(|_| window.emit("viewer-mode", "hidden"))
-        .map_err(|_| "window-hide-failed".to_string())
+    hide_window(&window).map_err(|_| "window-hide-failed".to_string())
 }
 
 #[tauri::command]
@@ -254,11 +405,78 @@ fn show_main_window(window: tauri::WebviewWindow) -> Result<(), String> {
     present_window(&window, false, None)
 }
 
+fn hide_panel_on_blur(window: &tauri::WebviewWindow) {
+    let state = window.state::<Mutex<PanelState>>();
+    let Ok(mut panel) = state.lock() else { return };
+    let settled = panel
+        .shown_at
+        .is_some_and(|shown| shown.elapsed() >= PANEL_SHOW_GRACE);
+    if !panel.compact || !settled || !window.is_visible().unwrap_or(false) {
+        return;
+    }
+    panel.blurred_at = Some(Instant::now());
+    drop(panel);
+    let _ = hide_window(window);
+}
+
+fn toggle_tray_panel(window: &tauri::WebviewWindow, rect: tauri::Rect) -> Result<(), String> {
+    let visible = window.is_visible().unwrap_or(false) && !window.is_minimized().unwrap_or(false);
+    let (compact, just_blurred) = window
+        .state::<Mutex<PanelState>>()
+        .lock()
+        .map(|panel| {
+            (
+                panel.compact,
+                panel
+                    .blurred_at
+                    .is_some_and(|blurred| blurred.elapsed() < PANEL_REOPEN_GUARD),
+            )
+        })
+        .map_err(|_| "panel-state-unavailable")?;
+    match tray_click_action(visible, compact, just_blurred) {
+        TrayClick::FocusFull => window.set_focus().map_err(|_| "window-show-failed".into()),
+        TrayClick::HidePanel => hide_window(window).map_err(|_| "window-hide-failed".into()),
+        TrayClick::Ignore => Ok(()),
+        TrayClick::OpenPanel => present_window(window, true, Some(rect)),
+    }
+}
+
+#[derive(Debug, PartialEq)]
+enum TrayClick {
+    FocusFull,
+    HidePanel,
+    Ignore,
+    OpenPanel,
+}
+
+fn tray_click_action(visible: bool, compact: bool, just_blurred: bool) -> TrayClick {
+    match (visible, compact) {
+        (true, false) => TrayClick::FocusFull,
+        (true, true) => TrayClick::HidePanel,
+        // This click already closed the panel through its blur.
+        _ if just_blurred => TrayClick::Ignore,
+        _ => TrayClick::OpenPanel,
+    }
+}
+
 fn present_window(
     window: &tauri::WebviewWindow,
     compact: bool,
     tray_rect: Option<tauri::Rect>,
 ) -> Result<(), String> {
+    // Switch the mode before touching the window so blur events raised by the
+    // transition itself are judged against the new mode.
+    if let Ok(mut panel) = window.state::<Mutex<PanelState>>().lock() {
+        panel.compact = compact;
+        panel.shown_at = Some(Instant::now());
+    }
+    // Each mode owns these properties; restore them on every switch.
+    window
+        .set_decorations(!compact)
+        .and_then(|_| window.set_resizable(!compact))
+        .and_then(|_| window.set_skip_taskbar(compact))
+        .and_then(|_| window.set_always_on_top(compact))
+        .map_err(|_| "window-mode-failed")?;
     let (mut width, mut height, min_width, min_height): (f64, f64, f64, f64) = if compact {
         (430.0, 660.0, 390.0, 520.0)
     } else {
@@ -288,7 +506,10 @@ fn present_window(
             .inner_size()
             .map_err(|_| "window-size-unavailable")?
             .to_logical::<f64>(scale);
-        frame = (outer.width - inner.width, outer.height - inner.height);
+        // The undecorated panel has no frame; its outer size may still report the old decorations.
+        if !compact {
+            frame = (outer.width - inner.width, outer.height - inner.height);
+        }
         width = width.min((available.width - frame.0).max(1.0));
         height = height.min((available.height - frame.1).max(1.0));
     }
@@ -381,8 +602,9 @@ fn quit_app(app: tauri::AppHandle) {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let builder =
-        tauri::Builder::default().plugin(tauri_plugin_single_instance::init(|app, _, _| {
+    let builder = tauri::Builder::default()
+        .manage(Mutex::new(PanelState::default()))
+        .plugin(tauri_plugin_single_instance::init(|app, _, _| {
             if let Some(window) = app.get_webview_window("main") {
                 let _ = present_window(&window, false, None);
             }
@@ -392,10 +614,20 @@ pub fn run() {
         .manage(CaptureState {
             active: Mutex::new(None),
         })
+        .manage(VideoCaptureState {
+            capture: CaptureState {
+                active: Mutex::new(None),
+            },
+            metrics: Mutex::new(None),
+            generation: Default::default(),
+        })
         .invoke_handler(tauri::generate_handler![
             start_system_audio,
             start_process_audio,
             stop_audio,
+            start_video_capture,
+            stop_video_capture,
+            video_capture_metrics,
             enumerate_sources,
             capture_thumbnail,
             hide_main_window,
@@ -403,7 +635,23 @@ pub fn run() {
             quit_app,
             set_tray_state
         ]);
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(target_os = "macos")]
+    let builder = builder
+        .manage(mac_commands::MacCaptureState::default())
+        .invoke_handler(tauri::generate_handler![
+            mac_commands::start_system_audio,
+            mac_commands::start_process_audio,
+            mac_commands::stop_audio,
+            mac_commands::start_video_capture,
+            mac_commands::stop_video_capture,
+            mac_commands::enumerate_sources,
+            mac_commands::capture_thumbnail,
+            hide_main_window,
+            show_main_window,
+            quit_app,
+            set_tray_state
+        ]);
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
     let builder = builder.invoke_handler(tauri::generate_handler![
         hide_main_window,
         show_main_window,
@@ -491,10 +739,12 @@ pub fn run() {
                     } = event
                     {
                         if let Some(window) = tray.app_handle().get_webview_window("main") {
-                            let _ = present_window(&window, true, Some(rect));
+                            let _ = toggle_tray_panel(&window, rect);
                         }
                     }
                 })
+                // Flows that need a form open the full window from the frontend,
+                // which knows whether to hide it again afterwards.
                 .on_menu_event(|app, event| {
                     let action = event.id().as_ref();
                     if action == "quit" {
@@ -502,24 +752,6 @@ pub fn run() {
                     } else if let Some(window) = app.get_webview_window("main") {
                         if action == "open" {
                             let _ = present_window(&window, false, None);
-                        } else if action == "screen" || action == "camera" {
-                            let starting = app
-                                .state::<Mutex<TrayUiState>>()
-                                .lock()
-                                .map(|state| {
-                                    if action == "screen" {
-                                        !state.screen_active
-                                    } else {
-                                        !state.camera_active
-                                    }
-                                })
-                                .unwrap_or(false);
-                            if starting
-                                && (!window.is_visible().unwrap_or(false)
-                                    || window.is_minimized().unwrap_or(false))
-                            {
-                                let _ = present_window(&window, true, None);
-                            }
                         }
                         let _ = app.emit("tray-action", action);
                     }
@@ -534,20 +766,19 @@ pub fn run() {
                 leave,
                 qualities: [q720, q1080, q4k],
                 participants: 0,
-                mic_active: false,
-                camera_active: false,
-                screen_active: false,
                 remote_sharing: false,
+                sharing: None,
             }));
 
             if let Some(window) = app.get_webview_window("main") {
-                let window_to_hide = window.clone();
-                window.on_window_event(move |event| {
-                    if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                let handle = window.clone();
+                window.on_window_event(move |event| match event {
+                    tauri::WindowEvent::CloseRequested { api, .. } => {
                         api.prevent_close();
-                        let _ = window_to_hide.hide();
-                        let _ = window_to_hide.emit("viewer-mode", "hidden");
+                        let _ = hide_window(&handle);
                     }
+                    tauri::WindowEvent::Focused(false) => hide_panel_on_blur(&handle),
+                    _ => {}
                 });
             }
             Ok(())
@@ -592,6 +823,25 @@ mod tests {
             ),
             (-1920.0, 30.0)
         );
+    }
+
+    #[test]
+    fn long_shared_titles_are_shortened_on_character_boundaries() {
+        assert_eq!(short_title("Spotify"), "Spotify");
+        let long = "á".repeat(50);
+        let short = short_title(&long);
+        assert_eq!(short.chars().count(), 40);
+        assert!(short.ends_with('…'));
+    }
+
+    #[test]
+    fn tray_click_focuses_full_window_and_toggles_panel() {
+        assert_eq!(tray_click_action(true, false, false), TrayClick::FocusFull);
+        assert_eq!(tray_click_action(true, true, false), TrayClick::HidePanel);
+        assert_eq!(tray_click_action(false, true, true), TrayClick::Ignore);
+        assert_eq!(tray_click_action(false, true, false), TrayClick::OpenPanel);
+        // A hidden full window opens as the panel.
+        assert_eq!(tray_click_action(false, false, false), TrayClick::OpenPanel);
     }
 
     #[test]

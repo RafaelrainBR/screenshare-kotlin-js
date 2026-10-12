@@ -1,9 +1,12 @@
 use serde::Serialize;
+use windows::core::w;
 use windows::Win32::Foundation::{HWND, LPARAM, RECT, TRUE};
+use windows::Win32::Graphics::Dwm::{DwmGetWindowAttribute, DWMWA_CLOAKED};
 use windows::Win32::Graphics::Gdi::{EnumDisplayMonitors, GetMonitorInfoW, HMONITOR, MONITORINFO};
 use windows::Win32::UI::WindowsAndMessaging::{
-    EnumWindows, GetWindowRect, GetWindowTextW, GetWindowThreadProcessId, IsWindowVisible,
-    MONITORINFOF_PRIMARY,
+    EnumWindows, FindWindowExW, GetWindow, GetWindowLongW, GetWindowRect, GetWindowTextW,
+    GetWindowThreadProcessId, IsWindowVisible, GWL_EXSTYLE, GW_OWNER, MONITORINFOF_PRIMARY,
+    WS_EX_APPWINDOW, WS_EX_TOOLWINDOW,
 };
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
@@ -78,8 +81,33 @@ fn windows() -> Vec<Source> {
     };
     out
 }
+/// Alt+Tab rule: owned and tool windows are popups, overlays or input surfaces
+/// (NVIDIA Overlay, TextInputHost), not something a person means to share.
+fn is_shareable(ex_style: u32, owned: bool, cloaked: bool) -> bool {
+    let app_window = ex_style & WS_EX_APPWINDOW.0 != 0;
+    let tool_window = ex_style & WS_EX_TOOLWINDOW.0 != 0;
+    !cloaked && !tool_window && (!owned || app_window)
+}
+
 unsafe extern "system" fn window_proc(hwnd: HWND, param: LPARAM) -> windows::core::BOOL {
     if !IsWindowVisible(hwnd).as_bool() {
+        return TRUE;
+    }
+    let mut cloaked = 0u32;
+    // Cloaked windows are invisible: other virtual desktops and suspended UWP cores
+    // (the inner CalculatorApp window), whose visible frame is ApplicationFrameHost.
+    let _ = DwmGetWindowAttribute(
+        hwnd,
+        DWMWA_CLOAKED,
+        &mut cloaked as *mut u32 as *mut _,
+        std::mem::size_of::<u32>() as u32,
+    );
+    let owned = GetWindow(hwnd, GW_OWNER).is_ok_and(|owner| !owner.is_invalid());
+    if !is_shareable(
+        GetWindowLongW(hwnd, GWL_EXSTYLE) as u32,
+        owned,
+        cloaked != 0,
+    ) {
         return TRUE;
     }
     let mut buf = [0u16; 512];
@@ -87,8 +115,13 @@ unsafe extern "system" fn window_proc(hwnd: HWND, param: LPARAM) -> windows::cor
     if len <= 0 {
         return TRUE;
     }
+    // A UWP frame belongs to ApplicationFrameHost; its audio comes from the hosted app.
+    let audio_owner = FindWindowExW(Some(hwnd), None, w!("Windows.UI.Core.CoreWindow"), None)
+        .ok()
+        .filter(|core| !core.is_invalid())
+        .unwrap_or(hwnd);
     let mut pid = 0;
-    GetWindowThreadProcessId(hwnd, Some(&mut pid));
+    GetWindowThreadProcessId(audio_owner, Some(&mut pid));
     if pid == 0 || pid == std::process::id() {
         return TRUE;
     }
@@ -123,5 +156,27 @@ mod tests {
         })
         .unwrap();
         assert!(json.contains("\"hwnd\":1") && json.contains("\"kind\":\"window\""));
+    }
+    #[test]
+    fn only_alt_tab_windows_are_shareable() {
+        assert!(is_shareable(0, false, false));
+        assert!(!is_shareable(0, false, true), "cloaked");
+        assert!(
+            !is_shareable(WS_EX_TOOLWINDOW.0, false, false),
+            "tool window"
+        );
+        assert!(!is_shareable(0, true, false), "owned popup");
+        assert!(
+            is_shareable(WS_EX_APPWINDOW.0, true, false),
+            "owned app window"
+        );
+    }
+    /// Lists what this machine offers: `cargo test --lib list_sources -- --ignored --nocapture`.
+    #[test]
+    #[ignore]
+    fn list_sources() {
+        for source in enumerate_sources() {
+            println!("{:?} pid={} {:?}", source.kind, source.pid, source.title);
+        }
     }
 }

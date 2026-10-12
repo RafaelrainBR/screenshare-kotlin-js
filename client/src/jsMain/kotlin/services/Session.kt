@@ -4,6 +4,8 @@ import hideAfterLocalShare
 import kotlinx.browser.window
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
+import platform.DesktopCaptureException
+import platform.DesktopCaptureSource
 import platform.DesktopEnvironment
 import screenshare.common.ChatMessage
 import screenshare.common.SocketUser
@@ -132,7 +134,7 @@ class Session(
         fps: Int,
         useSourceResolution: Boolean,
         desktopAudioMode: ScreenSharing.DesktopAudioMode = ScreenSharing.DesktopAudioMode.NONE,
-        audioSourceProcessId: Int? = null,
+        nativeSource: DesktopCaptureSource? = null,
     ) {
         if (disposed || !mediaCaptureGate.available) return
         val request = mediaCaptureGate.request()
@@ -147,7 +149,7 @@ class Session(
                     frameRate = fps,
                     useSourceResolution = useSourceResolution,
                     desktopAudioMode = desktopAudioMode,
-                    audioSourceProcessId = audioSourceProcessId,
+                    nativeSource = nativeSource,
                     onStreamEnd = { handleStopScreenShare() },
                     recreatePeerConnections = { recreatePeerConnections() },
                 )
@@ -156,7 +158,16 @@ class Session(
                 // The OS picker is allowed to be cancelled. Keep the user in the room
                 // with a recovery path instead of leaving a partial share behind.
                 InterfaceMutations.reopenDesktopShareWizard()
-                InterfaceMutations.showPermissionRecovery("screen", it.asDynamic().name as? String)
+                if (it is DesktopCaptureException && it.code == "screen-recording-denied") {
+                    InterfaceMutations.showError(it.message ?: "")
+                } else if (it is DesktopCaptureException) {
+                    // On Windows native capture needs no permission; it failed on the chosen source.
+                    InterfaceMutations.showError(
+                        "Não foi possível compartilhar ${nativeSource?.title ?: "a fonte"}. Escolha outra ou tente de novo.",
+                    )
+                } else {
+                    InterfaceMutations.showPermissionRecovery("screen", it.asDynamic().name as? String)
+                }
                 hideAfterLocalShare = false
                 return@launch
             }
@@ -170,7 +181,7 @@ class Session(
                 runCatching { websocketService.stopScreenSharing(localRoomId) }
                 return@launch
             }
-            runCatching { DesktopEnvironment.setTrayState("screen", true) }
+            runCatching { DesktopEnvironment.setTrayState("screen", true, detail = nativeSource?.title) }
             if (hideAfterLocalShare) {
                 hideAfterLocalShare = false
                 runCatching { DesktopEnvironment.hideMainWindow() }
@@ -211,16 +222,12 @@ class Session(
                     return@launch
                 }
                 runCatching { DesktopEnvironment.setTrayState("camera", true) }
-                if (hideAfterLocalShare) {
-                    hideAfterLocalShare = false
-                    runCatching { DesktopEnvironment.hideMainWindow() }
-                }
                 runCatching { InterfaceMutations.populateAudioDevices() }
             }.onFailure {
                 if (!request()) return@launch
                 console.warn("Não foi possível acessar a câmera")
+                runCatching { DesktopEnvironment.showMainWindow() }
                 InterfaceMutations.showPermissionRecovery("camera", it.asDynamic().name as? String)
-                hideAfterLocalShare = false
             }
         }
 
@@ -229,10 +236,6 @@ class Session(
             cameraSharing.stopCameraSharing(recreatePeerConnections = { recreatePeerConnections() })
             runCatching { websocketService.stopCameraShare(localRoomId) }
             runCatching { DesktopEnvironment.setTrayState("camera", false) }
-            if (hideAfterLocalShare) {
-                hideAfterLocalShare = false
-                runCatching { DesktopEnvironment.hideMainWindow() }
-            }
         }
 
     fun handleCameraDeviceChange(deviceId: String) =

@@ -39,6 +39,7 @@ object DesktopEnvironment {
         kind: String,
         active: Boolean,
         participants: Int? = null,
+        detail: String? = null,
     ) {
         if (!isAvailable) return
         (
@@ -46,6 +47,7 @@ object DesktopEnvironment {
                 kind,
                 active,
                 participants,
+                detail,
             ) as kotlin.js.Promise<dynamic>
         ).await()
     }

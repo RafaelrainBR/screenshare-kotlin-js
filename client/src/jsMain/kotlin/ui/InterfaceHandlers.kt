@@ -12,9 +12,11 @@ import org.w3c.dom.HTMLElement
 import org.w3c.dom.HTMLSelectElement
 import org.w3c.dom.ImageData
 import platform.DesktopCaptureBridge
+import platform.DesktopCaptureException
 import platform.DesktopCaptureSource
 import platform.DesktopCaptureSourceKind
 import services.ScreenSharing
+import services.nativeAudioMode
 
 private const val DEFAULT_WIDTH = 1920
 private const val DEFAULT_HEIGHT = 1080
@@ -24,13 +26,13 @@ private var selectedWidth = window.localStorage.getItem("screenshare.shareWidth"
 private var selectedHeight = window.localStorage.getItem("screenshare.shareHeight")?.toIntOrNull() ?: DEFAULT_HEIGHT
 private var selectedFps = window.localStorage.getItem("screenshare.shareFps")?.toIntOrNull() ?: DEFAULT_FPS
 private var useSourceResolution = window.localStorage.getItem("screenshare.sourceResolution") == "true"
-private var selectedAudioMode = ScreenSharing.DesktopAudioMode.NONE
-private var selectedAudioSource: DesktopCaptureSource? = null
+private var selectedSource: DesktopCaptureSource? = null
+private var shareAudio = false
 private val uiScope = CoroutineScope(Dispatchers.Main)
-private var desktopAudioRefreshTimer: Int? = null
-private var desktopAudioRefreshGeneration = 0
-private var desktopAudioRefreshInFlight = false
-private var renderedAudioSourcesSignature = ""
+private var sourceRefreshTimer: Int? = null
+private var sourceRefreshGeneration = 0
+private var sourceRefreshInFlight = false
+private var renderedSourcesSignature = ""
 
 fun registerUIHandlers(
     joinRoom: (username: String, roomId: String) -> Unit,
@@ -42,7 +44,7 @@ fun registerUIHandlers(
         fps: Int,
         useSourceResolution: Boolean,
         audioMode: ScreenSharing.DesktopAudioMode,
-        audioSourceProcessId: Int?,
+        nativeSource: DesktopCaptureSource?,
     ) -> Unit,
     onStopScreenShare: () -> Unit,
     onStartCameraShare: () -> Unit,
@@ -116,7 +118,7 @@ private fun setupMicToggleButtonHandler(onMicButtonToggle: () -> Unit) =
     })
 
 private fun setupShareQualityModal(
-    onStartScreenShare: (Int, Int, Int, Boolean, ScreenSharing.DesktopAudioMode, Int?) -> Unit,
+    onStartScreenShare: (Int, Int, Int, Boolean, ScreenSharing.DesktopAudioMode, DesktopCaptureSource?) -> Unit,
 ) {
     Elements.shareScreenButton.addEventListener("click", { e ->
         e.preventDefault()
@@ -134,34 +136,49 @@ private fun setupShareQualityModal(
             )
             return@addEventListener
         }
-        if (DesktopCaptureBridge.isAvailable) resetDesktopAudioWizard()
+        if (DesktopCaptureBridge.isAvailable) openNativeShareWizard()
         Elements.qualityModal.classList.remove("hidden")
     })
 
     Elements.confirmShare.addEventListener("click", { e ->
         e.preventDefault()
-        if (selectedAudioMode == ScreenSharing.DesktopAudioMode.PROCESS &&
-            selectedAudioSource == null
-        ) {
+        val source = selectedSource
+        if (!DesktopCaptureBridge.isAvailable) {
+            Elements.qualityModal.classList.add("hidden")
+            onStartScreenShare(
+                selectedWidth,
+                selectedHeight,
+                selectedFps,
+                useSourceResolution,
+                ScreenSharing.DesktopAudioMode.NONE,
+                null,
+            )
             return@addEventListener
         }
-        stopAudioSourceRefresh()
+        if (source == null) return@addEventListener
+        stopSourceRefresh()
         Elements.qualityModal.classList.add("hidden")
+        val (left, top, right, bottom) = source.rect
+        // Native frames keep the source size; it only sets the encoder bitrate.
         onStartScreenShare(
-            selectedWidth,
-            selectedHeight,
+            right - left,
+            bottom - top,
             selectedFps,
-            useSourceResolution,
-            selectedAudioMode,
-            selectedAudioSource?.processId,
+            true,
+            nativeAudioMode(shareAudio, source.kind),
+            source,
         )
     })
 
     Elements.cancelShare.addEventListener("click", { e ->
         e.preventDefault()
-        stopAudioSourceRefresh()
-        hideAfterLocalShare = false
+        stopSourceRefresh()
         Elements.qualityModal.classList.add("hidden")
+        // A wizard opened from the tray returns to the tray when cancelled.
+        if (hideAfterLocalShare) {
+            hideAfterLocalShare = false
+            CoroutineScope(Dispatchers.Main).launch { runCatching { platform.DesktopEnvironment.hideMainWindow() } }
+        }
     })
 
     val options = document.getElementsByClassName("quality-option")
@@ -191,143 +208,166 @@ private fun setupShareQualityModal(
                 window.localStorage.setItem("screenshare.shareFps", selectedFps.toString())
             }
             InterfaceMutations.syncTrayQuality()
+            updateQualitySummary()
         })
     }
-}
-
-private fun resetDesktopAudioWizard() {
-    stopAudioSourceRefresh()
-    selectedAudioMode = ScreenSharing.DesktopAudioMode.NONE
-    selectedAudioSource = null
-    Elements.confirmShare.disabled = false
-    Elements.desktopWizardStepOne.classList.remove("hidden")
-    Elements.desktopWizardStepTwo.classList.add("hidden")
-    Elements.desktopAudioThumbnail.classList.add("hidden")
-    Elements.desktopAudioPickerState.textContent = ""
-    bindAudioMode("none", ScreenSharing.DesktopAudioMode.NONE)
-    bindAudioMode("system", ScreenSharing.DesktopAudioMode.SYSTEM)
-    bindAudioMode("process", ScreenSharing.DesktopAudioMode.PROCESS)
-    (document.getElementById("desktop-audio-mode-none") as HTMLElement).classList.add("selected")
-    Elements.desktopBackToAudioModes.onclick = {
-        stopAudioSourceRefresh()
-        Elements.desktopWizardStepTwo.classList.add("hidden")
-        Elements.desktopWizardStepOne.classList.remove("hidden")
+    Elements.shareAudioOn.onclick = {
+        setShareAudio(true)
         null
     }
-    Elements.desktopAudioRefresh.onclick = {
-        refreshAudioSources(forceRender = true)
+    Elements.shareAudioOff.onclick = {
+        setShareAudio(false)
+        null
+    }
+    Elements.shareSourceRefresh.onclick = {
+        refreshSources(forceRender = true)
         null
     }
 }
 
-private fun bindAudioMode(
-    id: String,
-    mode: ScreenSharing.DesktopAudioMode,
-) {
-    val button = document.getElementById("desktop-audio-mode-$id") as org.w3c.dom.HTMLButtonElement
-    button.onclick = {
-        selectedAudioMode = mode
-        selectedAudioSource = null
-        val options = document.getElementsByClassName("audio-mode-card")
-        for (index in 0 until options.length) (options.item(index) as HTMLElement).classList.remove("selected")
-        button.classList.add("selected")
-        if (mode == ScreenSharing.DesktopAudioMode.PROCESS) {
-            openAudioSourceStep()
-        } else {
-            Elements.confirmShare.disabled = false
-            stopAudioSourceRefresh()
-            Elements.desktopWizardStepOne.classList.remove("hidden")
-            Elements.desktopWizardStepTwo.classList.add("hidden")
-        }
-        null
-    }
-}
-
-private fun openAudioSourceStep() {
-    Elements.desktopWizardStepOne.classList.add("hidden")
-    Elements.desktopWizardStepTwo.classList.remove("hidden")
-    Elements.desktopAudioSourceGrid.innerHTML = ""
-    Elements.desktopAudioThumbnail.classList.add("hidden")
-    Elements.desktopAudioPickerState.textContent = "Carregando aplicativos…"
+/** Desktop (Windows, macOS): one dialog picks the source, its audio and the frame rate; no OS picker follows. */
+internal fun openNativeShareWizard() {
+    stopSourceRefresh()
+    selectedSource = null
+    renderedSourcesSignature = ""
+    Elements.shareWizardDesc.textContent = "Escolha a tela ou janela e o áudio que quer enviar."
+    Elements.shareSourceStep.classList.remove("hidden")
+    Elements.shareAudioStep.classList.remove("hidden")
+    // The native capture sends the source size, so only the frame rate is a choice.
+    Elements.resolutionSection.classList.add("hidden")
+    Elements.shareQuality.removeAttribute("open")
+    Elements.shareSourceGrid.innerHTML = ""
+    Elements.confirmShare.textContent = "Compartilhar"
     Elements.confirmShare.disabled = true
-    renderedAudioSourcesSignature = ""
-    val generation = ++desktopAudioRefreshGeneration
-    refreshAudioSources(generation = generation)
-    desktopAudioRefreshTimer = window.setInterval({ refreshAudioSources(generation = generation) }, 2_000)
+    setShareAudio(false)
+    updateQualitySummary()
+    Elements.shareSourceState.textContent = "Carregando telas e janelas…"
+    val generation = ++sourceRefreshGeneration
+    refreshSources(generation = generation)
+    sourceRefreshTimer = window.setInterval({ refreshSources(generation = generation) }, 2_000)
 }
 
-private fun stopAudioSourceRefresh() {
-    desktopAudioRefreshTimer?.let { window.clearInterval(it) }
-    desktopAudioRefreshTimer = null
-    desktopAudioRefreshInFlight = false
-    desktopAudioRefreshGeneration++
+private fun setShareAudio(enabled: Boolean) {
+    shareAudio = enabled
+    Elements.shareAudioOn.classList.toggle("selected", enabled)
+    Elements.shareAudioOff.classList.toggle("selected", !enabled)
+    Elements.shareAudioOn.setAttribute("aria-pressed", enabled.toString())
+    Elements.shareAudioOff.setAttribute("aria-pressed", (!enabled).toString())
+    val source = selectedSource
+    val (title, description) =
+        when (source?.kind) {
+            null -> "Com áudio" to "Escolha uma tela ou janela."
+            DesktopCaptureSourceKind.SCREEN -> "Áudio do computador" to "Enviar todo o som da saída padrão."
+            DesktopCaptureSourceKind.WINDOW -> "Áudio do aplicativo" to "Enviar só o som de ${source.title}."
+        }
+    document.getElementById("share-audio-on-title")?.textContent = title
+    document.getElementById("share-audio-on-desc")?.textContent = description
 }
 
-private fun refreshAudioSources(
+private fun updateQualitySummary() {
+    val resolution =
+        when {
+            useSourceResolution -> "Fonte"
+            selectedHeight >= 2160 -> "4K"
+            else -> "${selectedHeight}p"
+        }
+    val fps = "$selectedFps fps"
+    Elements.shareQualitySummary.textContent =
+        if (DesktopCaptureBridge.isAvailable) fps else "$resolution · $fps"
+    updateSourceState()
+}
+
+private fun stopSourceRefresh() {
+    sourceRefreshTimer?.let { window.clearInterval(it) }
+    sourceRefreshTimer = null
+    sourceRefreshInFlight = false
+    sourceRefreshGeneration++
+}
+
+private fun refreshSources(
     forceRender: Boolean = false,
-    generation: Int = desktopAudioRefreshGeneration,
+    generation: Int = sourceRefreshGeneration,
 ) {
-    if (desktopAudioRefreshInFlight || generation != desktopAudioRefreshGeneration) return
-    desktopAudioRefreshInFlight = true
+    if (sourceRefreshInFlight || generation != sourceRefreshGeneration) return
+    sourceRefreshInFlight = true
     uiScope.launch {
         runCatching { DesktopCaptureBridge.enumerateSources() }
             .onSuccess { sources ->
-                if (generation != desktopAudioRefreshGeneration) return@onSuccess
-                val windows =
-                    sources
-                        .filter { it.kind == DesktopCaptureSourceKind.WINDOW }
-                        .sortedBy { it.title.lowercase() }
-                val signature = windows.joinToString("|") { "${it.id}:${it.processId}:${it.title}" }
-                if (forceRender || signature != renderedAudioSourcesSignature) {
-                    renderedAudioSourcesSignature = signature
-                    renderAudioSources(windows)
+                if (generation != sourceRefreshGeneration) return@onSuccess
+                val ordered =
+                    sources.filter { it.kind == DesktopCaptureSourceKind.SCREEN } +
+                        sources
+                            .filter { it.kind == DesktopCaptureSourceKind.WINDOW }
+                            .sortedBy { it.title.lowercase() }
+                val signature = ordered.joinToString("|") { "${it.id}:${it.processId}:${it.title}" }
+                if (forceRender || signature != renderedSourcesSignature) {
+                    renderedSourcesSignature = signature
+                    renderSources(ordered)
                 }
-                Elements.desktopAudioPickerState.textContent =
-                    when {
-                        windows.isEmpty() -> {
-                            "Nenhum aplicativo disponível agora. " +
-                                "A lista será atualizada automaticamente."
-                        }
-
-                        selectedAudioSource != null -> {
-                            "Aplicativo escolhido. " +
-                                "A lista continua sendo atualizada automaticamente."
-                        }
-
-                        else -> {
-                            "Escolha o aplicativo do qual você quer enviar o áudio."
-                        }
-                    }
-            }.onFailure {
-                if (generation == desktopAudioRefreshGeneration) {
-                    Elements.desktopAudioPickerState.textContent =
-                        "Não foi possível atualizar os aplicativos. Tente novamente."
+                updateSourceState()
+            }.onFailure { error ->
+                if (generation == sourceRefreshGeneration) {
+                    Elements.shareSourceState.textContent =
+                        (error as? DesktopCaptureException)?.takeIf { it.code == "screen-recording-denied" }?.message
+                            ?: "Não foi possível atualizar as telas e janelas. Tente novamente."
                 }
             }
-        if (generation == desktopAudioRefreshGeneration) desktopAudioRefreshInFlight = false
+        if (generation == sourceRefreshGeneration) sourceRefreshInFlight = false
     }
 }
 
-private fun renderAudioSources(sources: List<DesktopCaptureSource>) {
-    val selectedId = selectedAudioSource?.id
-    val selectedProcessId = selectedAudioSource?.processId
-    Elements.desktopAudioSourceGrid.innerHTML = ""
-    sources.forEach { source -> Elements.desktopAudioSourceGrid.appendChild(createAudioSourceTile(source)) }
-    selectedAudioSource = sources.firstOrNull { it.id == selectedId && it.processId == selectedProcessId }
-    Elements.confirmShare.disabled = selectedAudioSource == null
-    if (selectedId != null && selectedAudioSource == null) {
-        Elements.desktopAudioThumbnail.classList.add("hidden")
-    }
+private fun updateSourceState() {
+    if (!DesktopCaptureBridge.isAvailable) return
+    val source = selectedSource
+    Elements.shareSourceState.textContent =
+        when {
+            renderedSourcesSignature.isEmpty() -> {
+                "Nenhuma tela ou janela disponível agora."
+            }
+
+            source == null -> {
+                "Escolha o que você quer compartilhar."
+            }
+
+            source.kind == DesktopCaptureSourceKind.WINDOW && selectedFps > 30 -> {
+                "Janelas são enviadas a até 30 fps."
+            }
+
+            else -> {
+                ""
+            }
+        }
 }
 
-private fun createAudioSourceTile(source: DesktopCaptureSource): HTMLElement {
+private fun renderSources(sources: List<DesktopCaptureSource>) {
+    val selectedId = selectedSource?.id
+    Elements.shareSourceGrid.innerHTML = ""
+    var group: DesktopCaptureSourceKind? = null
+    sources.forEach { source ->
+        if (source.kind != group) {
+            group = source.kind
+            val label = document.createElement("p") as HTMLElement
+            label.className = "source-group"
+            label.textContent = if (source.kind == DesktopCaptureSourceKind.SCREEN) "Telas" else "Janelas"
+            Elements.shareSourceGrid.appendChild(label)
+        }
+        Elements.shareSourceGrid.appendChild(createSourceTile(source))
+    }
+    // A closed window disappears from the list and can no longer be chosen.
+    val previous = selectedSource
+    selectedSource = sources.firstOrNull { it.id == selectedId && it.processId == previous?.processId }
+    Elements.confirmShare.disabled = selectedSource == null
+    if (previous != null && selectedSource == null) setShareAudio(shareAudio)
+}
+
+private fun createSourceTile(source: DesktopCaptureSource): HTMLElement {
     val button = document.createElement("button") as org.w3c.dom.HTMLButtonElement
     button.type = "button"
     button.className = "audio-source-tile"
-    if (selectedAudioSource?.let { it.id == source.id && it.processId == source.processId } == true) {
-        button.classList.add("selected")
-    }
-    button.setAttribute("aria-label", "Usar ${source.title} como fonte de áudio")
+    val selected = selectedSource?.let { it.id == source.id && it.processId == source.processId } == true
+    button.classList.toggle("selected", selected)
+    button.setAttribute("aria-pressed", selected.toString())
+    button.setAttribute("aria-label", "Compartilhar ${source.title}")
     val preview = document.createElement("span") as HTMLElement
     preview.className = "audio-source-preview"
     preview.setAttribute("aria-hidden", "true")
@@ -339,35 +379,30 @@ private fun createAudioSourceTile(source: DesktopCaptureSource): HTMLElement {
     button.appendChild(title)
     loadThumbnailInto(source, preview)
     button.onclick = {
-        selectedAudioSource = source
+        selectedSource = source
         Elements.confirmShare.disabled = false
-        val tiles = Elements.desktopAudioSourceGrid.getElementsByClassName("audio-source-tile")
-        for (index in 0 until tiles.length) (tiles.item(index) as HTMLElement).classList.remove("selected")
+        val tiles = Elements.shareSourceGrid.getElementsByClassName("audio-source-tile")
+        for (index in 0 until tiles.length) {
+            (tiles.item(index) as HTMLElement).classList.remove("selected")
+            (tiles.item(index) as HTMLElement).setAttribute("aria-pressed", "false")
+        }
         button.classList.add("selected")
-        Elements.desktopAudioPickerState.textContent =
-            "Aplicativo escolhido. O vídeo continuará sendo escolhido pelo Windows."
-        loadAudioSourcePreview(source)
+        button.setAttribute("aria-pressed", "true")
+        setShareAudio(shareAudio)
+        updateSourceState()
         null
     }
     return button
 }
 
-private fun loadAudioSourcePreview(source: DesktopCaptureSource) =
-    CoroutineScope(Dispatchers.Main).launch {
-        val thumbnail = DesktopCaptureBridge.captureThumbnail(source.hwnd) ?: return@launch
-        Elements.desktopAudioThumbnail.innerHTML = ""
-        Elements.desktopAudioThumbnail.appendChild(thumbnailCanvas(thumbnail))
-        Elements.desktopAudioThumbnail.classList.remove("hidden")
-    }
-
 private fun loadThumbnailInto(
     source: DesktopCaptureSource,
     container: HTMLElement,
 ) = uiScope.launch {
-    val thumbnail = DesktopCaptureBridge.captureThumbnail(source.hwnd)
+    val thumbnail = DesktopCaptureBridge.captureThumbnail(source)
     // Minimized windows come back as 0×0, which ImageData rejects.
     if (thumbnail == null || thumbnail.width <= 0 || thumbnail.height <= 0) {
-        if (container.isConnected) container.textContent = "Preview indisponível"
+        if (container.isConnected) container.textContent = "Sem preview (janela minimizada?)"
         return@launch
     }
     if (!container.isConnected) return@launch

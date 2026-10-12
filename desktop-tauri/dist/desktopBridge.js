@@ -169,14 +169,57 @@
   }
   var current;
   var metrics = { chunksReceived: 0, invalidChunks: 0, maxJitterUs: 0, totalJitterUs: 0 };
-  async function startAudio(command, args) {
-    if (typeof globalThis.MediaStreamTrackGenerator === "undefined" || typeof globalThis.AudioData === "undefined") {
-      throw new NativeCaptureError("generator-unavailable", "MediaStreamTrackGenerator n\xE3o est\xE1 dispon\xEDvel neste WebView.");
+  var isMac = navigator.userAgent.includes("Mac");
+  var hasGenerator = typeof globalThis.MediaStreamTrackGenerator !== "undefined";
+  async function audioSink() {
+    const g = globalThis;
+    if (hasGenerator && typeof g.AudioData !== "undefined") {
+      const generator = new g.MediaStreamTrackGenerator({ kind: "audio" });
+      const writer = generator.writable.getWriter();
+      return {
+        track: generator,
+        write: (data, timestamp) => writer.write(new g.AudioData({
+          format: "f32",
+          sampleRate,
+          numberOfFrames: frames,
+          numberOfChannels: channels,
+          timestamp,
+          data
+        })),
+        async close() {
+          await writer.close().catch(() => {
+          });
+          generator.stop();
+        }
+      };
     }
+    if (!isMac || typeof g.AudioWorkletNode === "undefined") {
+      throw new NativeCaptureError("generator-unavailable", "Este WebView n\xE3o oferece um gerador de \xE1udio.");
+    }
+    const context = new AudioContext({ sampleRate });
+    await context.audioWorklet.addModule("audioWorklet.js");
+    const node = new AudioWorkletNode(context, "native-audio", { numberOfInputs: 0, outputChannelCount: [channels] });
+    const destination = context.createMediaStreamDestination();
+    node.connect(destination);
+    void context.resume();
+    const track = destination.stream.getAudioTracks()[0];
+    return {
+      track,
+      async write(data) {
+        const pcm = new Float32Array(data);
+        node.port.postMessage(pcm, [pcm.buffer]);
+      },
+      async close() {
+        track.stop();
+        await context.close().catch(() => {
+        });
+      }
+    };
+  }
+  async function startAudio(command, args) {
     await stopSystemAudio();
     metrics = { chunksReceived: 0, invalidChunks: 0, maxJitterUs: 0, totalJitterUs: 0 };
-    const generator = new globalThis.MediaStreamTrackGenerator({ kind: "audio" });
-    const writer = generator.writable.getWriter();
+    const sink = await audioSink();
     let stopped = false;
     const channel = new Channel();
     let capture;
@@ -197,19 +240,12 @@
       }
       metrics.lastTimestampUs = chunk.timestampUs;
       metrics.chunksReceived++;
-      const audio = new globalThis.AudioData({
-        format: "f32",
-        sampleRate,
-        numberOfFrames: frames,
-        numberOfChannels: channels,
-        timestamp: chunk.timestampUs,
-        data: new Uint8Array(chunk.data).buffer
-      });
-      writer.write(audio).catch(() => {
+      sink.write(new Uint8Array(chunk.data).buffer, chunk.timestampUs).catch(() => {
         void capture.stop();
       });
     };
     capture = {
+      track: sink.track,
       async stop() {
         if (stopped) return;
         stopped = true;
@@ -219,9 +255,7 @@
         };
         if (ownsNativeCapture) await invoke("stop_audio").catch(() => {
         });
-        await writer.close().catch(() => {
-        });
-        generator.stop();
+        await sink.close();
       }
     };
     current = capture;
@@ -229,12 +263,10 @@
       await invoke(command, { ...args, onAudio: channel });
     } catch (error) {
       if (current === capture) current = void 0;
-      await writer.close().catch(() => {
-      });
-      generator.stop();
+      await sink.close();
       throw errorFor(error);
     }
-    return generator;
+    return sink.track;
   }
   async function startSystemAudio() {
     return startAudio("start_system_audio", {});
@@ -242,10 +274,148 @@
   async function startProcessAudio(processId, includeProcessTree) {
     return startAudio("start_process_audio", { processId, includeProcessTree });
   }
-  async function stopSystemAudio() {
+  async function stopSystemAudio(track) {
     const active = current;
+    if (track != null && active?.track !== track) return;
     await active?.stop();
     if (current === active) current = void 0;
+  }
+  var sharedHeader = 16;
+  var currentVideo;
+  var videoMetrics = { received: 0, written: 0, droppedWriter: 0, latencyUs: [] };
+  var sharedSlots = /* @__PURE__ */ new Map();
+  function releaseSharedSlots(keepGeneration) {
+    for (const [slot, buffer] of sharedSlots) {
+      if (buffer.generation === keepGeneration) continue;
+      sharedSlots.delete(slot);
+      globalThis.chrome.webview.releaseBuffer(buffer.data);
+    }
+  }
+  globalThis.chrome?.webview?.addEventListener("sharedbufferreceived", (event) => {
+    const { generation, slot } = event.additionalData;
+    releaseSharedSlots(generation);
+    const data = event.getBuffer();
+    new Uint8Array(data)[0] = 0;
+    sharedSlots.set(slot, { generation, data });
+  });
+  async function startVideo(request, onEnded) {
+    await stopVideo();
+    videoMetrics = { received: 0, written: 0, droppedWriter: 0, latencyUs: [] };
+    const channel = new Channel();
+    let stopped = false;
+    let capture;
+    const sink = await videoSink(() => {
+      void capture.stop();
+    });
+    channel.onmessage = (message) => {
+      if (message?.ended) {
+        void capture.stop();
+        onEnded?.(message.error ?? "");
+      } else if (!stopped) {
+        sink.frame(message);
+      }
+    };
+    capture = {
+      track: sink.track,
+      async stop() {
+        if (stopped) return;
+        stopped = true;
+        const owns = currentVideo === capture;
+        if (owns) currentVideo = void 0;
+        channel.onmessage = () => {
+        };
+        if (owns) await invoke("stop_video_capture").catch(() => {
+        });
+        if (owns) releaseSharedSlots();
+        await sink.close();
+      }
+    };
+    currentVideo = capture;
+    try {
+      await invoke("start_video_capture", { request, onFrame: channel });
+    } catch (error) {
+      await capture.stop();
+      const text = String(error);
+      if (text.includes("screen-recording-denied")) throw new NativeCaptureError("screen-recording-denied", screenRecordingDenied);
+      throw new NativeCaptureError(text.includes("shared-buffer") ? "shared-buffer-unavailable" : "capture-failed", "N\xE3o foi poss\xEDvel iniciar a captura de v\xEDdeo.");
+    }
+    return sink.track;
+  }
+  var screenRecordingDenied = "Permita a Grava\xE7\xE3o de Tela para o Screenshare em Ajustes do Sistema \u203A Privacidade e Seguran\xE7a e abra o app de novo.";
+  function noteFrame(wallUs) {
+    videoMetrics.received++;
+    if (videoMetrics.latencyUs.push(Date.now() * 1e3 - wallUs) > 600) videoMetrics.latencyUs.shift();
+  }
+  async function videoSink(onFailed) {
+    const g = globalThis;
+    if (typeof g.VideoFrame === "undefined" || !hasGenerator && !isMac) {
+      throw new NativeCaptureError("generator-unavailable", "Este WebView n\xE3o oferece um gerador de v\xEDdeo.");
+    }
+    if (hasGenerator) {
+      const generator = new g.MediaStreamTrackGenerator({ kind: "video" });
+      const writer = generator.writable.getWriter();
+      return {
+        track: generator,
+        frame(message) {
+          const buffer = sharedSlots.get(message?.slot);
+          if (buffer === void 0 || buffer.generation !== message.generation) return;
+          try {
+            noteFrame(message.wallUs);
+            if (writer.desiredSize !== null && writer.desiredSize <= 0) {
+              videoMetrics.droppedWriter++;
+              return;
+            }
+            const data = new Uint8Array(buffer.data, sharedHeader, message.width * message.height * 4);
+            const frame = new g.VideoFrame(data, { format: "BGRA", codedWidth: message.width, codedHeight: message.height, timestamp: message.timestampUs });
+            videoMetrics.written++;
+            writer.write(frame).catch(() => {
+              frame.close();
+              onFailed();
+            });
+          } finally {
+            new Uint8Array(buffer.data)[0] = 0;
+          }
+        },
+        async close() {
+          await writer.close().catch(() => {
+          });
+          generator.stop();
+        }
+      };
+    }
+    const worker = new Worker("videoWorker.js");
+    const track = await new Promise((resolve, reject) => {
+      worker.onmessage = ({ data }) => resolve(data.track);
+      worker.onerror = () => reject(new NativeCaptureError("generator-unavailable", "Este WebView n\xE3o oferece um gerador de v\xEDdeo."));
+    });
+    worker.onmessage = ({ data }) => {
+      if (data?.dropped) {
+        videoMetrics.droppedWriter++;
+        videoMetrics.written--;
+      }
+    };
+    return {
+      track,
+      frame(message) {
+        if (!(message instanceof ArrayBuffer)) return;
+        noteFrame(new DataView(message).getFloat64(16, true));
+        videoMetrics.written++;
+        worker.postMessage(message, [message]);
+      },
+      async close() {
+        track.stop();
+        worker.terminate();
+      }
+    };
+  }
+  async function stopVideo(track) {
+    if (track != null && currentVideo?.track !== track) return;
+    await currentVideo?.stop();
+  }
+  function videoSummary() {
+    const sorted = [...videoMetrics.latencyUs].sort((a, b) => a - b);
+    const at = (q) => sorted.length ? Math.round(sorted[Math.min(sorted.length - 1, Math.floor(q * sorted.length))]) : null;
+    return { received: videoMetrics.received, written: videoMetrics.written, droppedWriter: videoMetrics.droppedWriter, latencyUsP50: at(0.5), latencyUsP95: at(0.95), latencyUsMax: at(1) };
   }
   globalThis.__screenshareDesktopBridge = {
     startSystemAudio: async () => {
@@ -263,18 +433,25 @@
       }
     },
     stopAudio: stopSystemAudio,
-    enumerateSources: () => invoke("enumerate_sources"),
-    captureThumbnail: (hwnd) => invoke("capture_thumbnail", { hwnd }),
+    enumerateSources: () => invoke("enumerate_sources").catch((error) => {
+      throw String(error).includes("screen-recording-denied") ? new NativeCaptureError("screen-recording-denied", screenRecordingDenied) : error;
+    }),
+    captureThumbnail: (hwnd, rect) => invoke("capture_thumbnail", { hwnd, rect }),
     getAudioMetrics: () => ({ ...metrics }),
-    // This capability covers Windows capture commands, not the common shell API.
-    isAvailable: navigator.userAgent.includes("Windows"),
+    startVideoCapture: startVideo,
+    stopVideoCapture: stopVideo,
+    getVideoMetrics: async () => ({ js: videoSummary(), native: isMac ? null : await invoke("video_capture_metrics") }),
+    // Native capture commands (Windows and macOS), not the common shell API.
+    isAvailable: navigator.userAgent.includes("Windows") || isMac,
+    // A native audio track can be built: a generator (WebView2) or an AudioWorklet (WebKit).
+    nativeAudio: hasGenerator && typeof globalThis.AudioData !== "undefined" || isMac && typeof globalThis.AudioWorkletNode !== "undefined",
     mediaAvailable: true,
     autoStartEnabled: () => invoke("plugin:autostart|is_enabled"),
     setAutoStart: (enabled) => invoke(enabled ? "plugin:autostart|enable" : "plugin:autostart|disable"),
     hideMainWindow: () => invoke("hide_main_window"),
     showMainWindow: () => invoke("show_main_window"),
     quitApp: () => invoke("quit_app"),
-    setTrayState: (kind, active, participants) => invoke("set_tray_state", { kind, active, participants })
+    setTrayState: (kind, active, participants, detail) => invoke("set_tray_state", { kind, active, participants, detail })
   };
   void listen("tray-action", ({ payload }) => {
     window.dispatchEvent(new CustomEvent("screenshare:tray-action", { detail: payload }));

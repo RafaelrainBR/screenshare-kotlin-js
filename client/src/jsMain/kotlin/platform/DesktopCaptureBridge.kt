@@ -17,6 +17,8 @@ data class DesktopCaptureSource(
     /** Native-only routing metadata; never leaves this WebView. */
     val processId: Int,
     val hwnd: Long,
+    /** Virtual-desktop bounds as left, top, right, bottom. */
+    val rect: List<Int> = emptyList(),
 )
 
 enum class DesktopCaptureSourceKind { SCREEN, WINDOW }
@@ -92,6 +94,7 @@ object DesktopCaptureBridge {
                     },
                     source.pid as Int,
                     (source.hwnd as Number).toLong(),
+                    (source.rect as Array<Int>).toList(),
                 )
             }
         } catch (error: dynamic) {
@@ -102,13 +105,53 @@ object DesktopCaptureBridge {
         }
     }
 
-    suspend fun captureThumbnail(hwnd: Long): DesktopCaptureThumbnail? {
+    /**
+     * Starts the native capture of [source] (no picker, sharing bar or border).
+     * [onEnded] runs when the capture ends on its own, e.g. "window-closed".
+     */
+    suspend fun startVideoCapture(
+        source: DesktopCaptureSource,
+        fps: Int,
+        onEnded: (String) -> Unit,
+    ): MediaStreamTrack {
+        if (!isAvailable) throw DesktopCaptureException("native-unavailable", "Captura nativa não disponível")
+        val request: dynamic = js("({})")
+        request.fps = fps
+        if (source.kind == DesktopCaptureSourceKind.WINDOW) {
+            request.hwnd = source.hwnd.toDouble()
+        } else {
+            val (left, top, right, bottom) = source.rect
+            request.rect = arrayOf(left, top, right - left, bottom - top)
+        }
+        return try {
+            (
+                window.asDynamic().__screenshareDesktopBridge.startVideoCapture(
+                    request,
+                    { error: String -> onEnded(error) },
+                ) as Promise<MediaStreamTrack>
+            ).await()
+        } catch (error: dynamic) {
+            throw DesktopCaptureException(
+                error.code as? String ?: "capture-failed",
+                error.message as? String ?: "Não foi possível iniciar a captura de vídeo",
+            )
+        }
+    }
+
+    /** Stops the capture that produced [track] only; a newer capture keeps running. */
+    suspend fun stopVideoCapture(track: MediaStreamTrack) {
+        if (!isAvailable) return
+        (window.asDynamic().__screenshareDesktopBridge.stopVideoCapture(track) as Promise<Unit>).await()
+    }
+
+    suspend fun captureThumbnail(source: DesktopCaptureSource): DesktopCaptureThumbnail? {
         if (!isAvailable) return null
         return try {
             // A Kotlin Long is not a JS number and fails Rust deserialization; HWNDs fit in a double.
             val bridge = window.asDynamic().__screenshareDesktopBridge
+            val rect = if (source.kind == DesktopCaptureSourceKind.SCREEN) source.rect.toTypedArray() else null
             val thumbnail =
-                (bridge.captureThumbnail(hwnd.toDouble()) as Promise<dynamic>).await()
+                (bridge.captureThumbnail(source.hwnd.toDouble(), rect) as Promise<dynamic>).await()
                     ?: return null
             val data = thumbnail.data
             DesktopCaptureThumbnail(
@@ -124,9 +167,10 @@ object DesktopCaptureBridge {
         }
     }
 
-    suspend fun stopAudio() {
+    /** Without [track] stops any native audio; with it, only the capture that produced it. */
+    suspend fun stopAudio(track: MediaStreamTrack? = null) {
         if (!isAvailable) return
-        (window.asDynamic().__screenshareDesktopBridge.stopAudio() as Promise<Unit>).await()
+        (window.asDynamic().__screenshareDesktopBridge.stopAudio(track) as Promise<Unit>).await()
     }
 
     /** Best-effort release for WebView/page shutdown; the page cannot await it. */

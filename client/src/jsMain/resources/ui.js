@@ -67,7 +67,7 @@ const qualityModal = document.getElementById('quality-modal');
 const permissionModal = document.getElementById('permission-recovery');
 const dialogs = [permissionModal, qualityModal];
 const activeDialog = () => dialogs.find(dialog => !dialog.classList.contains('hidden'));
-const focusableItems = dialog => [...dialog.querySelectorAll('button, input, select, [tabindex="0"]')]
+const focusableItems = dialog => [...dialog.querySelectorAll('button, input, select, summary, [tabindex="0"]')]
   .filter(item => !item.disabled && item.getClientRects().length);
 dialogs.forEach(dialog => {
   let wasOpen = false;
@@ -179,8 +179,11 @@ document.addEventListener('keydown', event => {
       document.getElementById(dialog === permissionModal ? 'close-permission-help' : 'cancel-share').click();
       return;
     }
+    const contextOpen = !context.classList.contains('hidden');
     closeContext(true);
     document.querySelectorAll('.device-picker').forEach(picker => { picker.open = false; });
+    // Esc closes the tray panel; media keeps running in the hidden window.
+    if (!contextOpen && document.body.classList.contains('compact-tray')) globalThis.__screenshareDesktopBridge?.hideMainWindow();
     return;
   }
   const tile = document.activeElement?.closest('.participant-tile, .screen-tile');
