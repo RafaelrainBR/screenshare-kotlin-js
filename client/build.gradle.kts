@@ -1,6 +1,6 @@
-import org.jetbrains.kotlin.gradle.targets.js.webpack.KotlinWebpackConfig
-import org.gradle.api.tasks.Copy
 import org.gradle.api.file.DuplicatesStrategy
+import org.gradle.api.tasks.Copy
+import org.jetbrains.kotlin.gradle.targets.js.webpack.KotlinWebpackConfig
 
 plugins {
     alias(libs.plugins.kotlinMultiplatform)

@@ -61,6 +61,13 @@
     cleanupCallback() {
       window.__TAURI_INTERNALS__.unregisterCallback(this.id);
     }
+    /**
+     * The handler called for every message sent by the Rust side of this channel.
+     *
+     * Assigning a new handler replaces the previous one; messages that arrived
+     * before a handler was set are not replayed, so set it (or pass it to the
+     * constructor) before sending the channel to the backend.
+     */
     set onmessage(handler) {
       __classPrivateFieldSet(this, _Channel_onmessage, handler, "f");
     }
@@ -77,7 +84,69 @@
   async function invoke(cmd, args = {}, options) {
     return window.__TAURI_INTERNALS__.invoke(cmd, args, options);
   }
-  _Resource_rid = /* @__PURE__ */ new WeakMap();
+  var Resource = class {
+    get rid() {
+      return __classPrivateFieldGet(this, _Resource_rid, "f");
+    }
+    constructor(rid) {
+      _Resource_rid.set(this, void 0);
+      __classPrivateFieldSet(this, _Resource_rid, rid, "f");
+    }
+    /**
+     * Destroys and cleans up this resource from memory.
+     * **You should not call any method on this object anymore and should drop any reference to it.**
+     *
+     * @remarks Uses the `core:resources:allow-close` permission, which is part of
+     * the `core:resources:default` permission set enabled by default.
+     */
+    async close() {
+      return invoke("plugin:resources|close", {
+        rid: this.rid
+      });
+    }
+    async [(_Resource_rid = /* @__PURE__ */ new WeakMap(), Symbol.asyncDispose)]() {
+      await this.close();
+    }
+  };
+
+  // node_modules/@tauri-apps/api/event.js
+  var TauriEvent;
+  (function(TauriEvent2) {
+    TauriEvent2["WINDOW_RESIZED"] = "tauri://resize";
+    TauriEvent2["WINDOW_MOVED"] = "tauri://move";
+    TauriEvent2["WINDOW_CLOSE_REQUESTED"] = "tauri://close-requested";
+    TauriEvent2["WINDOW_DESTROYED"] = "tauri://destroyed";
+    TauriEvent2["WINDOW_FOCUS"] = "tauri://focus";
+    TauriEvent2["WINDOW_BLUR"] = "tauri://blur";
+    TauriEvent2["WINDOW_SCALE_FACTOR_CHANGED"] = "tauri://scale-change";
+    TauriEvent2["WINDOW_THEME_CHANGED"] = "tauri://theme-changed";
+    TauriEvent2["WINDOW_CREATED"] = "tauri://window-created";
+    TauriEvent2["WINDOW_SUSPENDED"] = "tauri://suspended";
+    TauriEvent2["WINDOW_RESUMED"] = "tauri://resumed";
+    TauriEvent2["WEBVIEW_CREATED"] = "tauri://webview-created";
+    TauriEvent2["DRAG_ENTER"] = "tauri://drag-enter";
+    TauriEvent2["DRAG_OVER"] = "tauri://drag-over";
+    TauriEvent2["DRAG_DROP"] = "tauri://drag-drop";
+    TauriEvent2["DRAG_LEAVE"] = "tauri://drag-leave";
+  })(TauriEvent || (TauriEvent = {}));
+  async function _unlisten(event, eventId) {
+    window.__TAURI_EVENT_PLUGIN_INTERNALS__.unregisterListener(event, eventId);
+    await invoke("plugin:event|unlisten", {
+      event,
+      eventId
+    });
+  }
+  async function listen(event, handler, options) {
+    var _a;
+    const target = typeof (options === null || options === void 0 ? void 0 : options.target) === "string" ? { kind: "AnyLabel", label: options.target } : (_a = options === null || options === void 0 ? void 0 : options.target) !== null && _a !== void 0 ? _a : { kind: "Any" };
+    return invoke("plugin:event|listen", {
+      event,
+      target,
+      handler: transformCallback(handler)
+    }).then((eventId) => {
+      return async () => _unlisten(event, eventId);
+    });
+  }
 
   // src/desktopBridge.ts
   var frames = 480;
@@ -196,6 +265,25 @@
     stopAudio: stopSystemAudio,
     enumerateSources: () => invoke("enumerate_sources"),
     captureThumbnail: (hwnd) => invoke("capture_thumbnail", { hwnd }),
-    getAudioMetrics: () => ({ ...metrics })
+    getAudioMetrics: () => ({ ...metrics }),
+    // This capability covers Windows capture commands, not the common shell API.
+    isAvailable: navigator.userAgent.includes("Windows"),
+    mediaAvailable: true,
+    autoStartEnabled: () => invoke("plugin:autostart|is_enabled"),
+    setAutoStart: (enabled) => invoke(enabled ? "plugin:autostart|enable" : "plugin:autostart|disable"),
+    hideMainWindow: () => invoke("hide_main_window"),
+    showMainWindow: () => invoke("show_main_window"),
+    quitApp: () => invoke("quit_app"),
+    setTrayState: (kind, active, participants) => invoke("set_tray_state", { kind, active, participants })
   };
+  void listen("tray-action", ({ payload }) => {
+    window.dispatchEvent(new CustomEvent("screenshare:tray-action", { detail: payload }));
+  });
+  void listen("session-media-available", ({ payload }) => {
+    globalThis.__screenshareDesktopBridge.mediaAvailable = payload;
+    window.dispatchEvent(new CustomEvent("screenshare:session-media-available", { detail: payload }));
+  });
+  void listen("viewer-mode", ({ payload }) => {
+    window.dispatchEvent(new CustomEvent("screenshare:viewer-mode", { detail: payload }));
+  });
 })();

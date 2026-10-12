@@ -13,7 +13,10 @@ data class RoomUser(
     val id: String,
     val session: WebSocketSession,
     val username: String,
+    val clientVersion: Int = 1,
     var isMuted: Boolean = true,
+    var isScreenSharing: Boolean = false,
+    var isCameraSharing: Boolean = false,
 ) {
     private val outgoing = Channel<Packet>(capacity = Channel.UNLIMITED)
 
@@ -34,18 +37,26 @@ data class RoomUser(
     }
 
     suspend fun sendPacket(packet: Packet) {
-        outgoing.send(packet)
+        val compatible =
+            if (clientVersion < 2 && packet is Packet.ChatMessageReceived) {
+                packet.copy(message = packet.message.copy(senderSocketId = null, clientMessageId = null))
+            } else {
+                packet
+            }
+        outgoing.send(compatible)
     }
 
     companion object {
         fun create(
             session: WebSocketSession,
             username: String,
+            clientVersion: Int = 1,
         ): RoomUser =
             RoomUser(
                 id = UUID.randomUUID().toString(),
                 session = session,
                 username = username,
+                clientVersion = clientVersion,
             )
     }
 }

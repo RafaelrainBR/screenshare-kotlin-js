@@ -2,6 +2,7 @@ package services
 
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
+import platform.DesktopEnvironment
 import screenshare.common.ChatMessage
 import screenshare.common.Packet
 import ui.InterfaceMutations
@@ -16,6 +17,10 @@ fun handlePacket(
 ) {
     runCatching {
         when (packet) {
+            is Packet.RoomJoined -> {
+                if (packet.roomId == session.localRoomId) session.confirmRoomJoined(packet.socketId)
+            }
+
             is Packet.UserConnected -> {
                 handleUserConnected(session, packet, coroutineScope)
             }
@@ -30,6 +35,13 @@ fun handlePacket(
 
             is Packet.UserList -> {
                 handleUserList(session, packet)
+            }
+
+            is Packet.RoomMediaState -> {
+                packet.screenSharers.forEach { session.peerConnections.markScreenSharing(it, true) }
+                packet.cameraSharers.forEach { session.peerConnections.markCameraSharing(it, true) }
+                UserListMutations.restoreUserMediaSharing(packet.screenSharers, packet.cameraSharers)
+                updateRemoteTrayState(session)
             }
 
             is Packet.IceCandidateReceived -> {
@@ -60,7 +72,9 @@ fun handlePacket(
                 handleUserMuted(packet)
             }
 
-            else -> Unit
+            else -> {
+                Unit
+            }
         }
     }.onFailure {
         console.warn("Não foi possível processar uma atualização da sala")
@@ -72,8 +86,22 @@ private fun handleUserConnected(
     packet: Packet.UserConnected,
     coroutineScope: CoroutineScope,
 ) {
-    val isLocalUser = packet.username == session.localUsername
-    if (!isLocalUser) {
+    val isLocalUser = packet.socketId == session.localSocketId
+    if (isLocalUser) {
+        session.localSocketId = packet.socketId
+        session.launch {
+            if (session.screenSharing.localScreenStream !=
+                null
+            ) {
+                session.websocketService.startScreenSharing(session.localRoomId)
+            }
+            if (session.cameraSharing.localCameraStream !=
+                null
+            ) {
+                session.websocketService.startCameraShare(session.localRoomId)
+            }
+        }
+    } else {
         InterfaceMutations.addMessageToChat(
             message =
                 ChatMessage(
@@ -81,7 +109,7 @@ private fun handleUserConnected(
                     content = "${packet.username} entrou na sala",
                     timestamp = Date().getTime().toLong(),
                 ),
-            localUsername = session.localUsername,
+            localSocketId = session.localSocketId,
         )
 
         session.peerConnections.createPeerConnection(
@@ -117,10 +145,14 @@ private fun handleUserDisconnected(
                 content = "${packet.username} saiu da sala",
                 timestamp = Date().getTime().toLong(),
             ),
-        localUsername = session.localUsername,
+        localSocketId = session.localSocketId,
     )
 
     session.peerConnections.closePeerConnection(packet.socketId)
+    session.voiceChat.stopRemoteAudio(packet.socketId)
+    UserListMutations.setUserMediaSharing(packet.socketId, camera = false, active = false)
+    UserListMutations.setUserMediaSharing(packet.socketId, camera = true, active = false)
+    updateRemoteTrayState(session)
     session.screenSharing.stopRemoteScreen(packet.socketId)
     session.cameraSharing.stopRemoteCamera(packet.socketId)
 }
@@ -130,13 +162,8 @@ private fun handleChatMessageReceived(
     packet: Packet.ChatMessageReceived,
 ) {
     InterfaceMutations.addMessageToChat(
-        message =
-            ChatMessage(
-                username = packet.message.username,
-                content = packet.message.content,
-                timestamp = packet.message.timestamp,
-            ),
-        localUsername = session.localUsername,
+        message = packet.message,
+        localSocketId = session.localSocketId,
     )
 }
 
@@ -145,7 +172,21 @@ private fun handleUserList(
     packet: Packet.UserList,
 ) {
     session.userList = packet.users
-    UserListMutations.updateUserList(packet.users, session.localUsername)
+    UserListMutations.updateUserList(packet.users, session.localSocketId)
+    packet.users.filter { it.socketId != session.localSocketId }.forEach { user ->
+        if (!session.peerConnections.contains(user.socketId)) {
+            session.peerConnections.createPeerConnection(
+                websocketService = session.websocketService,
+                socketId = user.socketId,
+                roomId = session.localRoomId,
+                isInitiator = false,
+                coroutineScope = session,
+            )
+        }
+    }
+    session.launch {
+        runCatching { DesktopEnvironment.setTrayState("participants", false, packet.users.size) }
+    }
 }
 
 private fun handleIceCandidateReceived(
@@ -206,6 +247,8 @@ private fun handleScreenShareStarted(
 ) {
     val wasSharing = session.peerConnections.isScreenSharing(packet.senderId)
     session.peerConnections.markScreenSharing(packet.senderId, true)
+    UserListMutations.setUserMediaSharing(packet.senderId, camera = false, active = true)
+    updateRemoteTrayState(session)
     if (wasSharing) return
 
     InterfaceMutations.addMessageToChat(
@@ -215,7 +258,7 @@ private fun handleScreenShareStarted(
                 content = "${screenShareAuthorName(session, packet.senderId)} começou a compartilhar a tela",
                 timestamp = Date().getTime().toLong(),
             ),
-        localUsername = session.localUsername,
+        localSocketId = session.localSocketId,
     )
 }
 
@@ -224,6 +267,8 @@ private fun handleScreenShareStopped(
     packet: Packet.ScreenShareStopped,
 ) {
     session.peerConnections.markScreenSharing(packet.senderId, false)
+    UserListMutations.setUserMediaSharing(packet.senderId, camera = false, active = false)
+    updateRemoteTrayState(session)
     session.screenSharing.stopRemoteScreen(packet.senderId)
     InterfaceMutations.addMessageToChat(
         message =
@@ -232,7 +277,7 @@ private fun handleScreenShareStopped(
                 content = "${screenShareAuthorName(session, packet.senderId)} parou de compartilhar a tela",
                 timestamp = Date().getTime().toLong(),
             ),
-        localUsername = session.localUsername,
+        localSocketId = session.localSocketId,
     )
 }
 
@@ -242,6 +287,8 @@ private fun handleCameraShareStarted(
 ) {
     val wasSharing = session.peerConnections.isCameraSharing(packet.senderId)
     session.peerConnections.markCameraSharing(packet.senderId, true)
+    UserListMutations.setUserMediaSharing(packet.senderId, camera = true, active = true)
+    updateRemoteTrayState(session)
     if (wasSharing) return
 
     InterfaceMutations.addMessageToChat(
@@ -251,7 +298,7 @@ private fun handleCameraShareStarted(
                 content = "${screenShareAuthorName(session, packet.senderId)} ativou a câmera",
                 timestamp = Date().getTime().toLong(),
             ),
-        localUsername = session.localUsername,
+        localSocketId = session.localSocketId,
     )
 }
 
@@ -260,6 +307,8 @@ private fun handleCameraShareStopped(
     packet: Packet.CameraShareStopped,
 ) {
     session.peerConnections.markCameraSharing(packet.senderId, false)
+    UserListMutations.setUserMediaSharing(packet.senderId, camera = true, active = false)
+    updateRemoteTrayState(session)
     session.cameraSharing.stopRemoteCamera(packet.senderId)
     InterfaceMutations.addMessageToChat(
         message =
@@ -268,7 +317,7 @@ private fun handleCameraShareStopped(
                 content = "${screenShareAuthorName(session, packet.senderId)} desativou a câmera",
                 timestamp = Date().getTime().toLong(),
             ),
-        localUsername = session.localUsername,
+        localSocketId = session.localSocketId,
     )
 }
 
@@ -276,10 +325,20 @@ private fun screenShareAuthorName(
     session: Session,
     socketId: String,
 ): String {
-    val isLocal = session.userList.firstOrNull { it.username == session.localUsername }?.socketId == socketId
+    val isLocal = session.localSocketId == socketId
     if (isLocal) return "Você"
     return session.userList.firstOrNull { it.socketId == socketId }?.username ?: socketId.takeLast(6)
 }
+
+private fun updateRemoteTrayState(session: Session) =
+    session.launch {
+        runCatching {
+            DesktopEnvironment.setTrayState(
+                "remote",
+                UserListMutations.hasRemoteShares(session.localSocketId),
+            )
+        }
+    }
 
 private fun handleUserMuted(packet: Packet) {
     val (isMuted, socketId) =

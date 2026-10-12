@@ -25,7 +25,6 @@ object Elements {
     val micToggle = getElement<HTMLButtonElement>("micToggle")
     val shareScreenButton = getElement<HTMLButtonElement>("shareScreenBtn")
     val stopScreenShareButton = getElement<HTMLButtonElement>("stopSharingBtn")
-    val changeDesktopAudioButton = getElement<HTMLButtonElement>("changeDesktopAudioBtn")
     val cameraButton = getElement<HTMLButtonElement>("cameraBtn")
     val stopCameraButton = getElement<HTMLButtonElement>("stopCameraBtn")
     val inputDevices = getElement<HTMLSelectElement>("inputDevices")

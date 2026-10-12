@@ -35,7 +35,8 @@ object DesktopCaptureBridge {
     val isAvailable: Boolean
         get() =
             DesktopEnvironment.isAvailable &&
-                jsTypeOf(window.asDynamic().__screenshareDesktopBridge) != "undefined"
+                jsTypeOf(window.asDynamic().__screenshareDesktopBridge) != "undefined" &&
+                window.asDynamic().__screenshareDesktopBridge.isAvailable == true
 
     suspend fun startSystemAudio(): MediaStreamTrack {
         if (!isAvailable) throw DesktopCaptureException("native-unavailable", "Captura nativa não disponível")
@@ -59,8 +60,12 @@ object DesktopCaptureBridge {
     ): MediaStreamTrack {
         if (!isAvailable) throw DesktopCaptureException("native-unavailable", "Captura nativa não disponível")
         return try {
-            (window.asDynamic().__screenshareDesktopBridge.startProcessAudio(processId, includeProcessTree) as Promise<MediaStreamTrack>)
-                .await()
+            (
+                window.asDynamic().__screenshareDesktopBridge.startProcessAudio(
+                    processId,
+                    includeProcessTree,
+                ) as Promise<MediaStreamTrack>
+            ).await()
         } catch (error: dynamic) {
             throw DesktopCaptureException(
                 error.code as? String ?: "capture-failed",
@@ -78,7 +83,13 @@ object DesktopCaptureBridge {
                 DesktopCaptureSource(
                     source.id as String,
                     source.title as String,
-                    if ((source.kind as String) == "screen") DesktopCaptureSourceKind.SCREEN else DesktopCaptureSourceKind.WINDOW,
+                    if ((source.kind as String) ==
+                        "screen"
+                    ) {
+                        DesktopCaptureSourceKind.SCREEN
+                    } else {
+                        DesktopCaptureSourceKind.WINDOW
+                    },
                     source.pid as Int,
                     (source.hwnd as Number).toLong(),
                 )
@@ -94,8 +105,10 @@ object DesktopCaptureBridge {
     suspend fun captureThumbnail(hwnd: Long): DesktopCaptureThumbnail? {
         if (!isAvailable) return null
         return try {
+            // A Kotlin Long is not a JS number and fails Rust deserialization; HWNDs fit in a double.
+            val bridge = window.asDynamic().__screenshareDesktopBridge
             val thumbnail =
-                (window.asDynamic().__screenshareDesktopBridge.captureThumbnail(hwnd) as Promise<dynamic>).await()
+                (bridge.captureThumbnail(hwnd.toDouble()) as Promise<dynamic>).await()
                     ?: return null
             val data = thumbnail.data
             DesktopCaptureThumbnail(

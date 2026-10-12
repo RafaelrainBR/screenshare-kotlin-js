@@ -7,6 +7,8 @@ import kotlinx.serialization.json.Json
 import screenshare.common.Packet.ChatMessageReceived
 import screenshare.common.Packet.JoinRoom
 import screenshare.common.Packet.ListUsers
+import screenshare.common.Packet.RequestMediaState
+import screenshare.common.Packet.RoomMediaState
 import screenshare.common.Packet.SendChatMessage
 import screenshare.common.Packet.SendIceCandidate
 import screenshare.common.Packet.UserConnected
@@ -17,8 +19,20 @@ class MessageSpec : FunSpec({
     withData(
         nameFn = { "should deserialize json into Message [${it.second}]" },
         joinRoomJson("testRoomId", "username") to JoinRoom("testRoomId", "username"),
+        """{"type":"join-room","rid":"room","username":"same","clientVersion":2}""" to JoinRoom("room", "same", 2),
+        """{"type":"room-joined","rid":"room","sid":"socket"}""" to Packet.RoomJoined("room", "socket"),
+        """{"type":"send-message","rid":"room","msg":"Hello","clientMessageId":"receipt"}""" to
+            SendChatMessage("room", "Hello", "receipt"),
+        (
+            """{"type":"chat-message","rid":"room","msg":{"username":"same","content":"Hello","timestamp":123,""" +
+                """"senderSocketId":"socket","clientMessageId":"receipt"}}"""
+        ) to
+            ChatMessageReceived("room", ChatMessage("same", "Hello", 123, "socket", "receipt")),
         sendMessageJson("testRoomId", "Hello") to SendChatMessage("testRoomId", "Hello"),
         listUsersJson("testRoomId") to ListUsers("testRoomId"),
+        """{"type":"request-media-state","rid":"testRoomId"}""" to RequestMediaState("testRoomId"),
+        """{"type":"room-media-state","rid":"testRoomId","screenSharers":["screen"],"cameraSharers":["camera"]}""" to
+            RoomMediaState("testRoomId", listOf("screen"), listOf("camera")),
         sendIceCandidateJson("testRoomId", "candidate", "targetId") to
             SendIceCandidate("testRoomId", "candidate", "targetId"),
         userConnectedJson("testRoomId", "socketId", "username") to UserConnected("testRoomId", "socketId", "username"),
@@ -35,8 +49,17 @@ class MessageSpec : FunSpec({
     withData(
         nameFn = { "should serialize Message into json [${it.second}]" },
         JoinRoom("testRoomId", "username") to joinRoomJson("testRoomId", "username"),
+        JoinRoom("room", "same", 2) to """{"type":"join-room","rid":"room","username":"same","clientVersion":2}""",
+        Packet.RoomJoined("room", "socket") to """{"type":"room-joined","rid":"room","sid":"socket"}""",
+        SendChatMessage("room", "Hello", "receipt") to
+            """{"type":"send-message","rid":"room","msg":"Hello","clientMessageId":"receipt"}""",
+        ChatMessageReceived("room", ChatMessage("same", "Hello", 123, "socket", "receipt")) to
+            """{"type":"chat-message","rid":"room","msg":{"username":"same","content":"Hello","timestamp":123,"senderSocketId":"socket","clientMessageId":"receipt"}}""",
         SendChatMessage("testRoomId", "Hello") to sendMessageJson("testRoomId", "Hello"),
         ListUsers("testRoomId") to listUsersJson("testRoomId"),
+        RequestMediaState("testRoomId") to """{"type":"request-media-state","rid":"testRoomId"}""",
+        RoomMediaState("testRoomId", listOf("screen"), listOf("camera")) to
+            """{"type":"room-media-state","rid":"testRoomId","screenSharers":["screen"],"cameraSharers":["camera"]}""",
         UserConnected("testRoomId", "socketId", "username") to userConnectedJson("testRoomId", "socketId", "username"),
         UserDisconnected("testRoomId", "socketId", "username") to
             userDisconnectedJson("testRoomId", "socketId", "username"),

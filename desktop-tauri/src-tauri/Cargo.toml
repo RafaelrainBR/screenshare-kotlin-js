@@ -1,7 +1,7 @@
 [package]
 name = "screenshare-desktop"
-version = "0.5.0"
-description = "Windows desktop shell for the canonical Screenshare Kotlin/JS client"
+version = "0.7.0"
+description = "Desktop shell for the canonical Screenshare Kotlin/JS client"
 authors = ["Screenshare contributors"]
 edition = "2021"
 
@@ -13,9 +13,17 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = [] }
+tauri = { version = "2", features = ["tray-icon"] }
+tauri-plugin-autostart = "2"
+tauri-plugin-single-instance = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+[target.'cfg(target_os = "macos")'.dependencies]
+block2 = "0.6.2"
+objc2 = "0.6.4"
+objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std", "NSWorkspace"] }
+objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSNotification", "NSDistributedNotificationCenter", "NSOperation", "NSObject", "NSString", "block2"] }
+[target.'cfg(windows)'.dependencies]
 wasapi = "0.24"
 windows = { version = "0.62", features = [
   "Win32_Foundation",

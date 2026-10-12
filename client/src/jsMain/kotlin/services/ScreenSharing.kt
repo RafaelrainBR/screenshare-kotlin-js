@@ -1,16 +1,18 @@
 package services
 
 import decorators.getDisplayMedia
-import platform.DesktopCaptureBridge
-import platform.nativeSystemAudioSupported
-import kotlin.js.json
+import hideAfterLocalShare
 import kotlinx.browser.window
-import kotlinx.coroutines.await
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.await
 import kotlinx.coroutines.launch
 import org.w3c.dom.mediacapture.MediaStream
 import org.w3c.dom.mediacapture.MediaStreamConstraints
+import platform.DesktopCaptureBridge
+import platform.DesktopEnvironment
+import platform.nativeSystemAudioSupported
 import ui.InterfaceMutations
+import kotlin.js.json
 
 class ScreenSharing(
     private val resolveUsername: (String) -> String,
@@ -28,6 +30,7 @@ class ScreenSharing(
     enum class DesktopAudioMode { NONE, SYSTEM, PROCESS }
 
     suspend fun setupLocalScreenStream(
+        isRequestCurrent: () -> Boolean,
         width: Int,
         height: Int,
         frameRate: Int,
@@ -45,6 +48,11 @@ class ScreenSharing(
             window.navigator.mediaDevices
                 .getDisplayMedia(buildMediaStreamConstraints(width, height, frameRate, useSourceResolution))
                 .await()
+        if (!isRequestCurrent()) {
+            displayStream.getTracks().forEach { it.stop() }
+            throw kotlinx.coroutines.CancellationException("Capture request invalidated")
+        }
+        if (localScreenStream != null) stopScreenSharing(recreatePeerConnections = {})
         localScreenStream = displayStream
 
         // On desktop, the optional Rust path replaces (never duplicates) the
@@ -52,18 +60,30 @@ class ScreenSharing(
         // The WebView picker remains the consent boundary. Its optional audio
         // checkbox does not define the native route: the explicit local mode
         // does, but only after getDisplayMedia has returned successfully.
-        if (desktopAudioMode != DesktopAudioMode.NONE && nativeSystemAudioSupported(
+        if (desktopAudioMode != DesktopAudioMode.NONE &&
+            nativeSystemAudioSupported(
                 isDesktop = DesktopCaptureBridge.isAvailable,
                 bridgeAvailable = DesktopCaptureBridge.isAvailable,
                 generatorAvailable = jsTypeOf(window.asDynamic().MediaStreamTrackGenerator) != "undefined",
             )
         ) {
             runCatching {
-                val nativeTrack = when (desktopAudioMode) {
-                    DesktopAudioMode.SYSTEM -> DesktopCaptureBridge.startSystemAudio()
-                    DesktopAudioMode.PROCESS -> DesktopCaptureBridge.startProcessAudio(requireNotNull(audioSourceProcessId))
-                    DesktopAudioMode.NONE -> error("unreachable")
-                }
+                val nativeTrack =
+                    when (desktopAudioMode) {
+                        DesktopAudioMode.SYSTEM -> {
+                            DesktopCaptureBridge.startSystemAudio()
+                        }
+
+                        DesktopAudioMode.PROCESS -> {
+                            DesktopCaptureBridge.startProcessAudio(
+                                requireNotNull(audioSourceProcessId),
+                            )
+                        }
+
+                        DesktopAudioMode.NONE -> {
+                            error("unreachable")
+                        }
+                    }
                 // The Windows picker is authoritative only for video.  Never
                 // publish its optional audio alongside, or instead of, the
                 // deliberate local audio choice.
@@ -76,7 +96,16 @@ class ScreenSharing(
                 displayStream.getAudioTracks().forEach { it.stop() }
                 localScreenStream = createMediaStream(displayStream.getVideoTracks().first())
                 console.warn("O áudio local não pôde ser iniciado; o vídeo continua ativo")
+                hideAfterLocalShare = false
+                runCatching { DesktopEnvironment.showMainWindow() }
+                InterfaceMutations.showError(
+                    "A tela está sendo compartilhada sem áudio. Não foi possível iniciar o áudio escolhido.",
+                )
             }
+        }
+        if (!isRequestCurrent()) {
+            stopScreenSharing(recreatePeerConnections = {})
+            throw kotlinx.coroutines.CancellationException("Capture request invalidated")
         }
         val publishedStream = localScreenStream
         val videoTrack = publishedStream?.getVideoTracks()?.firstOrNull()
@@ -148,8 +177,10 @@ class ScreenSharing(
     private fun createMediaStream(videoTrack: org.w3c.dom.mediacapture.MediaStreamTrack): MediaStream =
         js("new MediaStream([videoTrack])")
 
-    private fun createMediaStream(videoTrack: org.w3c.dom.mediacapture.MediaStreamTrack, audioTrack: org.w3c.dom.mediacapture.MediaStreamTrack): MediaStream =
-        js("new MediaStream([videoTrack, audioTrack])")
+    private fun createMediaStream(
+        videoTrack: org.w3c.dom.mediacapture.MediaStreamTrack,
+        audioTrack: org.w3c.dom.mediacapture.MediaStreamTrack,
+    ): MediaStream = js("new MediaStream([videoTrack, audioTrack])")
 
     private fun buildMediaStreamConstraints(
         width: Int,

@@ -3,64 +3,140 @@ package ui.mutations
 import createSafeElement
 import getUsernameInitials
 import kotlinx.browser.document
+import kotlinx.browser.window
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import org.w3c.dom.HTMLAudioElement
 import org.w3c.dom.HTMLButtonElement
 import org.w3c.dom.HTMLElement
 import org.w3c.dom.HTMLInputElement
 import org.w3c.dom.HTMLSpanElement
+import platform.DesktopEnvironment
 import sanitizeHTML
 import screenshare.common.SocketUser
 import ui.Elements
+import ui.InterfaceMutations
 
 object UserListMutations {
     val userVolumes: MutableMap<String, Int> = mutableMapOf()
     private var currentUsers: List<SocketUser> = emptyList()
-    private var currentLocalName = ""
+    private var currentLocalSocketId: String? = null
     private val speakingUsers = mutableSetOf<String>()
     private val mutedUsers = mutableMapOf<String, Boolean>()
+    private val screenSharers = mutableSetOf<String>()
+    private val cameraSharers = mutableSetOf<String>()
+
+    fun setUserMediaSharing(
+        socketId: String,
+        camera: Boolean,
+        active: Boolean,
+    ) {
+        val sharers = if (camera) cameraSharers else screenSharers
+        if (active) sharers.add(socketId) else sharers.remove(socketId)
+        updateUserList(currentUsers, currentLocalSocketId)
+    }
+
+    fun restoreUserMediaSharing(
+        screenSocketIds: List<String>,
+        cameraSocketIds: List<String>,
+    ) {
+        screenSharers.clear()
+        cameraSharers.clear()
+        screenSharers.addAll(screenSocketIds)
+        cameraSharers.addAll(cameraSocketIds)
+        updateUserList(currentUsers, currentLocalSocketId)
+        syncAvatarTiles()
+    }
+
+    fun clearUserMediaSharing() {
+        screenSharers.clear()
+        cameraSharers.clear()
+        updateUserList(currentUsers, currentLocalSocketId)
+    }
+
+    fun hasRemoteShares(localSocketId: String?): Boolean =
+        screenSharers.any { it != localSocketId } || cameraSharers.any { it != localSocketId }
 
     fun updateUserList(
         users: List<SocketUser>,
-        localUserName: String,
+        localSocketId: String?,
     ) {
         currentUsers = users
-        currentLocalName = localUserName
+        currentLocalSocketId = localSocketId
         users.forEach { user ->
-            mutedUsers[if (user.username == localUserName) "self" else user.socketId] = user.isMuted
+            val volume =
+                if (users.count { it.username == user.username } ==
+                    1
+                ) {
+                    window.localStorage
+                        .getItem(
+                            "screenshare.volume.user.${user.username}",
+                        )?.toIntOrNull()
+                        ?.coerceIn(0, 100)
+                } else {
+                    null
+                }
+            if (volume != null) {
+                userVolumes[user.socketId] = volume
+                (document.getElementById("remote-audio-${user.socketId}") as? HTMLAudioElement)?.volume = volume / 100.0
+            }
+        }
+        users.forEach { user ->
+            mutedUsers[if (user.socketId == localSocketId) "self" else user.socketId] = user.isMuted
         }
         Elements.userList.innerHTML = ""
 
         users.forEach { user ->
-            val userElement = createUserListItem(user, localUserName)
+            val userElement = createUserListItem(user, localSocketId)
 
             Elements.userList.appendChild(userElement)
         }
 
         Elements.userCount.textContent = users.size.toString()
+        CoroutineScope(Dispatchers.Main).launch {
+            runCatching { DesktopEnvironment.setTrayState("participants", false, users.size) }
+        }
+        document.getElementById("tray-share-notice")?.textContent =
+            if (screenSharers.isNotEmpty() ||
+                cameraSharers.isNotEmpty()
+            ) {
+                "Compartilhamento disponível na sala"
+            } else {
+                "Nenhum compartilhamento disponível"
+            }
         syncAvatarTiles()
     }
 
     fun syncAvatarTiles() {
         val rail = Elements.screensRail
         val previous = rail.querySelectorAll(".participant-tile")
-        for (index in previous.length - 1 downTo 0) previous.item(index)?.parentElement?.removeChild(previous.item(index)!!)
+        for (index in previous.length - 1 downTo 0) {
+            previous
+                .item(
+                    index,
+                )?.parentElement
+                ?.removeChild(previous.item(index)!!)
+        }
 
         currentUsers.forEach { user ->
-            val owner = if (user.username == currentLocalName) "self" else user.socketId
+            val owner = if (user.socketId == currentLocalSocketId) "self" else user.socketId
             if (hasVideo(owner)) return@forEach
-            val button = document.createSafeElement("button") as HTMLButtonElement
-            button.type = "button"
+            val button = document.createSafeElement("div") as HTMLElement
+            button.tabIndex = 0
+            button.setAttribute("role", "group")
             button.className = "participant-tile"
             button.setAttribute("data-owner-id", owner)
             button.setAttribute("data-username", user.username)
             button.title = user.username
             val muted = mutedUsers[owner] ?: user.isMuted
-            val state = when {
-                muted -> "mudo"
-                owner in speakingUsers -> "falando"
-                else -> "áudio ativo"
-            }
-            button.setAttribute("aria-label", "${user.username}, $state, abrir opções")
+            val state =
+                when {
+                    muted -> "mudo"
+                    owner in speakingUsers -> "falando"
+                    else -> "áudio ativo"
+                }
+            button.setAttribute("aria-label", "${user.username}, $state")
 
             val avatar = document.createSafeElement("span") as HTMLElement
             avatar.className = "avatar-circle"
@@ -70,10 +146,16 @@ object UserListMutations {
                 val mute = document.createSafeElement("span") as HTMLElement
                 mute.className = "mute-overlay"
                 mute.setAttribute("aria-hidden", "true")
-                mute.innerHTML = "<svg viewBox='0 0 24 24'><path d='M3 3l18 18M9 5v6a3 3 0 0 0 5 2M5 11a7 7 0 0 0 12 5M12 18v3M8 21h8'/></svg>"
+                mute.innerHTML =
+                    "<svg viewBox='0 0 24 24'><path d='M3 3l18 18M9 5v6a3 3 0 0 0 5 2M5 11a7 7 0 0 0 12 5M12 18v3M8 21h8'/></svg>"
                 avatar.appendChild(mute)
             }
             button.appendChild(avatar)
+            val name = document.createSafeElement("span") as HTMLElement
+            name.className = "participant-name"
+            name.textContent = if (owner == "self") "${user.username} (Você)" else user.username
+            button.appendChild(name)
+            button.appendChild(InterfaceMutations.participantOptionsButton(user.username))
             rail.appendChild(button)
         }
         rail.classList.toggle("hidden", rail.childElementCount == 0)
@@ -139,15 +221,16 @@ object UserListMutations {
 
     private fun createUserListItem(
         user: SocketUser,
-        localUserName: String,
+        localSocketId: String?,
     ): HTMLElement {
         val article = document.createSafeElement("article") as HTMLElement
+        article.setAttribute("role", "listitem")
         article.style.apply {
             padding = "0.75rem"
             marginBottom = "0.5rem"
         }
 
-        val isCurrentUser = user.username == localUserName
+        val isCurrentUser = user.socketId == localSocketId
         val initials = user.username.getUsernameInitials()
 
         val container = document.createSafeElement("div") as HTMLElement
@@ -161,18 +244,31 @@ object UserListMutations {
         container.appendChild(avatar)
 
         val userInfo = document.createSafeElement("div") as HTMLElement
-        userInfo.style.flex = "1"
+        userInfo.className = "tray-user-info"
 
         val nameSpan = document.createSafeElement("span") as HTMLSpanElement
         nameSpan.textContent =
             buildString {
-                append(user.username.sanitizeHTML())
+                append(user.username)
                 if (isCurrentUser) {
                     append(" (Você)")
                 }
             }
         nameSpan.style.fontWeight = "500"
         userInfo.appendChild(nameSpan)
+
+        val sharingScreen = user.socketId in screenSharers
+        val sharingCamera = user.socketId in cameraSharers
+        val status = document.createSafeElement("span") as HTMLElement
+        status.className = "tray-user-status"
+        status.textContent =
+            when {
+                sharingScreen -> "Compartilhando tela"
+                sharingCamera -> "Compartilhando câmera"
+                else -> "Conectado"
+            }
+        if (sharingScreen || sharingCamera) status.classList.add("sharing")
+        userInfo.appendChild(status)
 
         container.appendChild(userInfo)
 
@@ -182,7 +278,36 @@ object UserListMutations {
         article.appendChild(container)
 
         if (!isCurrentUser) {
-            article.appendChild(createVolumeControl(user.socketId))
+            article.appendChild(createVolumeControl(user.socketId, user.username))
+            if (DesktopEnvironment.isAvailable) {
+                val views = document.createSafeElement("div") as HTMLElement
+                views.className = "tray-view-actions"
+
+                fun addViewButton(
+                    label: String,
+                    tileId: String,
+                ) {
+                    val button = document.createSafeElement("button") as HTMLButtonElement
+                    button.type = "button"
+                    button.className = "btn btn-ghost"
+                    button.textContent = label
+                    button.addEventListener("click", {
+                        CoroutineScope(Dispatchers.Main).launch {
+                            runCatching { DesktopEnvironment.showMainWindow() }
+                                .onSuccess { InterfaceMutations.focusOnTile(tileId) }
+                                .onFailure { InterfaceMutations.showError("Não foi possível abrir a sala.") }
+                        }
+                    })
+                    views.appendChild(button)
+                }
+                if (user.socketId in screenSharers) addViewButton("Visualizar tela", user.socketId)
+                if (user.socketId in
+                    cameraSharers
+                ) {
+                    addViewButton("Visualizar câmera", services.CameraSharing.cameraTileId(user.socketId))
+                }
+                article.appendChild(views)
+            }
         }
 
         article.id = "user-list-${if (isCurrentUser) "self" else user.socketId}"
@@ -190,7 +315,10 @@ object UserListMutations {
         return article
     }
 
-    private fun createVolumeControl(userId: String): HTMLElement {
+    private fun createVolumeControl(
+        userId: String,
+        username: String,
+    ): HTMLElement {
         val wrapper = document.createSafeElement("div") as HTMLElement
         wrapper.style.apply {
             display = "flex"
@@ -213,12 +341,18 @@ object UserListMutations {
         slider.type = "range"
         slider.min = "0"
         slider.max = "100"
-        slider.value = (userVolumes[userId] ?: 100).toString()
+        slider.value = (userVolumes[userId] ?: 100).coerceIn(0, 100).toString()
+        userVolumes[userId] = slider.value.toInt()
         slider.className = "range range-primary range-xs flex-1"
         slider.setAttribute("aria-label", "Volume do participante")
         slider.addEventListener("input", {
             val volume = slider.value.toInt()
             userVolumes[userId] = volume
+            if (currentUsers.count { it.username == username } ==
+                1
+            ) {
+                window.localStorage.setItem("screenshare.volume.user.$username", volume.toString())
+            }
             (document.getElementById("remote-audio-$userId") as? HTMLAudioElement)?.volume = volume / 100.0
         })
 

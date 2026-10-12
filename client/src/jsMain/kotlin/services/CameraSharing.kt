@@ -1,11 +1,11 @@
 package services
 
-import kotlin.js.json
 import kotlinx.browser.window
 import kotlinx.coroutines.await
 import org.w3c.dom.mediacapture.MediaStream
 import org.w3c.dom.mediacapture.MediaStreamConstraints
 import ui.InterfaceMutations
+import kotlin.js.json
 
 class CameraSharing(
     private val resolveUsername: (String) -> String,
@@ -13,28 +13,31 @@ class CameraSharing(
 ) {
     var localCameraStream: MediaStream? = null
     val remoteCameraStreams: MutableMap<String, MediaStream> = mutableMapOf()
+    private var captureGeneration = 0
 
     suspend fun setupLocalCameraStream(
+        isRequestCurrent: () -> Boolean,
         recreatePeerConnections: () -> Unit,
         onStreamEnd: () -> Unit,
         deviceId: String? = null,
     ) {
-        val previousStream = localCameraStream
+        val generation = ++captureGeneration
         val nextStream =
             window.navigator.mediaDevices
                 .getUserMedia(buildMediaStreamConstraints(deviceId))
                 .await()
+        if (!isRequestCurrent() || generation != captureGeneration) {
+            nextStream.getTracks().forEach { it.stop() }
+            throw kotlinx.coroutines.CancellationException("Capture request invalidated")
+        }
+        val previousStream = localCameraStream
         previousStream?.getVideoTracks()?.forEach { it.onended = null }
         previousStream?.getTracks()?.forEach { it.stop() }
         localCameraStream = nextStream
         val videoTrack = localCameraStream?.getVideoTracks()?.firstOrNull()
         if (videoTrack != null) {
             videoTrack.onended = {
-                localCameraStream = null
-                recreatePeerConnections()
-                InterfaceMutations.removeCameraTile(CAMERA_LOCAL_TILE_ID)
-                InterfaceMutations.updateCameraControls(isLocalCameraOn = false)
-                onStreamEnd()
+                if (localCameraStream === nextStream) onStreamEnd()
             }
 
             recreatePeerConnections()
@@ -71,6 +74,8 @@ class CameraSharing(
     }
 
     fun stopCameraSharing(recreatePeerConnections: () -> Unit) {
+        ++captureGeneration
+        localCameraStream?.getVideoTracks()?.forEach { it.onended = null }
         localCameraStream?.getTracks()?.forEach { track -> track.stop() }
         localCameraStream = null
         recreatePeerConnections()

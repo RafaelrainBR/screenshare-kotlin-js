@@ -17,17 +17,25 @@
       <p>Use um código recebido ou deixe vazio para criar uma sala.</p>
       <form class="join-fields" id="join-form">
         <label for="username">Seu nome</label>
-        <input class="input" id="username" autocomplete="nickname" placeholder="Como você aparece na sala" required>
+        <input class="input" id="username" autocomplete="nickname" placeholder="Como você aparece na sala" aria-describedby="join-error" required>
         <span class="field-error hidden" id="join-error" role="alert">Informe seu nome para entrar.</span>
         <label for="roomId">Código da sala</label>
-        <input class="input" id="roomId" placeholder="ex: 4f8a2c1e">
+        <input class="input" id="roomId" placeholder="ex: 4f8a2c1e" autocapitalize="off" spellcheck="false">
         <span class="field-hint">Código opcional ao criar uma sala.</span>
+        <label class="startup-option hidden" id="startup-option"><input id="start-at-login" type="checkbox"> Iniciar com o sistema e voltar a esta sala</label>
         <button type="submit" id="joinBtn" class="btn btn-primary btn-lg">Entrar na sala</button>
       </form>
     </div>
   </main>
 
   <div id="app-screen" class="hidden">
+    <header class="room-header">
+      <span id="room-connection-status" role="status">Conectando à sala…</span>
+      <div class="room-actions">
+        <button type="button" class="btn btn-ghost" data-tray-action="switch">Trocar sala</button>
+        <button type="button" class="btn btn-ghost" data-tray-action="leave">Sair da sala</button>
+      </div>
+    </header>
     <div class="workspace" id="workspace">
       <section class="stage" aria-label="Telas e câmeras compartilhadas">
         <div id="screens-stage" class="screen-stage no-video">
@@ -50,9 +58,6 @@
               <svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="14" rx="2"/><path d="M9 8h6v6H9z"/></svg>
             </button>
           </div>
-          <button id="changeDesktopAudioBtn" class="btn btn-ghost icon-button hidden" type="button" aria-label="Alterar áudio da tela" title="Alterar áudio da tela">
-            <svg viewBox="0 0 24 24"><path d="M11 5 6 9H3v6h3l5 4V5ZM15 9a4 4 0 0 1 0 6"/><path d="M19 5v4m-2-2h4"/></svg>
-          </button>
           <span class="tool-separator"></span>
           <div class="toolgroup with-device">
             <button id="cameraBtn" class="btn icon-button" type="button" aria-label="Ligar câmera" title="Ligar câmera">
@@ -104,21 +109,52 @@
           </form>
         </div>
       </aside>
+      <p id="copy-status" class="copy-status" role="status"></p>
       <button id="restoreSidebarBtn" class="chat-restore" type="button" aria-label="Mostrar conversa" title="Mostrar conversa"><svg viewBox="0 0 24 24"><path d="m15 5-7 7 7 7"/></svg></button>
     </div>
   </div>
 
-  <ul id="user-list" class="hidden" aria-hidden="true"></ul>
-  <span id="participant-count" class="hidden" aria-hidden="true">0</span>
+  <section id="tray-panel" class="tray-panel" aria-labelledby="tray-room">
+    <header class="tray-header"><div><small>SALA</small><h1 id="tray-room">Nenhuma sala</h1></div><span class="tray-count"><span id="participant-count">0</span> participantes</span></header>
+    <p id="tray-connection-status" class="connection-status" role="status">Entre em uma sala para usar a mídia.</p>
+    <div class="tray-media" aria-label="Controles da sala">
+      <button id="tray-screen" type="button" class="btn btn-primary" data-tray-action="screen" data-needs-room disabled aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="14" rx="2"/><path d="M8 21h8m-4-3v3"/></svg><span>Compartilhar tela</span></button>
+      <button id="tray-mic" type="button" class="btn" data-tray-action="mic" data-needs-room disabled aria-pressed="false">Ativar microfone</button>
+      <button id="tray-camera" type="button" class="btn" data-tray-action="camera" data-needs-room disabled aria-pressed="false">Ligar câmera</button>
+      <button id="tray-output" type="button" class="btn" data-tray-action="output" aria-pressed="false">Silenciar áudio</button>
+    </div>
+    <section class="tray-quality-section" aria-label="Qualidade de compartilhamento"><h2>Qualidade da próxima tela</h2>
+    <div class="tray-quality" aria-label="Qualidade de compartilhamento">
+      <button type="button" class="btn" data-tray-action="quality720" data-quality-width="1280" aria-pressed="false">720p</button>
+      <button type="button" class="btn" data-tray-action="quality1080" data-quality-width="1920" aria-pressed="true">1080p</button>
+      <button type="button" class="btn" data-tray-action="quality4k" data-quality-width="3840" aria-pressed="false">4K</button>
+    </div>
+      <button type="button" class="tray-quality-more" data-tray-action="quality-options" data-needs-room disabled>Mais opções <span aria-hidden="true">›</span></button>
+    </section>
+    <div id="user-list" class="tray-participants" role="list" aria-label="Participantes e mídias"></div>
+    <footer class="tray-footer">
+      <button type="button" class="btn btn-primary" data-tray-action="open">Abrir sala</button>
+      <button type="button" class="btn btn-ghost" data-tray-action="switch">Trocar sala</button>
+      <button type="button" class="btn btn-ghost" data-tray-action="leave" data-needs-room disabled>Sair da sala</button>
+    </footer>
+  </section>
   <div id="participant-context" class="context-menu hidden" role="dialog" aria-label="Opções do participante"></div>
   <div id="ui-notice" class="notice hidden" role="alert"></div>
+  <section id="permission-recovery" class="permission-recovery hidden" role="dialog" aria-modal="true" aria-labelledby="permission-title">
+    <h2 id="permission-title">Permissão necessária</h2>
+    <p id="permission-help"></p>
+    <div class="modal-actions">
+      <button id="retry-media" type="button" class="btn btn-primary">Tentar novamente</button>
+      <button id="close-permission-help" type="button" class="btn btn-ghost">Depois</button>
+    </div>
+  </section>
 
   <div id="quality-modal" class="hidden" role="dialog" aria-modal="true" aria-labelledby="share-wizard-title">
     <div class="modal-backdrop"></div>
     <div class="modal-panel">
-      <p class="wizard-kicker">Compartilhamento no Windows</p>
+      <p class="wizard-kicker">Compartilhamento de tela</p>
       <h2 id="share-wizard-title" class="modal-title">Preparar compartilhamento</h2>
-      <p class="modal-desc">O Windows escolhe o vídeo. Escolha o áudio aqui.</p>
+      <p class="modal-desc">Escolha a qualidade. Na próxima etapa, selecione a tela ou janela.</p>
       <div class="modal-section">
         <span class="field-label">Resolução</span>
         <div id="resolution-options" class="segmented">
@@ -136,28 +172,25 @@
           <button type="button" class="btn quality-option" data-fps="60">60 fps</button>
         </div>
       </div>
-      <div class="modal-section" id="desktop-wizard-step-one">
-        <span class="field-label">Áudio</span>
+      <div id="desktop-wizard-step-one" class="modal-section hidden">
+        <span class="field-label">Áudio compartilhado</span>
         <div class="audio-mode-grid">
-          <button type="button" id="desktop-audio-mode-none" class="audio-mode-card selected"><strong>Sem áudio</strong><span>Compartilhar somente o vídeo.</span></button>
-          <button type="button" id="desktop-audio-mode-system" class="audio-mode-card"><strong>Áudio do computador</strong><span>Enviar o som reproduzido no computador.</span></button>
-          <button type="button" id="desktop-audio-mode-process" class="audio-mode-card"><strong>Áudio de um aplicativo</strong><span>Escolher um aplicativo local.</span></button>
+          <button type="button" id="desktop-audio-mode-none" class="audio-mode-card"><strong>Sem áudio</strong><span>Compartilhar apenas a imagem.</span></button>
+          <button type="button" id="desktop-audio-mode-system" class="audio-mode-card"><strong>Áudio do computador</strong><span>Enviar todo o som da saída padrão.</span></button>
+          <button type="button" id="desktop-audio-mode-process" class="audio-mode-card"><strong>Áudio de um aplicativo</strong><span>Escolher de qual aplicativo enviar o som.</span></button>
         </div>
       </div>
-      <div class="modal-section hidden" id="desktop-wizard-step-two">
-        <div class="audio-source-toolbar">
-          <span class="field-label">Áudio de aplicativo</span>
-          <button id="desktop-audio-refresh" type="button" class="btn btn-ghost">Atualizar</button>
-        </div>
-        <p class="modal-desc">O Windows escolherá a tela ou janela para o vídeo. Aqui você escolhe apenas o áudio.</p>
-        <div id="desktop-audio-source-grid" class="audio-source-grid" aria-live="polite"></div>
-        <p id="desktop-audio-picker-state" class="wizard-note" aria-live="polite"></p>
+      <div id="desktop-wizard-step-two" class="hidden">
+        <div class="audio-source-toolbar"><span class="field-label">Aplicativo para o áudio</span><button id="desktop-audio-refresh" class="btn btn-ghost" type="button">Atualizar</button></div>
+        <div id="desktop-audio-source-grid" class="audio-source-grid"></div>
+        <p id="desktop-audio-picker-state" role="status"></p>
+        <p class="field-hint">Na próxima etapa, escolha a tela ou janela para o vídeo.</p>
         <div id="desktop-audio-thumbnail" class="hidden"></div>
-        <button id="desktop-back-to-audio-modes" type="button" class="btn btn-ghost">Trocar modo de áudio</button>
+        <button id="desktop-back-to-audio-modes" class="btn btn-ghost" type="button">Voltar aos modos de áudio</button>
       </div>
       <div class="modal-actions">
         <button id="cancel-share" type="button" class="btn btn-ghost">Cancelar</button>
-        <button id="confirm-share" type="button" class="btn btn-primary">Continuar para o Windows</button>
+        <button id="confirm-share" type="button" class="btn btn-primary">Escolher tela ou janela</button>
       </div>
     </div>
   </div>
