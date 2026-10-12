@@ -123,8 +123,17 @@ distribution. It is exposed to Kotlin only as `DesktopCaptureBridge`; the web
 distribution receives a browser-safe placeholder and never imports
 `@tauri-apps/api`.
 
-On a compatible WebView2, system-audio sharing uses the default render device's
-WASAPI loopback. Rust emits f32 PCM at 48 kHz, stereo, in 480-frame (3,840-byte)
+On a compatible WebView2, system-audio sharing uses WASAPI loopback. On Windows,
+if Discord desktop is already running, application loopback excludes its process
+tree (call audio and notifications) from the system mix across audio devices.
+Otherwise, capture uses the default render device. Open Discord before sharing;
+restart sharing after launching or restarting Discord. Closing the excluded
+process ends the audio track. Stable, PTB, Canary, and Development executables
+are recognized; multiple independent Discord trees are rejected because WASAPI
+can exclude only one tree. Discord in a browser is not filtered. Exclusion needs
+Windows build 20348 or later and never falls back to an unfiltered capture.
+
+Rust emits f32 PCM at 48 kHz, stereo, in 480-frame (3,840-byte)
 chunks with monotonic microsecond timestamps. The bridge creates `AudioData` and
 a `MediaStreamTrackGenerator`, replacing (not duplicating) the display-media
 audio track before the existing WebRTC flow publishes the stream.
