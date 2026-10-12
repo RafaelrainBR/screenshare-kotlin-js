@@ -177,16 +177,34 @@ try {
     await w.waitForFunction(() => [...document.querySelectorAll('.camera-tile video')].some(video => video.videoWidth > 0));
     await d.locator('#tray-mic').click();
     await d.waitForFunction(() => document.querySelector('#tray-mic').getAttribute('aria-pressed') === 'true');
+    // Icon-only media keeps its SVG and accessible name; leave sits next to "Abrir sala".
+    assert(await d.evaluate(() => ['tray-mic', 'tray-camera', 'tray-output'].every(id => {
+      const button = document.getElementById(id);
+      return button.querySelector('svg') && !button.textContent.trim() && button.getAttribute('aria-label') && button.title;
+    })));
+    const footer = await d.evaluate(() => [...document.querySelectorAll('.tray-footer > button')].map(b => b.dataset.trayAction));
+    assert.deepEqual(footer, ['open', 'leave']);
+    assert.equal(await d.locator('#tray-connection-status').evaluate(el => el.classList.contains('sr-only')), true);
     await d.screenshot({ path: `${output}/tray-compact.png` });
     await d.locator('#tray-camera').click();
     await w.waitForFunction(() => document.querySelectorAll('.camera-tile').length === 0);
   });
-  await check('leave from tray releases media and notifies web', async () => {
+  await check('leave from tray asks about a draft, then leaves without quitting', async () => {
+    await d.evaluate(() => { document.querySelector('#message-input').value = 'rascunho'; });
+    const dialog = new Promise(resolve => d.once('dialog', async dlg => { await dlg.dismiss(); resolve(dlg.message()); }));
+    await d.locator('#tray-panel [data-tray-action="leave"]').click();
+    assert.match(await dialog, /mensagem não enviada/);
+    assert.equal(await d.locator('#participant-count').textContent(), '2');
+    await d.evaluate(() => { document.querySelector('#message-input').value = ''; });
+    await d.evaluate(() => dispatchEvent(new CustomEvent('screenshare:viewer-mode', { detail: 'compact' })));
     await d.locator('#tray-panel [data-tray-action="leave"]').click();
     await w.waitForFunction(() => document.querySelector('#participant-count').textContent === '1');
     assert.equal(await d.locator('#tray-connection-status').textContent(), 'Entre em uma sala para usar a mídia.');
-    assert.equal(await d.locator('audio[id^="remote-audio-"], .screen-tile, .camera-tile').count(), 0);
+    assert.equal(await d.locator('audio[id^="remote-audio-"], .screen-tile, .camera-tile, #screen-mirror').count(), 0);
+    assert(await d.locator('#tray-panel [data-tray-action="leave"]').isDisabled(), 'leave disabled without a room');
+    assert.equal(await d.evaluate(() => document.visibilityState !== undefined), true, 'desktop window still alive');
     await d.evaluate(() => dispatchEvent(new CustomEvent('screenshare:viewer-mode', { detail: 'room' })));
+    await d.locator('#join-screen').waitFor({ state: 'visible' });
     await cdp.send('Emulation.clearDeviceMetricsOverride');
   });
   assert.deepEqual(errors, [], 'no page errors');

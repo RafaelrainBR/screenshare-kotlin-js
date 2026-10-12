@@ -31,10 +31,17 @@ object InterfaceMutations {
     fun updateRoomConnection(
         connected: Boolean,
         status: String = if (connected) "Conectado" else "Conectando à sala…",
+        alert: Boolean = !connected,
     ) {
         roomConnected = connected
-        document.getElementById("room-connection-status")?.textContent = status
-        document.getElementById("tray-connection-status")?.textContent = status
+        listOf("room-connection-status", "tray-connection-status").forEach { id ->
+            document.getElementById(id)?.apply {
+                textContent = status
+                // Connected stays announced via role=status without taking space; problems stay visible.
+                classList.toggle("sr-only", connected)
+                classList.toggle("connection-alert", alert)
+            }
+        }
         Elements.sendMessageButton.disabled = !connected
         val buttons = document.querySelectorAll("[data-needs-room]")
         for (index in 0 until buttons.length) (buttons.item(index) as? HTMLButtonElement)?.disabled = !connected
@@ -59,6 +66,7 @@ object InterfaceMutations {
             } else {
                 "Conectando à sala…"
             },
+            alert = roomId != null,
         )
         CoroutineScope(
             Dispatchers.Main,
@@ -223,6 +231,7 @@ object InterfaceMutations {
             }
             existingTile.setAttribute("data-username", username)
             existingTile.setAttribute("aria-label", "Tela de $username")
+            existingTile.querySelector(".tile-name")?.textContent = username
             (existingTile as? HTMLElement)?.title = "Tela de $username"
         } else {
             val tile = createScreenTile(tileId, stream, username, isLocal)
@@ -258,6 +267,7 @@ object InterfaceMutations {
         video.addEventListener("pause", { if (video.isConnected) video.play().catch { } })
         video.addEventListener("click", { e -> e.preventDefault() })
         tile.appendChild(video)
+        tile.appendChild(tileName(username))
 
         val controls = document.createElement("div") as HTMLElement
         controls.className = "screen-tile-controls"
@@ -410,6 +420,7 @@ object InterfaceMutations {
             Elements.screensStage.classList.remove("focus-mode", "hidden")
             Elements.screensStage.classList.add("no-video")
             Elements.noScreenMessage.classList.remove("hidden")
+            syncMirror(null)
             UserListMutations.syncAvatarTiles()
             return
         }
@@ -430,6 +441,7 @@ object InterfaceMutations {
                     Elements.screensMain.appendChild(tile)
                 }
             }
+            syncMirror(null)
             UserListMutations.syncAvatarTiles()
             return
         }
@@ -451,11 +463,63 @@ object InterfaceMutations {
             }
         }
 
+        syncMirror(focusedTile)
         UserListMutations.syncAvatarTiles()
         if (Elements.screensRail.childElementCount > 0) {
             Elements.screensRail.classList.remove("hidden")
         } else {
             Elements.screensRail.classList.add("hidden")
+        }
+    }
+
+    private fun tileName(username: String): HTMLElement =
+        (document.createElement("span") as HTMLElement).apply {
+            className = "tile-name"
+            textContent = username
+        }
+
+    // Presentation-only copy of the focused tile for the rail: same stream, never a .screen-tile.
+    private fun syncMirror(focusedTile: HTMLElement?) {
+        var mirror = document.getElementById("screen-mirror") as? HTMLElement
+        val source = focusedTile?.querySelector("video") as? HTMLVideoElement
+        if (focusedTile == null || source == null) {
+            if (mirror != null) {
+                (mirror.querySelector("video") as? HTMLVideoElement)?.srcObject = null
+                mirror.parentElement?.removeChild(mirror)
+            }
+            return
+        }
+        if (mirror == null) {
+            val created = document.createElement("div") as HTMLElement
+            created.id = "screen-mirror"
+            created.className = "screen-tile-mirror"
+            created.tabIndex = 0
+            created.setAttribute("aria-current", "true")
+            val video = document.createElement("video") as HTMLVideoElement
+            video.muted = true
+            video.autoplay = true
+            video.setAttribute("playsinline", "")
+            created.appendChild(video)
+            created.appendChild(tileName(""))
+            created.addEventListener("click", { created.getAttribute("data-tile-id")?.let(::setFocusedTile) })
+            created.addEventListener("keydown", { event ->
+                if (event.asDynamic().key == "Enter" || event.asDynamic().key == " ") {
+                    event.preventDefault()
+                    created.getAttribute("data-tile-id")?.let(::setFocusedTile)
+                }
+            })
+            mirror = created
+        }
+        val username = focusedTile.getAttribute("data-username").orEmpty()
+        mirror.setAttribute("data-tile-id", focusedTile.getAttribute("data-tile-id").orEmpty())
+        mirror.setAttribute("data-owner-id", focusedTile.getAttribute("data-owner-id").orEmpty())
+        mirror.setAttribute("aria-label", "Prévia de $username, em destaque")
+        mirror.title = "Voltar à grade"
+        mirror.querySelector(".tile-name")?.textContent = username
+        val video = mirror.querySelector("video") as HTMLVideoElement
+        if (video.srcObject !== source.srcObject) video.srcObject = source.srcObject
+        if (Elements.screensRail.firstChild != mirror) {
+            Elements.screensRail.insertBefore(mirror, Elements.screensRail.firstChild)
         }
     }
 
@@ -489,7 +553,9 @@ object InterfaceMutations {
 
     fun updateCameraControls(isLocalCameraOn: Boolean) {
         document.getElementById("tray-camera")?.apply {
-            textContent = if (isLocalCameraOn) "Parar câmera" else "Ligar câmera"
+            val label = if (isLocalCameraOn) "Parar câmera" else "Ligar câmera"
+            setAttribute("aria-label", label)
+            setAttribute("title", label)
             setAttribute("aria-pressed", isLocalCameraOn.toString())
         }
         if (isLocalCameraOn) {
@@ -513,6 +579,7 @@ object InterfaceMutations {
             }
             existingTile.setAttribute("data-username", username)
             existingTile.setAttribute("aria-label", "Câmera de $username")
+            existingTile.querySelector(".tile-name")?.textContent = username
             (existingTile as? HTMLElement)?.title = "Câmera de $username"
         } else {
             val tile = createCameraTile(tileId, stream, username, isLocal)
@@ -548,6 +615,7 @@ object InterfaceMutations {
         video.addEventListener("pause", { if (video.isConnected) video.play().catch { } })
         video.addEventListener("click", { e -> e.preventDefault() })
         tile.appendChild(video)
+        tile.appendChild(tileName(username))
 
         val controls = document.createElement("div") as HTMLElement
         controls.className = "screen-tile-controls"
@@ -698,8 +766,8 @@ object InterfaceMutations {
         document.getElementById("outputSlash")?.classList?.toggle("hidden", !outputMuted)
         val label = if (outputMuted) "Ativar saída de áudio" else "Silenciar saída de áudio"
         document.getElementById("tray-output")?.apply {
-            textContent = if (outputMuted) "Ativar áudio" else "Silenciar áudio"
             setAttribute("aria-label", label)
+            setAttribute("title", label)
             setAttribute("aria-pressed", outputMuted.toString())
         }
         Elements.outputToggle.title = label
@@ -726,8 +794,8 @@ object InterfaceMutations {
         document.getElementById("outputSlash")?.classList?.toggle("hidden", !outputMuted)
         val label = if (outputMuted) "Ativar saída de áudio" else "Silenciar saída de áudio"
         document.getElementById("tray-output")?.apply {
-            textContent = if (outputMuted) "Ativar áudio" else "Silenciar áudio"
             setAttribute("aria-label", label)
+            setAttribute("title", label)
             setAttribute("aria-pressed", outputMuted.toString())
         }
         Elements.outputToggle.title = label
@@ -782,8 +850,9 @@ object InterfaceMutations {
 
     fun updateAudioControls(isMicMuted: Boolean) {
         document.getElementById("tray-mic")?.apply {
-            textContent = if (isMicMuted) "Ativar microfone" else "Silenciar mic."
-            setAttribute("aria-label", if (isMicMuted) "Ativar microfone" else "Silenciar microfone")
+            val label = if (isMicMuted) "Ativar microfone" else "Silenciar microfone"
+            setAttribute("aria-label", label)
+            setAttribute("title", label)
             setAttribute("aria-pressed", (!isMicMuted).toString())
         }
         val micSlash = document.getElementById("micSlash")!!
