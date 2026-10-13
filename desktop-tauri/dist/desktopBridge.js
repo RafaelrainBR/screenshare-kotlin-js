@@ -650,6 +650,7 @@
     launchedAtLogin: () => invoke("launched_at_login"),
     hideMainWindow: () => invoke("hide_main_window"),
     showMainWindow: () => invoke("show_main_window"),
+    openPrivacySettings: (kind) => invoke("open_privacy_settings", { kind }),
     quitApp: () => invoke("quit_app"),
     setTrayState: (kind, active, participants, detail) => invoke("set_tray_state", { kind, active, participants, detail })
   };

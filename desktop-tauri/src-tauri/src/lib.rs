@@ -435,6 +435,32 @@ fn hide_main_window(window: tauri::WebviewWindow) -> Result<(), String> {
     hide_window(&window).map_err(|_| "window-hide-failed".to_string())
 }
 
+/// Apps cannot grant themselves camera/mic access; the best we can do is open the OS page.
+#[tauri::command]
+fn open_privacy_settings(kind: String) -> Result<(), String> {
+    let url = match (kind.as_str(), cfg!(target_os = "macos")) {
+        ("camera", false) => "ms-settings:privacy-webcam",
+        ("microphone", false) => "ms-settings:privacy-microphone",
+        ("camera", true) => "x-apple.systempreferences:com.apple.preference.security?Privacy_Camera",
+        ("microphone", true) => {
+            "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone"
+        }
+        _ => return Err("unsupported-kind".into()),
+    };
+    let opener = if cfg!(target_os = "windows") {
+        "explorer"
+    } else if cfg!(target_os = "macos") {
+        "open"
+    } else {
+        return Err("unsupported-platform".into());
+    };
+    std::process::Command::new(opener)
+        .arg(url)
+        .spawn()
+        .map(|_| ())
+        .map_err(|_| "open-settings-failed".to_string())
+}
+
 #[tauri::command]
 fn show_main_window(window: tauri::WebviewWindow) -> Result<(), String> {
     present_window(&window, false, None)
@@ -672,6 +698,7 @@ pub fn run() {
             capture_thumbnail,
             hide_main_window,
             show_main_window,
+            open_privacy_settings,
             launched_at_login,
             quit_app,
             set_tray_state
@@ -690,6 +717,7 @@ pub fn run() {
             mac_commands::capture_thumbnail,
             hide_main_window,
             show_main_window,
+            open_privacy_settings,
             launched_at_login,
             quit_app,
             set_tray_state
@@ -698,6 +726,7 @@ pub fn run() {
     let builder = builder.invoke_handler(tauri::generate_handler![
         hide_main_window,
         show_main_window,
+        open_privacy_settings,
         launched_at_login,
         quit_app,
         set_tray_state
