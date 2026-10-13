@@ -6,7 +6,7 @@ fun mediaPermissionHelp(
 ): String =
     when (errorName) {
         "NotAllowedError" -> {
-            "O acesso foi negado ou bloqueado pelo sistema. Confira as permissões de privacidade do sistema para este app e tente novamente."
+            "O acesso foi negado ou bloqueado pelo sistema. Libere o acesso nas configurações de privacidade do sistema (no Windows, ative também \"Permitir que aplicativos da área de trabalho acessem\") e tente novamente."
         }
 
         "NotFoundError" -> {

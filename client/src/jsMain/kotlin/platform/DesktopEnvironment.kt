@@ -38,6 +38,10 @@ object DesktopEnvironment {
         (window.asDynamic().__screenshareDesktopBridge.showMainWindow() as kotlin.js.Promise<dynamic>).await()
     }
 
+    suspend fun openPrivacySettings(kind: String) {
+        (window.asDynamic().__screenshareDesktopBridge.openPrivacySettings(kind) as kotlin.js.Promise<dynamic>).await()
+    }
+
     suspend fun setTrayState(
         kind: String,
         active: Boolean,

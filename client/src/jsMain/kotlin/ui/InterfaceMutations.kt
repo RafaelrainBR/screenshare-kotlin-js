@@ -134,6 +134,15 @@ object InterfaceMutations {
             document.getElementById(buttonId)?.asDynamic()?.click()
             null
         }
+        document.getElementById("open-privacy-settings")?.apply {
+            classList.toggle("hidden", !DesktopEnvironment.isAvailable || kind == "screen")
+            asDynamic().onclick = {
+                CoroutineScope(Dispatchers.Main).launch {
+                    runCatching { DesktopEnvironment.openPrivacySettings(kind) }
+                }
+                null
+            }
+        }
         document.getElementById("close-permission-help")?.asDynamic()?.onclick = {
             document.getElementById("permission-recovery")?.classList?.add("hidden")
             null

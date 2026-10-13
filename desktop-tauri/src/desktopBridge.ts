@@ -292,6 +292,7 @@ function videoSummary() {
   launchedAtLogin: () => invoke<boolean>('launched_at_login'),
   hideMainWindow: () => invoke('hide_main_window'),
   showMainWindow: () => invoke('show_main_window'),
+  openPrivacySettings: (kind: string) => invoke('open_privacy_settings', { kind }),
   quitApp: () => invoke('quit_app'),
   setTrayState: (kind: string, active: boolean, participants?: number, detail?: string) =>
     invoke('set_tray_state', { kind, active, participants, detail }),
