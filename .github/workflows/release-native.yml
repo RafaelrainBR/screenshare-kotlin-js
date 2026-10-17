@@ -19,11 +19,11 @@ jobs:
     defaults:
       run:
         shell: bash
-    env:
-      # A short target path: libwebrtc's abseil includes overflow MAX_PATH under the workspace.
-      CARGO_TARGET_DIR: ${{ runner.temp }}/t
     steps:
       - uses: actions/checkout@v7
+      # A short target path: libwebrtc's abseil includes overflow MAX_PATH under the workspace.
+      # (The runner context is not available in job-level env.)
+      - run: echo "CARGO_TARGET_DIR=$(cygpath -m "$RUNNER_TEMP")/t" >> "$GITHUB_ENV"
       - name: Check tag
         run: '[[ "$GITHUB_REF_NAME" =~ ^native-v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z.]+)?$ ]]'
       - name: Install Rust
