@@ -4,8 +4,10 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.serialization.json.Json
 import org.slf4j.LoggerFactory
 import screenshare.common.ChatMessage
+import screenshare.common.IceServer
 import screenshare.common.Packet
 import screenshare.common.Packet.CameraShareStarted
 import screenshare.common.Packet.CameraShareStopped
@@ -51,6 +53,7 @@ class Room(
         user.start(scope) { removeUser(user) }
         users[user.id] = user
         if (user.clientVersion >= 2) user.sendPacket(Packet.RoomJoined(id, user.id))
+        if (user.clientVersion >= 3 && iceServers.isNotEmpty()) user.sendPacket(Packet.IceServers(id, iceServers))
         sendMessageHistory(user)
         notifyUserJoin(user)
     }
@@ -198,6 +201,18 @@ class Room(
 
     companion object {
         fun create(roomId: String): Room = Room(id = roomId)
+
+        /** ICE_SERVERS holds the STUN/TURN list as JSON (a Fly secret), so credentials stay out of Git. */
+        private val iceServers: List<IceServer> =
+            System.getenv("ICE_SERVERS")?.takeIf { it.isNotBlank() }?.let { json ->
+                runCatching { Json.decodeFromString<List<IceServer>>(json) }
+                    .onFailure {
+                        LoggerFactory
+                            .getLogger(
+                                Room::class.java,
+                            ).error("ICE_SERVERS is not valid JSON; sending none", it)
+                    }.getOrDefault(emptyList())
+            } ?: emptyList()
     }
 }
 

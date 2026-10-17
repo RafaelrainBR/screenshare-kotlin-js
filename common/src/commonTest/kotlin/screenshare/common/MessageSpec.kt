@@ -21,6 +21,7 @@ class MessageSpec : FunSpec({
         joinRoomJson("testRoomId", "username") to JoinRoom("testRoomId", "username"),
         """{"type":"join-room","rid":"room","username":"same","clientVersion":2}""" to JoinRoom("room", "same", 2),
         """{"type":"room-joined","rid":"room","sid":"socket"}""" to Packet.RoomJoined("room", "socket"),
+        ICE_JSON to ICE_PACKET,
         """{"type":"send-message","rid":"room","msg":"Hello","clientMessageId":"receipt"}""" to
             SendChatMessage("room", "Hello", "receipt"),
         (
@@ -51,6 +52,8 @@ class MessageSpec : FunSpec({
         JoinRoom("testRoomId", "username") to joinRoomJson("testRoomId", "username"),
         JoinRoom("room", "same", 2) to """{"type":"join-room","rid":"room","username":"same","clientVersion":2}""",
         Packet.RoomJoined("room", "socket") to """{"type":"room-joined","rid":"room","sid":"socket"}""",
+        // Empty username/credential are left out (defaults), as STUN entries need neither.
+        ICE_PACKET to ICE_JSON,
         SendChatMessage("room", "Hello", "receipt") to
             """{"type":"send-message","rid":"room","msg":"Hello","clientMessageId":"receipt"}""",
         ChatMessageReceived("room", ChatMessage("same", "Hello", 123, "socket", "receipt")) to
@@ -114,5 +117,14 @@ class MessageSpec : FunSpec({
             roomId: String,
             users: List<SocketUser>,
         ) = """{"type":"user-list","rid":"$roomId","users":${Json.encodeToString(users)}}"""
+
+        const val ICE_JSON =
+            """{"type":"ice-servers","rid":"room","iceServers":[{"urls":["stun:h:3478"]},""" +
+                """{"urls":["turn:h:3478"],"username":"u","credential":"c"}]}"""
+        val ICE_PACKET =
+            Packet.IceServers(
+                "room",
+                listOf(IceServer(listOf("stun:h:3478")), IceServer(listOf("turn:h:3478"), "u", "c")),
+            )
     }
 }
