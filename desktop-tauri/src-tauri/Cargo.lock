@@ -798,6 +798,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "desktop-capture"
+version = "0.1.0"
+dependencies = [
+ "screencapturekit",
+ "serde",
+ "wasapi",
+ "windows",
+]
+
+[[package]]
 name = "digest"
 version = "0.10.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3239,10 +3249,10 @@ name = "screenshare-desktop"
 version = "0.10.0"
 dependencies = [
  "block2",
+ "desktop-capture",
  "objc2",
  "objc2-app-kit",
  "objc2-foundation",
- "screencapturekit",
  "serde",
  "serde_json",
  "tauri",
@@ -3251,7 +3261,6 @@ dependencies = [
  "tauri-plugin-process",
  "tauri-plugin-single-instance",
  "tauri-plugin-updater",
- "wasapi",
  "webview2-com",
  "windows",
 ]

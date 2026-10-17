@@ -41,7 +41,7 @@ fn discord_root(processes: &[(u32, u32, String)]) -> Result<Option<u32>, String>
     }
 }
 
-pub(crate) fn discord_process_id() -> Result<Option<u32>, String> {
+pub fn discord_process_id() -> Result<Option<u32>, String> {
     let snapshot = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) }
         .map_err(|_| "capture-process-list-unavailable")?;
     let result = (|| {
@@ -75,7 +75,7 @@ pub(crate) fn discord_process_id() -> Result<Option<u32>, String> {
     result
 }
 
-pub(crate) fn process_exists(pid: u32) -> bool {
+pub fn process_exists(pid: u32) -> bool {
     if pid == 0 {
         return false;
     }
