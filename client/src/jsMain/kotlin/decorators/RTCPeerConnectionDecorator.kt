@@ -228,10 +228,23 @@ class RTCPeerConnectionDecorator(
     }
 
     companion object {
-        /** [iceServers] comes from the server (ice-servers packet), so no TURN credential lives in the client. */
+        // shortcut: servers without ICE_SERVERS (old builds, the beta app, self-hosts) send no ice-servers
+        // packet, so the pre-v3 list stays as a fallback; drop it once every server sends one.
+        private val legacyIceServers =
+            listOf(
+                IceServer(listOf("stun:163.176.39.139:3478")),
+                IceServer(
+                    listOf("turn:163.176.39.139:3478", "turn:163.176.39.139:3478?transport=tcp"),
+                    "rafael",
+                    "494e15922c47d42a",
+                ),
+            )
+
+        /** [iceServers] comes from the server (ice-servers packet); empty means an older server. */
         fun create(iceServers: List<IceServer>): RTCPeerConnectionDecorator {
             val servers =
                 iceServers
+                    .ifEmpty { legacyIceServers }
                     .map { server ->
                         json("urls" to server.urls.toTypedArray()).also {
                             if (server.username.isNotEmpty()) it["username"] = server.username
