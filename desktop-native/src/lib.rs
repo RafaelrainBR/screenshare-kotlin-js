@@ -76,7 +76,10 @@ struct EngineConfig {
 #[serde(rename_all = "camelCase")]
 struct IceServerConfig {
     urls: Vec<String>,
+    // The server leaves both out for STUN entries.
+    #[serde(default)]
     username: String,
+    #[serde(default)]
     credential: String,
 }
 

@@ -225,6 +225,8 @@ struct Packet {
     screen_sharers: Vec<String>,
     #[serde(default)]
     camera_sharers: Vec<String>,
+    #[serde(default)]
+    ice_servers: Option<Value>,
 }
 
 #[derive(Debug, PartialEq)]
@@ -247,6 +249,8 @@ pub enum Action {
         line: Option<u16>,
         fragment: Option<String>,
     },
+    /// STUN/TURN from the server's `ice-servers`, which arrives before any participant.
+    SetIceServers(Value),
     /// A packet for the server, e.g. `request-media-state` right after `room-joined`.
     Send(Value),
 }
@@ -298,7 +302,7 @@ impl Session {
         self.socket_id.as_deref()
     }
     pub fn join(&self) -> Value {
-        json!({"type":"join-room","rid":self.room,"username":self.username,"clientVersion":2})
+        json!({"type":"join-room","rid":self.room,"username":self.username,"clientVersion":3})
     }
     /// The packet to send and its `clientMessageId`; the server echoes the id back as a receipt.
     pub fn chat(&mut self, text: &str) -> Result<Value, String> {
@@ -393,6 +397,7 @@ impl Session {
                     }
                 }
             }
+            "ice-servers" => actions.extend(packet.ice_servers.map(Action::SetIceServers)),
             "user-list" => {
                 let local = self.socket_id.clone().unwrap();
                 let users: Vec<_> = packet
@@ -587,6 +592,7 @@ fn engine_action(engine: &mut RustEngine, outgoing: &mut VecDeque<Value>, action
             initiate,
         } => json!({"command":"ensurePeer","peerId":peer_id,"polite":polite,"initiate":initiate}),
         Action::RemovePeer(peer_id) => json!({"command":"removePeer","peerId":peer_id}),
+        Action::SetIceServers(servers) => json!({"command":"setIceServers","iceServers":servers}),
         Action::RemoteDescription { peer_id, kind, sdp } => {
             json!({"command":"remoteDescription","peerId":peer_id,"type":kind,"sdp":sdp})
         }
@@ -1059,7 +1065,7 @@ mod tests {
                 let join = socket.next().await.unwrap().unwrap().into_text().unwrap();
                 assert_eq!(
                     serde_json::from_str::<Value>(&join).unwrap(),
-                    json!({"type":"join-room","rid":"room","username":"alice","clientVersion":2})
+                    json!({"type":"join-room","rid":"room","username":"alice","clientVersion":3})
                 );
                 socket.send(Message::Text(r#"{"type":"room-joined","rid":"room","sid":"a"}"#.into())).await.unwrap();
                 socket.send(Message::Text(r#"{"type":"user-list","rid":"room","users":[{"socketId":"a","username":"alice","roomId":"room"}]}"#.into())).await.unwrap();
@@ -1094,6 +1100,20 @@ mod tests {
         server.abort();
         assert_eq!(result.unwrap(), Ok(()));
         assert_eq!(joins.load(Ordering::Relaxed), 7);
+    }
+
+    #[test]
+    fn server_ice_servers_reach_the_engine() {
+        let mut session = Session::new("room".into(), "alice".into());
+        session.receive(r#"{"type":"room-joined","rid":"room","sid":"a"}"#, 1).unwrap();
+        // Fixture from MessageSpec.kt: STUN entries carry no username/credential.
+        let servers = json!([{"urls":["stun:h:3478"]},{"urls":["turn:h:3478"],"username":"u","credential":"c"}]);
+        let actions = session
+            .receive(&json!({"type":"ice-servers","rid":"room","iceServers":servers}).to_string(), 1)
+            .unwrap();
+        assert_eq!(actions, vec![Action::SetIceServers(servers.clone())]);
+        // The engine accepts what the server sends, defaults included.
+        assert!(crate::parse_command(&json!({"command":"setIceServers","iceServers":servers}).to_string()).is_ok());
     }
 
     #[test]
@@ -1674,7 +1694,7 @@ mod tests {
         assert!(endpoint_allowed("wss://example.org/"));
         let spec = |text: &str| serde_json::from_str::<Value>(text).unwrap();
         let mut s = Session::new("room".into(), "same".into());
-        assert_eq!(s.join(), spec(r#"{"type":"join-room","rid":"room","username":"same","clientVersion":2}"#));
+        assert_eq!(s.join(), spec(r#"{"type":"join-room","rid":"room","username":"same","clientVersion":3}"#));
         let mut chat = s.chat("Hello").unwrap();
         assert!(chat["clientMessageId"].as_str().is_some_and(|id| !id.is_empty()));
         chat["clientMessageId"] = json!("receipt");

@@ -333,12 +333,11 @@ fn fps_update(app: &mut App) {
 
 fn start(room: String, name: String) -> Running {
     let endpoint = std::env::var("SCREENSHARE_WS").unwrap_or_else(|_| "wss://screen-share.fly.dev/".into());
-    // TURN credentials stay outside Git: SCREENSHARE_ENGINE_CONFIG points at a local JSON file, and
-    // release builds embed the NATIVE_ENGINE_CONFIG secret (release-native.yml).
+    // STUN/TURN come from the server (ice-servers); SCREENSHARE_ENGINE_CONFIG, a local JSON file,
+    // only matters for servers that do not send them.
     let config = std::env::var("SCREENSHARE_ENGINE_CONFIG")
         .ok()
         .and_then(|path| std::fs::read_to_string(path).ok())
-        .or_else(|| option_env!("SCREENSHARE_BUILD_ENGINE_CONFIG").map(str::to_owned))
         .unwrap_or_else(|| r#"{"schemaVersion":1,"iceServers":[],"iceTransportPolicy":"all"}"#.into());
     let stop = Arc::new(AtomicBool::new(false));
     let view = Arc::new(Mutex::new(SessionView::default()));

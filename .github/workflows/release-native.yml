@@ -39,12 +39,8 @@ jobs:
         run: cargo test --release --locked
       - name: Build
         working-directory: desktop-native
-        env:
-          # ICE/TURN config embedded at compile time; kept as a secret, never in Git.
-          SCREENSHARE_BUILD_ENGINE_CONFIG: ${{ secrets.NATIVE_ENGINE_CONFIG }}
-        run: |
-          test -n "$SCREENSHARE_BUILD_ENGINE_CONFIG" || { echo "::error::secret NATIVE_ENGINE_CONFIG is missing"; exit 1; }
-          cargo build --release --locked
+        # STUN/TURN arrive from the server at runtime (ice-servers); nothing is embedded.
+        run: cargo build --release --locked
       - name: Package
         run: |
           version="${GITHUB_REF_NAME#native-v}"
