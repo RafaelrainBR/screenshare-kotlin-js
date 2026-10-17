@@ -291,7 +291,7 @@ Teclado e foco básicos entram no beta. UIA/IME completos são gate de promoçã
 - Artefatos: exe portátil e, se quiser, setup NSIS via `cargo-packager`, com identificador diferente do Tauri para os dois poderem estar instalados juntos.
 - Sem updater.
 
-**Feito (17/10/2026), sem rodar no CI.**
+**Feito (17/10/2026).** Primeiro beta: [native-v0.1.0](https://github.com/RafaelrainBR/screenshare-kotlin-js/releases/tag/native-v0.1.0) (pre-release; a latest continua v0.11.1). Dois tropeços no 1º run: `runner.temp` não existe no `env` do job, e o `.cargo/config.toml` com `crt-static` só vale rodando dentro de `desktop-native` (com `--manifest-path`, o link falha por `/MT` × `/MD`).
 - `.github/workflows/release-native.yml`:
   - tag `native-vX.Y.Z[-sufixo]`;
   - roda os testes do `desktop-capture` e do `desktop-native` no `windows-latest`;
@@ -317,4 +317,4 @@ Critérios mínimos: duas betas usadas de verdade sem bug grave; paridade com o 
 
 ## Próximo passo
 
-F-1 a F5 feitos (F5 sem rodar no CI). Para o primeiro beta: merge do F0 (#25) e da guarda do cliente (#26) no master, release web/Tauri com a guarda, secret `NATIVE_ENGINE_CONFIG`, validar à mão o áudio do PC e o share pelo assistente com mouse, e então a tag `native-v0.1.0`.
+F-1 a F5 feitos e native-v0.1.0 publicado. Pendente: validar à mão o áudio do PC e o share pelo assistente com mouse; depois, o servidor distribuir a config ICE (hoje é o secret `NATIVE_ENGINE_CONFIG`).
