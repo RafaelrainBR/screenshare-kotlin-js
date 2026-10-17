@@ -17,6 +17,7 @@ use libwebrtc::{
 use tokio_stream::StreamExt;
 
 /// Latest decoded frame of the selected peer, RGBA, ready for the UI to upload.
+#[derive(Clone)]
 pub struct VideoFrameSnapshot {
     pub width: u32,
     pub height: u32,

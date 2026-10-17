@@ -253,11 +253,55 @@ Depois do primeiro beta: enviar câmera, tray/painel, autostart, reentrar pelo l
 
 Teclado e foco básicos entram no beta. UIA/IME completos são gate de promoção, não de beta.
 
+**Feito (17/10/2026).**
+- Módulos em `desktop-native/src/ui/`:
+  - `theme.rs`: tokens da v4 como `Theme::custom` e fonte Barlow embutida;
+  - `room.rs`: participantes, palco, conversa e dock;
+  - `wizard.rs`: assistente de share.
+  - O `main.rs` só guarda estado e mensagens. O driver `SPIKE_*` saiu.
+- Entrar e sair:
+  - foco inicial no nome; o nome padrão é o usuário do Windows;
+  - código vazio cria uma sala com 8 hex, como no web;
+  - sair derruba a sessão (o `Drop` de `Running`) e volta à tela de entrada.
+- Participantes: nome, "(você)", mudo, tela e câmera, com botões "Ver tela"/"Ver câmera". A tela de quem compartilha abre sozinha, como no web, e volta ao vazio quando o share acaba.
+- Dock:
+  - microfone (F2) e som (F3), cada um com seletor de dispositivo; trocar o dispositivo com o áudio ligado desliga e religa com o novo;
+  - compartilhar e parar (F4);
+  - Sair com a seta `⇤`. O `↪` caía na fonte de emoji.
+- Assistente:
+  - miniaturas de `enumerate_sources` + `capture_thumbnail` (carregadas fora da thread da UI), sem as janelas do próprio app;
+  - áudio: nenhum, do aplicativo (só para janela) ou do PC sem Discord;
+  - presets com os textos do web;
+  - teclado: setas, A, P, Enter e Esc.
+- Fora do beta, por enquanto: o indicador "falando" (o `SessionView` não tem nível de voz) e a UIA.
+- Testes: 2 testes de unidade do assistente (mapeamento fonte → `ScreenOptions`, regra do áudio do app e navegação). Fluxo real com Ktor local + browser:
+  - entrar pelo teclado;
+  - chat do nativo chega ao browser;
+  - tela do browser aparece sozinha no palco;
+  - F3 liga e desliga o som;
+  - F4 abre o assistente; Esc fecha.
+- Não testado:
+  - iniciar o share pelo assistente: as miniaturas mostram a tela real do usuário, então não se escolhe fonte às cegas; o caminho do share em si é o da F3;
+  - F2: ligaria o microfone de verdade;
+  - o mouse: clique postado não funciona no iced, porque o `WM_MOUSELEAVE` do `TrackMouseEvent` fecha o lote de eventos com o cursor fora.
+
 ### F5 — Distribuição de teste
 
 - Workflow separado (`release-native.yml`), tags `native-v*`, publicado como **pre-release** para nunca virar a "latest" que o updater do Tauri lê.
 - Artefatos: exe portátil e, se quiser, setup NSIS via `cargo-packager`, com identificador diferente do Tauri para os dois poderem estar instalados juntos.
 - Sem updater.
+
+**Feito (17/10/2026), sem rodar no CI.**
+- `.github/workflows/release-native.yml`:
+  - tag `native-vX.Y.Z[-sufixo]`;
+  - roda os testes do `desktop-capture` e do `desktop-native` no `windows-latest`;
+  - compila e publica `Screenshare-native_<versão>_x64-portable.exe` + `SHA256SUMS` com `--prerelease --latest=false`, e confere que saiu como pre-release.
+- O `CARGO_TARGET_DIR` fica em `runner.temp`, pelo MAX_PATH do abseil.
+- Config ICE/TURN: o build embute o secret `NATIVE_ENGINE_CONFIG` (`option_env!`) e falha sem ele. O `SCREENSHARE_ENGINE_CONFIG` local continua tendo prioridade.
+- O servidor padrão é `wss://screen-share.fly.dev/` (`SCREENSHARE_WS` sobrepõe).
+- Antes da primeira tag:
+  - criar o secret `NATIVE_ENGINE_CONFIG` com o JSON do engine (`schemaVersion`, `iceServers`, `iceTransportPolicy`);
+  - fazer o merge do #26 e sair um release web/Tauri com a guarda.
 
 ### F6 — Promoção (decisão manual)
 
@@ -273,4 +317,4 @@ Critérios mínimos: duas betas usadas de verdade sem bug grave; paridade com o 
 
 ## Próximo passo
 
-F-1 concluído e iced aprovado. Agora: F0 como PR no master; F1 pode começar em paralelo na branch nova porque só depende do crate de captura na F3.
+F-1 a F5 feitos (F5 sem rodar no CI). Para o primeiro beta: merge do F0 (#25) e da guarda do cliente (#26) no master, release web/Tauri com a guarda, secret `NATIVE_ENGINE_CONFIG`, validar à mão o áudio do PC e o share pelo assistente com mouse, e então a tag `native-v0.1.0`.
