@@ -114,7 +114,7 @@ class WebsocketService(
         roomId: String,
         username: String,
     ) {
-        val join = Packet.JoinRoom(roomId, username, clientVersion = 2)
+        val join = Packet.JoinRoom(roomId, username, clientVersion = 3)
         lastJoin = join
         joinedRoomId = null
         session?.send(Text(Json.encodeToString<Packet>(join)))

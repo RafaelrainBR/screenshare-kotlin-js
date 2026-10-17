@@ -21,6 +21,10 @@ fun handlePacket(
                 if (packet.roomId == session.localRoomId) session.confirmRoomJoined(packet.socketId)
             }
 
+            is Packet.IceServers -> {
+                if (packet.roomId == session.localRoomId) session.peerConnections.iceServers = packet.iceServers
+            }
+
             is Packet.UserConnected -> {
                 handleUserConnected(session, packet, coroutineScope)
             }

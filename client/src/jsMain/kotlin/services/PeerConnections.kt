@@ -9,6 +9,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.await
 import kotlinx.coroutines.launch
 import org.w3c.dom.mediacapture.MediaStreamTrack
+import screenshare.common.IceServer
 import kotlin.js.Json
 import kotlin.js.json
 
@@ -34,6 +35,9 @@ class PeerConnections(
     // câmera quando ambos estão ativos. Zerado ao parar um compartilhamento.
     private val receivedVideoCount = mutableMapOf<String, Int>()
     private var videoReceptionEnabled = true
+
+    /** STUN/TURN from the server's ice-servers packet; it arrives before any peer is created. */
+    var iceServers: List<IceServer> = emptyList()
 
     fun markScreenSharing(
         socketId: String,
@@ -147,7 +151,7 @@ class PeerConnections(
         coroutineScope: CoroutineScope,
         peerConnection: RTCPeerConnectionDecorator? = null,
     ): RTCPeerConnectionDecorator {
-        val peerConnection = peerConnection ?: RTCPeerConnectionDecorator.create()
+        val peerConnection = peerConnection ?: RTCPeerConnectionDecorator.create(iceServers)
 
         addTracksIfNotPresent(peerConnection)
 
