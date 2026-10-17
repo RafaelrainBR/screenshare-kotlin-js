@@ -36,6 +36,9 @@ struct Running {
     stop: Arc<AtomicBool>,
     thread: Option<JoinHandle<()>>,
     chat: Sender<(u64, String)>,
+    screen: Sender<(u64, Option<desktop_native::session::ScreenOptions>)>,
+    // shortcut: SPIKE_SHARE test driver (start/stop cycles) until the F4 share wizard exists.
+    share_plan: Option<(desktop_native::session::ScreenOptions, u32, Instant, bool, u32)>,
     video: Sender<(u64, Option<String>, bool)>,
     view: Arc<Mutex<SessionView>>,
     surface: VideoSurface,
@@ -111,8 +114,9 @@ fn update(app: &mut App, message: Message) -> Task<Message> {
             }
         }
         Message::Tick => {
-            let Some(running) = &app.running else { return Task::none() };
+            let Some(running) = &mut app.running else { return Task::none() };
             app.view = running.view.lock().unwrap().clone();
+            drive_spike_share(running, &app.view);
             if app.auto_watch {
                 let local = app.view.local_socket_id.clone();
                 if let Some(peer) = app.view.participants.iter().find(|p| local.is_some() && Some(&p.socket_id) != local.as_ref()) {
@@ -181,7 +185,7 @@ fn start(room: String, name: String) -> Running {
     let surface = VideoSurface::default();
     let (chat, chat_rx) = channel();
     let (video, video_rx) = channel();
-    let (_screen, screen) = channel();
+    let (screen_tx, screen) = channel();
     let (_devices, devices) = channel();
     let (_audio, audio) = channel();
     let ui = UiConnection {
@@ -201,7 +205,7 @@ fn start(room: String, name: String) -> Running {
         ));
         eprintln!("session ended: {result:?}");
     });
-    Running { stop, thread: Some(thread), chat, video, view, surface }
+    Running { stop, thread: Some(thread), chat, screen: screen_tx, share_plan: spike_share(), video, view, surface }
 }
 
 fn view(app: &App) -> Element<'_, Message> {
@@ -284,4 +288,49 @@ fn main() -> iced::Result {
         .exit_on_close_request(false)
         .window_size((1400.0, 820.0))
         .run()
+}
+
+/// SPIKE_SHARE="window,<hwnd>,<pid>,<none|application|computer>" or "screen,<left>,<top>,<w>,<h>,<audio>";
+/// SPIKE_PRESET=game|video|text; SPIKE_CYCLES=N starts and stops the share N times (8 s on, 3 s off).
+fn spike_share() -> Option<(desktop_native::session::ScreenOptions, u32, Instant, bool, u32)> {
+    use desktop_native::{ScreenAudioMode, ShareSource, share::SharePreset};
+    let spec = std::env::var("SPIKE_SHARE").ok()?;
+    let parts: Vec<&str> = spec.split(',').collect();
+    let num = |i: usize| parts.get(i).and_then(|v| v.parse::<i64>().ok());
+    let (source, audio) = match parts.first().copied()? {
+        "window" => (ShareSource::Window { hwnd: num(1)? as u64, pid: num(2)? as u32 }, parts.get(3)),
+        _ => (ShareSource::Screen { left: num(1)? as i32, top: num(2)? as i32, width: num(3)? as u32, height: num(4)? as u32 }, parts.get(5)),
+    };
+    let audio_mode = match audio.copied() {
+        Some("application") => ScreenAudioMode::Application,
+        Some("computer") => ScreenAudioMode::Computer,
+        _ => ScreenAudioMode::None,
+    };
+    let preset = match std::env::var("SPIKE_PRESET").as_deref() {
+        Ok("game") => SharePreset::Game,
+        Ok("text") => SharePreset::Text,
+        _ => SharePreset::Video,
+    };
+    let cycles = std::env::var("SPIKE_CYCLES").ok().and_then(|v| v.parse().ok()).unwrap_or(1);
+    let options = desktop_native::session::ScreenOptions { source, profile: preset.profile(), height: 1080, audio_mode };
+    Some((options, cycles, Instant::now(), false, 0))
+}
+
+fn drive_spike_share(running: &mut Running, view: &SessionView) {
+    let Some((options, cycles, since, sharing, done)) = &mut running.share_plan else { return };
+    if view.local_socket_id.is_none() || *done >= *cycles {
+        return;
+    }
+    let on = std::env::var("SPIKE_ON").ok().and_then(|v| v.parse().ok()).unwrap_or(8);
+    let wait = Duration::from_secs(if *sharing { on } else { 3 });
+    if since.elapsed() < wait {
+        return;
+    }
+    *sharing = !*sharing;
+    if !*sharing {
+        *done += 1;
+    }
+    eprintln!("spike share {} (cycle {})", if *sharing { "start" } else { "stop" }, *done + 1);
+    let _ = running.screen.send((view.generation, sharing.then(|| options.clone())));
+    *since = Instant::now();
 }

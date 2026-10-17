@@ -18,3 +18,5 @@ tokio-tungstenite = { version = "0.28.0", features = ["rustls-tls-native-roots"]
 futures-util = "0.3.34"
 rand = "0.9.5"
 iced = { version = "0.14", features = ["image", "tokio"] }
+desktop-capture = { path = "../desktop-capture" }
+windows = { version = "0.62", features = ["Win32_Foundation"] }

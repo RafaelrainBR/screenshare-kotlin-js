@@ -4,7 +4,10 @@ use std::time::{Duration, Instant};
 use futures_util::{SinkExt, StreamExt};
 use tokio_tungstenite::{connect_async, tungstenite::Message};
 
-use crate::{RustEngine, ScreenAudioMode, WindowTarget};
+use crate::{
+    RustEngine, ScreenAudioMode, ShareSource,
+    share::{SharePreset, ShareProfile},
+};
 
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -51,38 +54,34 @@ pub struct AudioDevice {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ScreenOptions {
-    pub width: i32,
-    pub height: i32,
-    pub fps: i32,
+    pub source: ShareSource,
+    pub profile: ShareProfile,
+    /// The share height the bitrate ceiling follows; the capture keeps the source resolution,
+    /// like the Tauri native source.
+    pub height: u32,
     pub audio_mode: ScreenAudioMode,
-    pub window: Option<WindowTarget>,
 }
 
 impl Default for ScreenOptions {
     fn default() -> Self {
         Self {
-            width: 1280,
-            height: 720,
-            fps: 30,
+            source: ShareSource::Screen { left: 0, top: 0, width: 1280, height: 720 },
+            profile: SharePreset::Video.profile(),
+            height: 1080,
             audio_mode: ScreenAudioMode::None,
-            window: None,
         }
     }
 }
 
 impl ScreenOptions {
     fn command(&self) -> Result<Value, String> {
-        if !matches!((self.width, self.height), (1280, 720) | (1920, 1080))
-            || !matches!(self.fps, 15 | 30)
-        {
-            return Err("Use 720p/1080p e 15/30 FPS.".into());
+        if !(1..=60).contains(&self.profile.fps) {
+            return Err("Use de 1 a 60 quadros por segundo.".into());
         }
-        if self.audio_mode == ScreenAudioMode::Application && self.window.is_none() {
+        if self.audio_mode == ScreenAudioMode::Application && !matches!(self.source, ShareSource::Window { .. }) {
             return Err("Escolha a janela para compartilhar o áudio do aplicativo.".into());
         }
-        Ok(
-            json!({"command":"startScreen","width":self.width,"height":self.height,"fps":self.fps,"systemAudio":self.audio_mode != ScreenAudioMode::None,"audioMode":self.audio_mode,"window":self.window}),
-        )
+        Ok(json!({"command":"startScreen","source":self.source,"profile":self.profile,"height":self.height,"audioMode":self.audio_mode}))
     }
 }
 
@@ -1605,41 +1604,26 @@ mod tests {
     }
     use super::*;
     #[test]
-    fn screen_options_are_real_bounded_presets_and_audio_defaults_off() {
+    fn screen_options_build_the_engine_command_and_audio_defaults_off() {
         assert_eq!(ScreenOptions::default().audio_mode, ScreenAudioMode::None);
-        for (width, height) in [(1280, 720), (1920, 1080)] {
-            for fps in [15, 30] {
-                for audio_mode in [ScreenAudioMode::None, ScreenAudioMode::Computer] {
-                    let options = ScreenOptions {
-                        width,
-                        height,
-                        fps,
-                        audio_mode,
-                        window: None,
-                    };
-                    assert_eq!(
-                        options.command().unwrap(),
-                        json!({"command":"startScreen","width":width,"height":height,"fps":fps,"systemAudio":audio_mode != ScreenAudioMode::None,"audioMode":audio_mode,"window":null})
-                    );
-                }
-            }
-        }
-        assert!(
-            ScreenOptions {
-                width: 3840,
-                ..ScreenOptions::default()
-            }
-            .command()
-            .is_err()
+        let window = ScreenOptions {
+            source: ShareSource::Window { hwnd: 42, pid: 7 },
+            profile: SharePreset::Game.profile(),
+            height: 1440,
+            audio_mode: ScreenAudioMode::Application,
+        };
+        let command = window.command().unwrap();
+        assert_eq!(
+            command,
+            json!({"command":"startScreen","source":{"kind":"window","hwnd":42,"pid":7},"profile":{"fps":60,"priority":"SMOOTHNESS","maxBitrate":null},"height":1440,"audioMode":"application"})
         );
-        assert!(
-            ScreenOptions {
-                fps: 60,
-                ..ScreenOptions::default()
-            }
-            .command()
-            .is_err()
-        );
+        // The engine parses exactly what the session sends.
+        assert!(crate::parse_command(&command.to_string()).is_ok());
+        assert!(crate::parse_command(&ScreenOptions::default().command().unwrap().to_string()).is_ok());
+        assert!(ScreenOptions { audio_mode: ScreenAudioMode::Application, ..ScreenOptions::default() }.command().is_err());
+        let mut fast = ScreenOptions::default();
+        fast.profile.fps = 61;
+        assert!(fast.command().is_err());
     }
     #[test]
     fn device_snapshot_requires_complete_engine_response_and_resets_on_disconnect() {

@@ -12,10 +12,12 @@ use std::{
 use std::sync::{Mutex, atomic::Ordering};
 
 mod capture;
-pub use capture::{ScreenAudioMode, WindowTarget};
+pub use capture::{ScreenAudioMode, ShareSource};
 mod render;
 pub use render::{VideoFrameSnapshot, VideoSurface};
 pub mod session;
+pub mod share;
+use share::{ShareProfile, share_bitrate};
 
 #[cfg(not(feature = "synthetic-test"))]
 use capture::{Capture, CaptureEvent};
@@ -29,6 +31,7 @@ use libwebrtc::{
         IceServer, IceTransportsType, PeerConnectionFactory, RtcConfiguration,
     },
     rtp_sender::RtpSender,
+    rtp_transceiver::{RtpTransceiverDirection, RtpTransceiverInit},
     session_description::{SdpType, SessionDescription},
     stats::RtcStats,
 };
@@ -108,14 +111,17 @@ enum Command {
         ice_servers: Vec<IceServerConfig>,
     },
     StartScreen {
-        width: i32,
-        height: i32,
-        fps: i32,
-        system_audio: bool,
+        source: ShareSource,
+        profile: ShareProfile,
+        /// The share height the bitrate ceiling follows (share::share_bitrate).
+        height: u32,
         #[serde(default)]
-        audio_mode: Option<ScreenAudioMode>,
-        #[serde(default)]
-        window: Option<WindowTarget>,
+        audio_mode: ScreenAudioMode,
+    },
+    /// Live profile change: fps, bitrate and degradation without renegotiation.
+    SetShareProfile {
+        profile: ShareProfile,
+        height: u32,
     },
     StopScreen,
     SetMicrophone {
@@ -185,7 +191,25 @@ impl Drop for SyntheticAudio {
 #[derive(Default)]
 struct PeerMedia {
     screen: Vec<RtpSender>,
+    // Kept only to tear down a half-attached share; see detach_screen.
+    screen_transceivers: Vec<libwebrtc::rtp_transceiver::RtpTransceiver>,
     microphone: Option<RtpSender>,
+}
+
+/// PeerConnections.applyShareEncoding: bitrate ceiling, fps and degradation, no renegotiation.
+fn apply_share_encoding(sender: &RtpSender, profile: ShareProfile, height: u32) {
+    let mut params = sender.parameters();
+    if params.encodings.is_empty() {
+        params.encodings.push(Default::default());
+    }
+    for encoding in &mut params.encodings {
+        encoding.max_bitrate = Some(share_bitrate(profile, height));
+        encoding.max_framerate = Some(f64::from(profile.fps));
+    }
+    params.set_degradation_preference(profile.priority.degradation());
+    if let Err(error) = sender.set_parameters(params) {
+        eprintln!("share encoding not applied: {error}");
+    }
 }
 
 #[cfg(not(feature = "synthetic-test"))]
@@ -194,21 +218,51 @@ fn attach_real_screen(
     factory: &PeerConnectionFactory,
     screen: &Capture,
     media: &mut PeerMedia,
+    (profile, height): (ShareProfile, u32),
 ) -> Result<(), String> {
     if media.screen.is_empty() {
         let track = factory.create_video_track("screen", screen.source.clone());
-        media.screen.push(
-            peer.add_track(track.into(), &["screen"])
-                .map_err(|e| e.to_string())?,
+        // add_transceiver instead of add_track: it hands back this transceiver, so nothing has to
+        // walk transceivers and call sender().track(), which crashes (0xC0000005) on a sender whose
+        // track was removed by an earlier share.
+        let transceiver = peer
+            .add_transceiver(
+                track.into(),
+                RtpTransceiverInit {
+                    direction: RtpTransceiverDirection::SendRecv,
+                    stream_ids: vec!["screen".into()],
+                    send_encodings: Vec::new(),
+                },
+            )
+            .map_err(|e| e.to_string())?;
+        // Codec order and encoding go in before the offer, as in addTracksIfNotPresent.
+        let codecs = share::preferred_video_codecs(
+            factory.get_rtp_sender_capabilities(libwebrtc::MediaType::Video).codecs,
         );
+        if let Err(error) = transceiver.set_codec_preferences(codecs) {
+            eprintln!("codec preference not applied: {error}");
+        }
+        let sender = transceiver.sender();
+        apply_share_encoding(&sender, profile, height);
+        media.screen.push(sender);
+        media.screen_transceivers.push(transceiver);
         if let Some(audio) = &screen.audio {
             let track = factory.create_audio_track("screen-audio", audio.clone());
-            match peer.add_track(track.into(), &["screen"]) {
-                Ok(sender) => media.screen.push(sender),
+            let init = RtpTransceiverInit {
+                direction: RtpTransceiverDirection::SendRecv,
+                stream_ids: vec!["screen".into()],
+                send_encodings: Vec::new(),
+            };
+            match peer.add_transceiver(track.into(), init) {
+                Ok(transceiver) => {
+                    media.screen.push(transceiver.sender());
+                    media.screen_transceivers.push(transceiver);
+                }
                 Err(error) => {
-                    for sender in media.screen.drain(..) {
-                        let _ = peer.remove_track(sender);
+                    for transceiver in media.screen_transceivers.drain(..) {
+                        let _ = transceiver.stop();
                     }
+                    media.screen.clear();
                     return Err(error.to_string());
                 }
             }
@@ -228,6 +282,11 @@ fn detach_screen(
         if let Some(media) = peer_media.get_mut(peer_id) {
             for sender in media.screen.drain(..) {
                 let _ = peer.remove_track(sender);
+            }
+            // Only stop() frees the send stream and its encoder: JSEP keeps a sender's MSID/SSRCs in
+            // every offer until then (~67 MB leaked per share otherwise).
+            for transceiver in media.screen_transceivers.drain(..) {
+                let _ = transceiver.stop();
             }
         }
     }
@@ -353,24 +412,24 @@ fn validate_command(command: &Command) -> Result<(), String> {
             peer_id: Some(peer_id),
             ..
         } => validate_peer_id(peer_id),
-        Command::StartScreen {
-            width, height, fps, ..
-        } if *width <= 0 || *height <= 0 || *fps <= 0 || *fps > 30 => {
-            Err("INVALID_ARGUMENT: invalid capture dimensions or fps".into())
+        Command::StartScreen { profile, .. } | Command::SetShareProfile { profile, .. }
+            if !(1..=60).contains(&profile.fps) =>
+        {
+            Err("INVALID_ARGUMENT: fps must be 1..=60".into())
         }
         Command::StartScreen {
-            audio_mode: Some(ScreenAudioMode::Application),
-            window: None,
+            source: ShareSource::Screen { width, height, .. },
             ..
-        } => {
-            Err("INVALID_ARGUMENT: selecione a janela para capturar o áudio do aplicativo.".into())
-        }
+        } if *width == 0 || *height == 0 => Err("INVALID_ARGUMENT: invalid capture dimensions".into()),
         Command::StartScreen {
-            window: Some(target),
+            source: ShareSource::Window { hwnd, pid },
             ..
-        } if target.hwnd == 0 || target.pid == 0 || target.created == 0 => {
-            Err("INVALID_ARGUMENT: identidade de janela inválida.".into())
-        }
+        } if *hwnd == 0 || *pid == 0 => Err("INVALID_ARGUMENT: identidade de janela inválida.".into()),
+        Command::StartScreen {
+            source: ShareSource::Screen { .. },
+            audio_mode: ScreenAudioMode::Application,
+            ..
+        } => Err("INVALID_ARGUMENT: selecione a janela para capturar o áudio do aplicativo.".into()),
         Command::SetOutput { volume, .. } if !(0.0..=1.0).contains(volume) => {
             Err("INVALID_ARGUMENT: invalid output volume".into())
         }
@@ -477,9 +536,20 @@ fn local_description(
             }))
             .map_err(|error| error.to_string())?
     };
+    // Same Opus upgrade the web client applies to every offer and answer.
+    let description = SessionDescription::parse(
+        &share::upgrade_audio_quality_sdp(&description.to_string()),
+        description.sdp_type(),
+    )
+    .map_err(|error| error.to_string())?;
     runtime
         .block_on(peer.set_local_description(description.clone()))
         .map_err(|error| error.to_string())?;
+    if std::env::var_os("SCREENSHARE_SDP_LOG").is_some() {
+        let sdp = description.to_string();
+        let lines: Vec<_> = sdp.lines().filter(|l| l.starts_with("m=") || matches!(*l, "a=sendrecv" | "a=sendonly" | "a=recvonly" | "a=inactive")).map(|l| l.split(' ').next().unwrap_or(l)).collect();
+        eprintln!("local {} to {peer_id}: {}", description.sdp_type(), lines.join(" "));
+    }
     event(
         output,
         json!({
@@ -510,10 +580,11 @@ fn negotiate_or_defer(
     }
 }
 
+/// Same guard as PeerConnections.onNegotiationNeeded: only a stable signaling state. Waiting for a
+/// connected transport deadlocked when the first offer carried no media (a viewer with nothing to
+/// send): nothing ever connected, so the share offer was deferred forever.
 fn ready_to_negotiate(peer: &PeerConnection) -> bool {
     peer.signaling_state() == libwebrtc::peer_connection::SignalingState::Stable
-        && peer.current_remote_description().is_some()
-        && peer.connection_state() == libwebrtc::peer_connection::PeerConnectionState::Connected
 }
 
 fn stats_snapshot(runtime: &Runtime, peer: &PeerConnection) -> Result<serde_json::Value, String> {
@@ -826,6 +897,8 @@ fn run_worker(
     #[cfg(not(feature = "synthetic-test"))]
     let mut capture_generation: u64 = 0;
     #[cfg(not(feature = "synthetic-test"))]
+    let mut share_encoding = (share::SharePreset::Video.profile(), 1080);
+    #[cfg(not(feature = "synthetic-test"))]
     let renderer = Renderer::with_surface(surface.clone());
     #[cfg(feature = "synthetic-test")]
     let _ = surface;
@@ -851,6 +924,7 @@ fn run_worker(
                             &factory,
                             screen.as_ref().unwrap(),
                             peer_media.get_mut(peer_id).unwrap(),
+                            share_encoding,
                         )
                     });
                     let result = attached.and_then(|()| {
@@ -952,7 +1026,7 @@ fn run_worker(
                                     #[cfg(not(feature = "synthetic-test"))]
                                     if pending_capture_request.is_none() {
                                         if let Some(screen) = screen.as_ref() {
-                                            attach_real_screen(&peer, &factory, screen, &mut media)?;
+                                            attach_real_screen(&peer, &factory, screen, &mut media, share_encoding)?;
                                         }
                                     }
                                     #[cfg(feature = "synthetic-test")]
@@ -1225,15 +1299,13 @@ fn run_worker(
                             event(&output, json!({ "event": "stats", "peers": snapshots, "resourceCounts": resources }));
                         }),
                     #[cfg(feature = "synthetic-test")]
-                    Command::StartScreen {
-                        width,
-                        height,
-                        fps,
-                        system_audio,
-                        audio_mode,
-                        window: _,
-                    } => {
-                        let system_audio = audio_mode.map_or(system_audio, |mode| mode != ScreenAudioMode::None);
+                    Command::StartScreen { source, profile, audio_mode, .. } => {
+                        let (width, height) = match source {
+                            ShareSource::Screen { width, height, .. } => (width as i32, height as i32),
+                            ShareSource::Window { .. } => (1280, 720),
+                        };
+                        let fps = profile.fps as i32;
+                        let system_audio = audio_mode != ScreenAudioMode::None;
                         if screen.is_some() {
                             Err("RTC_ERROR: screen is already active".into())
                         } else {
@@ -1279,17 +1351,35 @@ fn run_worker(
                         }
                     }
                     #[cfg(not(feature = "synthetic-test"))]
-                    Command::StartScreen { width, height, fps, system_audio, audio_mode, window } => {
+                    Command::StartScreen { source, profile, height, audio_mode } => {
                         if screen.is_some() { Err("RTC_ERROR: screen is already active".into()) }
                         else {
                             capture_generation = capture_generation.wrapping_add(1);
-                            let mode = audio_mode.unwrap_or(if system_audio { ScreenAudioMode::Computer } else { ScreenAudioMode::None });
-                            screen = Some(Capture::start(width, height, fps, mode, window, capture_generation, &runtime, capture_sender.clone()));
-                            pending_capture_request = Some(request_id);
-                            event(&output, json!({ "event": "screenState", "state": "picking" }));
-                            continue;
+                            match Capture::start(&source, profile.fps, audio_mode, profile.priority.screencast(), capture_generation, &runtime, capture_sender.clone()) {
+                                Ok(capture) => {
+                                    screen = Some(capture);
+                                    share_encoding = (profile, height);
+                                    pending_capture_request = Some(request_id);
+                                    event(&output, json!({ "event": "screenState", "state": "picking" }));
+                                    continue;
+                                }
+                                Err(error) => Err(error),
+                            }
                         }
                     }
+                    #[cfg(not(feature = "synthetic-test"))]
+                    Command::SetShareProfile { profile, height } => {
+                        share_encoding = (profile, height);
+                        if let Some(screen) = &screen {
+                            screen.fps.store(profile.fps, std::sync::atomic::Ordering::Relaxed);
+                        }
+                        for sender in peer_media.values().filter_map(|media| media.screen.first()) {
+                            apply_share_encoding(sender, profile, height);
+                        }
+                        Ok(())
+                    }
+                    #[cfg(feature = "synthetic-test")]
+                    Command::SetShareProfile { .. } => Ok(()),
                     #[cfg(feature = "synthetic-test")]
                     Command::StopScreen => {
                         if let Some(screen) = screen.take() {

@@ -219,6 +219,27 @@ desktop-native/             # novo: engine + sessão + UI (vindo de native-engin
 - Microfone e reprodução pelo ADM do libwebrtc (já no protótipo).
 - Pronto quando: tela, janela com áudio do app e áudio do PC sem Discord chegam ao browser; parar e reiniciar 5 vezes sem vazamento.
 
+**Feito (17/10/2026), exceto o modo áudio do PC.**
+- O que entrou:
+  - `share.rs` porta `SharePreset.kt`, a ordem de codecs VP9 > H264 > VP8 > AV1 (+rtx/red/ulpfec) e o Opus de `AudioQuality.kt`;
+  - `capture.rs` liga o `desktop-capture` ao libwebrtc: BGRA → I420 (`argb_to_i420`) e f32 → i16;
+  - `StartScreen{source, profile, height, audioMode}` e `SetShareProfile` ao vivo (fps atômico + `set_parameters`);
+  - `ready_to_negotiate` exige só signaling `stable`. Antes exigia `Connected` e travava quando o 1º offer vinha sem mídia.
+- Achados do libwebrtc:
+  - `sender.track()` dá 0xC0000005 num sender cujo track foi removido (wrapper da LiveKit). A tela entra por `add_transceiver`, que devolve o transceiver, e nada chama `.track()`.
+  - Pela JSEP, um transceiver que já enviou mantém MSID e SSRCs em toda oferta até o `stop()`. Só com `remove_track`, o send stream e o encoder VP9 continuavam vivos: **+67 MB, ~+20 handles e ~+3 threads por share**. `active=false` nas encodings não libera nada.
+  - Reusar o transceiver (`set_track` + `set_direction`) acaba com o vazamento, mas o browser devolve o mesmo track de recepção, que o cliente web já parou (`ended`), e a tela não reaparece.
+  - Solução: `stop()` nos transceivers da tela no stop. As m-lines paradas são recicladas e a oferta fica com tamanho fixo.
+  - **Depende do cliente web:** `setVideoReception` atribuía `direction` a transceiver parado, lançava erro e o answer nunca saía. A guarda em `RTCPeerConnectionDecorator.setVideoReception` precisa estar no master (web e Tauri, que embute o cliente) antes de o nativo sair. Cliente sem a guarda trava a negociação com o nativo no 1º stop do share.
+- Medido (Ktor local + browser pane, janela de teste 960×572 com áudio do app, 6 ciclos de 10 s):
+  - os 6 starts mostram a tela, o áudio chega (nível 0,0183) e o browser volta a `stable` em todos os ciclos;
+  - memória privada ~293 MB compartilhando e ~225 MB parado, sem crescer; handles 905–950, threads 90–100;
+  - antes da correção: 205 → 605 MB em 6 ciclos;
+  - sem peer, a captura sozinha fica estável (~217 MB), então a captura não vazava.
+- CPU: retângulo 1000×600 a 30 fps em VP9 usa ~67% de um núcleo. O build Windows não tem encoder de hardware; 1080p é risco no Xeon E5-2640 v3.
+- Não testado: modo áudio do PC (capturaria áudio pessoal; precisa de validação manual). O modo tela (retângulo) usa o mesmo caminho de anexar e parar, mas os ciclos foram medidos com janela.
+- Testes: 33 (37 com `synthetic-test`).
+
 ### F4 — UI
 
 Escrever a UI em iced, em módulos, usando o spike F-1 como ponto de partida e o `gpui-smoke.rs` como referência de fluxo. Visual e comportamento seguem a UI v4 (`client/src/jsMain/resources/`). Escopo do primeiro beta:
