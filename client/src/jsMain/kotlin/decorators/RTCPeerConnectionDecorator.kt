@@ -44,7 +44,9 @@ class RTCPeerConnectionDecorator(
     fun setVideoReception(enabled: Boolean) {
         val transceivers = windowRTCPeerConnection.getTransceivers() as Array<dynamic>
         transceivers.forEach { transceiver ->
-            if (transceiver.receiver.track.kind == "video") {
+            // A remote stop() leaves the transceiver stopped until the answer; setting its direction throws.
+            val stopped = transceiver.currentDirection == "stopped" || transceiver.direction == "stopped"
+            if (transceiver.receiver.track.kind == "video" && !stopped) {
                 transceiver.direction =
                     when {
                         transceiver.sender.track != null -> if (enabled) "sendrecv" else "sendonly"
