@@ -129,6 +129,15 @@ sealed class Packet {
         val socketId: String,
     ) : Packet()
 
+    /** STUN/TURN servers for this connection; sent after RoomJoined to clientVersion 3+. */
+    @Serializable
+    @SerialName("ice-servers")
+    data class IceServers(
+        @SerialName("rid")
+        val roomId: String,
+        val iceServers: List<IceServer>,
+    ) : Packet()
+
     @Serializable
     @SerialName("user-disconnected")
     data class UserDisconnected(
@@ -261,6 +270,7 @@ sealed class Packet {
             -> CLIENT
 
             is RoomJoined,
+            is IceServers,
             is UserConnected,
             is UserDisconnected,
             is ChatMessageReceived,
@@ -284,4 +294,11 @@ data class SocketUser(
     val username: String,
     val roomId: String,
     val isMuted: Boolean = true,
+)
+
+@Serializable
+data class IceServer(
+    val urls: List<String>,
+    val username: String = "",
+    val credential: String = "",
 )

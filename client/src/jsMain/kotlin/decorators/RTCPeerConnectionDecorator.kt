@@ -2,8 +2,10 @@ package decorators
 
 import org.w3c.dom.mediacapture.MediaStream
 import org.w3c.dom.mediacapture.MediaStreamTrack
+import screenshare.common.IceServer
 import kotlin.js.Json
 import kotlin.js.Promise
+import kotlin.js.json
 
 external class RTCSessionDescription(
     data: Json,
@@ -226,48 +228,36 @@ class RTCPeerConnectionDecorator(
     }
 
     companion object {
-        fun create(): RTCPeerConnectionDecorator =
-            create(
-                turnUrl = "turn:163.176.39.139:3478",
-                turnUsername = "rafael",
-                turnCredential = "494e15922c47d42a",
+        // shortcut: servers without ICE_SERVERS (old builds, the beta app, self-hosts) send no ice-servers
+        // packet, so the pre-v3 list stays as a fallback; drop it once every server sends one.
+        private val legacyIceServers =
+            listOf(
+                IceServer(listOf("stun:163.176.39.139:3478")),
+                IceServer(
+                    listOf("turn:163.176.39.139:3478", "turn:163.176.39.139:3478?transport=tcp"),
+                    "rafael",
+                    "494e15922c47d42a",
+                ),
             )
 
-        fun create(
-            turnUrl: String?,
-            turnUsername: String?,
-            turnCredential: String?,
-        ): RTCPeerConnectionDecorator {
-            val peerConnection = instantiate(turnUrl, turnUsername, turnCredential)
-            peerConnection.oniceconnectionstatechange = {
-            }
-            return RTCPeerConnectionDecorator(peerConnection)
+        /** [iceServers] comes from the server (ice-servers packet); empty means an older server. */
+        fun create(iceServers: List<IceServer>): RTCPeerConnectionDecorator {
+            val servers =
+                iceServers
+                    .ifEmpty { legacyIceServers }
+                    .map { server ->
+                        json("urls" to server.urls.toTypedArray()).also {
+                            if (server.username.isNotEmpty()) it["username"] = server.username
+                            if (server.credential.isNotEmpty()) it["credential"] = server.credential
+                        }
+                    }.toTypedArray()
+            return RTCPeerConnectionDecorator(instantiate(servers))
         }
 
-        private fun instantiate(
-            turnUrl: String?,
-            turnUsername: String?,
-            turnCredential: String?,
-        ): dynamic =
+        private fun instantiate(iceServers: Array<Json>): dynamic =
             js(
                 """
-                new RTCPeerConnection({
-                  iceServers: [
-                    {
-                      urls: ['stun:163.176.39.139:3478'],
-                    },
-                    {
-                      urls: turnUrl,
-                      username: turnUsername,
-                      credential: turnCredential,
-                    },
-                    {
-                      urls: turnUrl + '?transport=tcp',
-                      username: turnUsername,
-                      credential: turnCredential,
-                    },
-                  ],
-                });
+                new RTCPeerConnection({ iceServers: iceServers });
             """,
             )
     }
