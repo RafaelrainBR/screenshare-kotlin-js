@@ -153,11 +153,14 @@ jobs:
           chmod +x gradlew
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: desktop-tauri/src-tauri -> target
+          workspaces: |
+            desktop-tauri/src-tauri -> target
+            desktop-capture -> target
       - name: Build frontend and test native code
         run: |
           node desktop-tauri/scripts/build-frontend.mjs
           cargo test --release --locked --manifest-path desktop-tauri/src-tauri/Cargo.toml
+          cargo test --release --locked --manifest-path desktop-capture/Cargo.toml
       - name: Build desktop bundles
         working-directory: desktop-tauri
         env:
