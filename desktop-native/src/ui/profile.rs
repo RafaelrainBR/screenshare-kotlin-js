@@ -148,6 +148,9 @@ fn row_button<'a>(content: Element<'a, Message>, message: Message) -> Element<'a
 }
 
 /// #share-picker: presets, the three fields, and the source; "Ao vivo" while sharing.
+/// The web note on what changes live (index.html .share-menu-note and the wizard hint).
+pub const LIVE_NOTE: &str = "FPS, prioridade e bitrate mudam durante a transmissão, sem reiniciar. Sem transmissão ativa, ficam salvos para a próxima.";
+
 pub fn menu(page: Menu, profile: ShareProfile, live: bool) -> Element<'static, Message> {
     let body: Column<'static, Message> = match page {
         Menu::Main => {
@@ -190,7 +193,9 @@ pub fn menu(page: Menu, profile: ShareProfile, live: bool) -> Element<'static, M
             )
         }
     };
-    container(body.spacing(2)).padding(6).width(290).style(theme::modal).into()
+    // .share-menu-note, above every page.
+    let note = container(text(LIVE_NOTE).size(11).color(theme::DIM)).padding([0, 8]);
+    container(column![note, body.spacing(2)].spacing(6)).padding(6).width(290).style(theme::modal).into()
 }
 
 #[cfg(test)]
