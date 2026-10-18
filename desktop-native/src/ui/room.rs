@@ -121,12 +121,12 @@ pub fn view(app: &App) -> Element<'_, Message> {
     // Like the web dock: the status only takes space while something is wrong.
     let (status, status_color) = status(app);
     let dock = row![
-        text(status).color(status_color),
         toggle(if view.microphone_enabled { "Microfone ligado · F2" } else { "Microfone mudo · F2" }, view.microphone_enabled, Message::ToggleMic),
         pick_list(mics.clone(), chosen(&mics, &app.mic_device), |d| Message::MicDevice(d.0)).width(180),
         toggle(if view.output_enabled { "Som ligado · F3" } else { "Som desligado · F3" }, view.output_enabled, Message::ToggleOutput),
         pick_list(outputs.clone(), chosen(&outputs, &app.output_device), |d| Message::OutputDevice(d.0)).width(180),
-        iced::widget::space::horizontal(),
+        // Fills the free space, so a long status wraps instead of squeezing the buttons.
+        text(status).color(status_color).width(Length::Fill),
         if sharing {
             button(text(if view.screen_state == "active" { "Parar compartilhamento · F4" } else { "Iniciando…" })).style(button::danger).on_press(Message::StopShare)
         } else {
@@ -169,7 +169,7 @@ pub fn view(app: &App) -> Element<'_, Message> {
 /// Errors worth a toast. While reconnecting, the dock status says it instead of the raw socket error.
 pub fn errors(app: &App) -> Vec<&str> {
     let view = &app.view;
-    let reconnecting = view.local_socket_id.is_none() && view.generation > 1;
+    let reconnecting = view.local_socket_id.is_none() && app.joined;
     [&view.error, &view.screen_error, &view.audio_error, &view.video_error, &view.devices_error]
         .into_iter()
         .skip(usize::from(reconnecting))
@@ -184,7 +184,7 @@ fn status(app: &App) -> (String, iced::Color) {
         (format!("Desconectado. {}", view.error.as_deref().unwrap_or("")).trim_end().into(), theme::RED)
     } else if view.local_socket_id.is_some() {
         (String::new(), theme::DIM)
-    } else if view.generation > 1 {
+    } else if app.joined {
         ("Sem conexão. Tentando reconectar…".into(), theme::RED)
     } else {
         ("Conectando à sala…".into(), theme::DIM)

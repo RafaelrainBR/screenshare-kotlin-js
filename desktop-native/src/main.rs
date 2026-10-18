@@ -107,6 +107,8 @@ pub struct App {
     notice: Option<(String, Instant)>,
     /// Errors already toasted, so the same ones do not come back every tick.
     shown_errors: String,
+    /// Joined at least once: losing the socket id after that means reconnecting.
+    joined: bool,
 }
 
 const NAME_INPUT: &str = "name-input";
@@ -278,6 +280,7 @@ fn watch(app: &mut App, peer: Option<String>, camera: bool) {
 fn tick(app: &mut App) -> Task<Message> {
     let Some(running) = &app.running else { return Task::none() };
     app.view = running.view.lock().unwrap().clone();
+    app.joined |= app.view.local_socket_id.is_some();
     let errors = room::errors(app).join(" · ");
     if errors != app.shown_errors {
         if !errors.is_empty() {
