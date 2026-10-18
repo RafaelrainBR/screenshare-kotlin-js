@@ -142,6 +142,21 @@ pub fn view(app: &App) -> Element<'_, Message> {
         let panel = container(wizard.view(app.profile, app.advanced)).padding(24).max_width(540).height(Length::Fill).style(theme::modal);
         layers = layers.push(opaque(container(panel).center_x(Length::Fill).padding(18).style(theme::backdrop)));
     }
+    if app.confirm_leave {
+        // leaveRoom's window.confirm: Enter leaves, Esc stays.
+        let buttons = row![
+            button(text("Cancelar")).padding([8, 16]).style(button::secondary).on_press(Message::CancelLeave),
+            button(text("Sair da sala").font(theme::BOLD)).padding([8, 16]).style(button::danger).on_press(Message::Leave),
+        ]
+        .spacing(8);
+        let panel = column![
+            text("Há uma mensagem não enviada. Sair da sala e descartar o rascunho?"),
+            container(buttons).align_right(Length::Fill),
+        ]
+        .spacing(16);
+        let panel = container(panel).padding(20).max_width(420).style(theme::modal);
+        layers = layers.push(opaque(container(panel).center(Length::Fill).style(theme::backdrop)));
+    }
     // Floats over the top like the web .notice, without moving the layout.
     if let Some((notice, _)) = notice {
         let toast = container(text(notice.as_str()).size(12)).padding([12, 15]).max_width(560).style(theme::notice);
