@@ -52,28 +52,60 @@ jobs:
           MSYS_NO_PATHCONV=1 "/c/Program Files (x86)/Inno Setup 6/ISCC.exe" /Q "/DAppVersion=$version" \
             "/DSourceExe=$(cygpath -w "$CARGO_TARGET_DIR/release/desktop-native.exe")" \
             "/DOutputDir=$(cygpath -w "$PWD/release-assets")" desktop-native/installer.iss
-          cd release-assets && sha256sum * > SHA256SUMS
       - uses: actions/upload-artifact@v7
         with:
-          name: release-native
+          name: release-native-windows
+          path: release-assets/*
+          if-no-files-found: error
+
+  build-macos:
+    # apple-metal's Swift bridge requires the macOS 26 SDK, as in release.yml.
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v7
+      - name: Check tag
+        run: '[[ "$GITHUB_REF_NAME" =~ ^native-v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z.]+)?$ ]]'
+      - name: Install Rust
+        run: |
+          rustup update stable --no-self-update
+          rustup default stable
+      - name: Test capture
+        run: cargo test --release --locked --manifest-path desktop-capture/Cargo.toml
+      - name: Test
+        working-directory: desktop-native
+        run: cargo test --release --locked
+      - name: Build
+        working-directory: desktop-native
+        run: cargo build --release --locked
+      - name: Package
+        run: |
+          test "$(uname -m)" = arm64
+          mkdir release-assets
+          bash desktop-native/scripts/bundle-macos.sh "${GITHUB_REF_NAME#native-v}" "$PWD/release-assets"
+          rm -rf "release-assets/Screenshare nativo.app"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: release-native-macos
           path: release-assets/*
           if-no-files-found: error
 
   publish:
-    needs: build
+    needs: [build, build-macos]
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
       - uses: actions/download-artifact@v8
         with:
-          name: release-native
+          pattern: release-native-*
+          merge-multiple: true
           path: release-assets
+      - run: cd release-assets && sha256sum * > SHA256SUMS
       - name: Publish pre-release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release create "$GITHUB_REF_NAME" release-assets/* --repo "$GITHUB_REPOSITORY" --verify-tag \
             --prerelease --latest=false --title "Screenshare nativo ${GITHUB_REF_NAME#native-v} (beta)" \
-            --notes "Beta do app nativo (Rust + iced), só Windows x64. Instalador por usuário (sem admin, desinstala limpo) ou executável portátil; sem atualização automática; pode rodar junto com o app atual."
+            --notes "Beta do app nativo (Rust + iced). Windows x64: instalador por usuário (sem admin, desinstala limpo) ou executável portátil. macOS (Apple Silicon): curl -fsSL https://github.com/$GITHUB_REPOSITORY/releases/download/$GITHUB_REF_NAME/install-macos-native.sh | bash. Sem atualização automática; pode rodar junto com o app atual."
           test "$(gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --json isPrerelease --jq .isPrerelease)" = true
