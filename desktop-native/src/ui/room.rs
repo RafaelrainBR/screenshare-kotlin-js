@@ -37,12 +37,15 @@ pub fn view(app: &App) -> Element<'_, Message> {
     let view = &app.view;
     let local = view.local_socket_id.as_deref();
 
-    // Remote screens and cameras that are on, like the web .screen-tile list.
+    // Screens and cameras that are on, like the web .screen-tile list, ours (isLocal) included.
+    let own = local.into_iter().flat_map(|id| [(id.to_owned(), false), (id.to_owned(), true)]);
     let videos: Vec<TileKey> = view
         .screen_sharers
         .iter()
         .map(|peer| (peer.clone(), false))
         .chain(view.camera_sharers.iter().map(|peer| (peer.clone(), true)))
+        .filter(|(peer, _)| Some(peer.as_str()) != local)
+        .chain(own)
         .filter(|key| is_shared(view, key))
         .collect();
     let focused = app.focused.as_ref().filter(|key| videos.contains(key));

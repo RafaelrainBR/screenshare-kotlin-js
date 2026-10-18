@@ -15,7 +15,7 @@ use std::{
 };
 
 use desktop_native::{
-    VideoSurface,
+    LOCAL_CAMERA, LOCAL_SCREEN, VideoSurface,
     session::{AudioControl, ScreenOptions, SessionView, UiConnection, run_controlled_with_ui},
     share::{SharePreset, ShareProfile},
 };
@@ -546,6 +546,15 @@ fn tick(app: &mut App) -> Task<Message> {
         latest
             .into_iter()
             .filter_map(|((peer, track), snapshot)| {
+                // Our own capture shows under our socket id, like the web local tile.
+                let local = match peer.as_str() {
+                    LOCAL_SCREEN => Some(false),
+                    LOCAL_CAMERA => Some(true),
+                    _ => None,
+                };
+                if let Some(camera) = local {
+                    return Some(((view.local_socket_id.clone()?, camera), snapshot));
+                }
                 let camera = surface.kind(&peer, &track, view.screen_sharers.contains(&peer), view.camera_sharers.contains(&peer))?;
                 Some(((peer, camera), snapshot))
             })
@@ -577,10 +586,15 @@ fn set_fullscreen(app: &mut App, key: Option<TileKey>) -> Task<Message> {
     window::oldest().then(move |id| id.map_or_else(Task::none, |id| window::set_mode(id, mode)))
 }
 
-/// A remote screen or camera that is still on.
+/// A screen or camera that is still on: ours by the engine state, the others by the room's sharers.
 pub fn is_shared(view: &SessionView, (peer, camera): &TileKey) -> bool {
-    Some(peer.as_str()) != view.local_socket_id.as_deref()
-        && if *camera { view.camera_sharers.contains(peer) } else { view.screen_sharers.contains(peer) }
+    if Some(peer.as_str()) == view.local_socket_id.as_deref() {
+        (if *camera { &view.camera_state } else { &view.screen_state }) == "active"
+    } else if *camera {
+        view.camera_sharers.contains(peer)
+    } else {
+        view.screen_sharers.contains(peer)
+    }
 }
 
 fn start(room: String, name: String) -> Running {
