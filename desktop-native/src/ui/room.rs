@@ -188,6 +188,9 @@ pub fn view(app: &App) -> Element<'_, Message> {
         let panel = container(wizard.view(app.profile, app.advanced)).padding(24).max_width(540).height(Length::Fill).style(theme::modal);
         layers = layers.push(opaque(container(panel).center_x(Length::Fill).padding(18).style(theme::backdrop)));
     }
+    if let Some((_, help)) = app.permission {
+        layers = layers.push(opaque(container(super::permission::view(help)).center(Length::Fill).style(theme::backdrop)));
+    }
     if app.confirm_leave {
         // leaveRoom's window.confirm: Enter leaves, Esc stays.
         let buttons = row![
@@ -215,10 +218,13 @@ pub fn view(app: &App) -> Element<'_, Message> {
 pub fn errors(app: &App) -> Vec<&str> {
     let view = &app.view;
     let reconnecting = view.local_socket_id.is_none() && app.joined;
-    [&view.error, &view.screen_error, &view.audio_error, &view.camera_error, &view.devices_error]
+    // Camera and microphone failures open the permission help instead.
+    let audio = if app.mic_attempt { &None } else { &view.audio_error };
+    [&view.error, &view.screen_error, audio, &view.devices_error]
         .into_iter()
         .skip(usize::from(reconnecting))
         .filter_map(|e| e.as_deref())
+        .map(super::permission::plain)
         .collect()
 }
 
