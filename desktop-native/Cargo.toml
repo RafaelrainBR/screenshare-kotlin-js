@@ -22,6 +22,13 @@ futures-util = "0.3.34"
 rand = "0.9.5"
 iced = { version = "0.14", features = ["image", "svg", "tokio"] }
 desktop-capture = { path = "../desktop-capture" }
-windows = { version = "0.62", features = ["Win32_Foundation", "Win32_System_Time", "Win32_Media_MediaFoundation", "Win32_System_Com", "Win32_System_Registry", "Win32_System_Threading", "Win32_Security", "Win32_Graphics_Gdi", "Win32_UI_WindowsAndMessaging", "Win32_UI_Shell"] }
 tray-icon = "0.21"
 image = { version = "0.25", default-features = false, features = ["png"] }
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.62", features = ["Win32_Foundation", "Win32_System_Time", "Win32_Media_MediaFoundation", "Win32_System_Com", "Win32_System_Registry", "Win32_System_Threading", "Win32_Security", "Win32_Graphics_Gdi", "Win32_UI_WindowsAndMessaging", "Win32_UI_Shell"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+libc = "0.2"
+# The macOS camera through AVFoundation; it also asks for the camera permission.
+nokhwa = { version = "0.10.11", default-features = false, features = ["input-avfoundation"] }

@@ -12,6 +12,11 @@ use std::{
 use std::sync::{Mutex, atomic::Ordering};
 
 #[cfg(not(feature = "synthetic-test"))]
+#[cfg(windows)]
+mod camera;
+#[cfg(not(feature = "synthetic-test"))]
+#[cfg(target_os = "macos")]
+#[path = "camera_macos.rs"]
 mod camera;
 mod capture;
 pub use capture::{ScreenAudioMode, ShareSource};
@@ -22,6 +27,7 @@ pub const LOCAL_SCREEN: &str = "local:screen";
 pub const LOCAL_CAMERA: &str = "local:camera";
 pub mod session;
 pub mod share;
+pub mod sources;
 mod voice;
 use share::{ShareProfile, share_bitrate};
 
@@ -1543,7 +1549,7 @@ fn run_worker(
                     Command::SetShareProfile { profile, height } => {
                         share_encoding = (profile, height);
                         if let Some(screen) = &screen {
-                            screen.fps.store(profile.fps, std::sync::atomic::Ordering::Relaxed);
+                            screen.set_fps(profile.fps);
                         }
                         for sender in peer_media.values().filter_map(|media| media.screen.first()) {
                             apply_share_encoding(sender, profile, height);

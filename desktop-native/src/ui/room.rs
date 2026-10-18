@@ -267,7 +267,20 @@ pub fn status(app: &App) -> (String, iced::Color) {
     }
 }
 
+/// HH:MM in the macOS time zone, like toLocaleTimeString("pt-BR") in the web chat.
+#[cfg(target_os = "macos")]
+fn local_time(timestamp_ms: i64) -> String {
+    let seconds = (timestamp_ms.max(0) / 1000) as libc::time_t;
+    // SAFETY: localtime_r only writes the tm it is given.
+    let mut tm: libc::tm = unsafe { std::mem::zeroed() };
+    if unsafe { libc::localtime_r(&seconds, &mut tm) }.is_null() {
+        return String::new();
+    }
+    format!("{:02}:{:02}", tm.tm_hour, tm.tm_min)
+}
+
 /// HH:MM in the Windows time zone, like toLocaleTimeString("pt-BR") in the web chat.
+#[cfg(windows)]
 fn local_time(timestamp_ms: i64) -> String {
     use windows::Win32::{
         Foundation::{FILETIME, SYSTEMTIME},

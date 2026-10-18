@@ -1,0 +1,40 @@
+name: Native check (macOS)
+
+# The native app is developed and released on Windows; this keeps its macOS port compiling and
+# tested on every change to the native branch.
+on:
+  pull_request:
+    branches: [native/desktop]
+    paths:
+      - desktop-native/**
+      - desktop-capture/**
+      - .github/workflows/native-check.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: native-check-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  macos:
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install Rust
+        run: |
+          rustup update stable --no-self-update
+          rustup default stable
+      - name: Test capture
+        run: cargo test --release --locked --manifest-path desktop-capture/Cargo.toml
+      - name: Test
+        working-directory: desktop-native
+        run: cargo test --release --locked
+      - name: Build
+        working-directory: desktop-native
+        run: cargo build --release --locked
+      # The same .app and tar.gz the release publishes, signed and verified.
+      - name: Package
+        run: bash desktop-native/scripts/bundle-macos.sh 0.0.0 "$RUNNER_TEMP/bundle" && ls -la "$RUNNER_TEMP/bundle"
