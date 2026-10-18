@@ -9,7 +9,8 @@ publish = false
 synthetic-test = []
 
 [dependencies]
-libwebrtc = { git = "https://github.com/livekit/rust-sdks.git", rev = "2ff180e403b33ac55caaf88639aaf6aa95cbb6fc", package = "libwebrtc" }
+# Fork at livekit 2ff180e plus set_volume on remote audio tracks (branch screenshare/remote-audio-volume).
+libwebrtc = { git = "https://github.com/RafaelrainBR/rust-sdks.git", rev = "81434ab0f41ec1ebdae95881fb56a545acdaa4e7", package = "libwebrtc" }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.149"
 tokio = { version = "1.49.0", features = ["macros", "rt-multi-thread", "time"] }

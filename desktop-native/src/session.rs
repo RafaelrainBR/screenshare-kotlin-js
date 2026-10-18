@@ -100,6 +100,12 @@ pub enum AudioControl {
         peer_id: String,
         muted: bool,
     },
+    /// "Volume para você", 0..1, of that peer's voice or (screen) shared screen audio.
+    Volume {
+        peer_id: String,
+        volume: f64,
+        screen: bool,
+    },
 }
 
 /// WebRTC `audioLevel` (0..1) above which someone counts as speaking.
@@ -127,6 +133,9 @@ impl AudioControl {
     fn command(&self, view: &SessionView) -> Result<Value, String> {
         let (enabled, device_id, devices, command) = match self {
             Self::Peer { peer_id, muted } => return Ok(json!({"command":"setPeerMuted","peerId":peer_id,"muted":muted})),
+            Self::Volume { peer_id, volume, screen } => {
+                return Ok(json!({"command":"setPeerVolume","peerId":peer_id,"volume":volume,"screen":screen}));
+            }
             Self::Microphone { enabled, device_id } => {
                 (*enabled, device_id, &view.audio_inputs, "setMicrophone")
             }
@@ -144,7 +153,7 @@ impl AudioControl {
         let active = match self {
             Self::Microphone { .. } => view.microphone_enabled,
             Self::Output { .. } => view.output_enabled,
-            Self::Peer { .. } => false,
+            Self::Peer { .. } | Self::Volume { .. } => false,
         };
         if enabled && active && device_id.is_some() {
             return Err("Desligue o áudio antes de aplicar outro dispositivo.".into());

@@ -98,6 +98,15 @@ pub fn save_last_room(name: &str, room: &str) {
     write("last-room.json", &LastRoom { name: name.into(), room: room.into() });
 }
 
+/// screenshare.volume.user.<name>: each person's voice volume, 0..=100, by name.
+pub fn voice_volumes() -> std::collections::HashMap<String, u8> {
+    read("volumes.json")
+}
+
+pub fn save_voice_volumes(volumes: &std::collections::HashMap<String, u8>) {
+    write("volumes.json", volumes);
+}
+
 pub fn audio_prefs() -> AudioPrefs {
     read("audio.json")
 }

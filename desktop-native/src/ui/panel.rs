@@ -118,6 +118,13 @@ pub fn view(app: &App) -> Element<'_, Message> {
             icons = icons.push(dock::icon(&mic, 16.0, if p.is_muted { theme::RED } else if speaking { theme::GREEN } else { theme::DIM }));
             let line = row![avatar, text(name).width(Length::Fill).wrapping(text::Wrapping::None), icons].spacing(10).align_y(Alignment::Center);
             let mut item = column![line].spacing(6).padding([7, 0]);
+            // .tray-user-volume: the voice volume for someone else, under the name.
+            if !me {
+                let owner = p.socket_id.clone();
+                let level = crate::volume(app, &p.socket_id, false);
+                let slider = iced::widget::slider(0..=100u8, level, move |value| Message::Volume(owner.clone(), false, value)).width(Length::Fill);
+                item = item.push(row![space().width(30), dock::icon(dock::OUTPUT, 16.0, theme::DIM), slider].spacing(8).align_y(Alignment::Center));
+            }
             // .tray-view-actions: open the full window on that video.
             if !me && (screen || camera) {
                 let mut views = row![space().width(30)].spacing(6);
