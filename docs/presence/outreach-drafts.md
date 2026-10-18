@@ -23,10 +23,10 @@ A pesquisa usa somente as páginas dos próprios canais. Não há promessa de al
 >
 > Você consegue entender como entrar na mesma sala de outra pessoa só olhando a página? Quero especialmente feedback sobre essa primeira experiência.
 >
-> Experimentar: https://screen-share.fly.dev/
+> Conhecer e experimentar: https://screen-share.fly.dev/about
 > Código e instalação: https://github.com/RafaelrainBR/screenshare-kotlin-js
 
-Anexar o vídeo real legendado de 30–45 segundos quando validado. Não anexar uma simulação como evidência de captura nativa. Depois do deploy da página pública, atualizar o link de apresentação para a URL confirmada; o endereço acima continua sendo a entrada do app.
+Vídeos reais PT/EN de aproximadamente 31 segundos e a página pública foram publicados e validados tecnicamente em 18/10/2026. Anexar o arquivo correspondente ao idioma escolhido. O vídeo mostra uma sessão web local, sem áudio gravado; não apresentá-lo como evidência de captura nativa. O teste com cinco pessoas novas permanece pendente.
 
 ## LinkedIn — English
 
@@ -38,7 +38,7 @@ Anexar o vídeo real legendado de 30–45 segundos quando validado. Não anexar 
 >
 > Can you work out how to join someone else's room from the page alone? I'd especially appreciate feedback on that first experience.
 >
-> Try it: https://screen-share.fly.dev/
+> Overview and demo: https://screen-share.fly.dev/about/en.html
 > Source and installation: https://github.com/RafaelrainBR/screenshare-kotlin-js
 
 ## Kotlin Discussions — português para revisão
@@ -54,7 +54,7 @@ Anexar o vídeo real legendado de 30–45 segundos quando validado. Não anexar 
 > Para quem integrou APIs recentes do navegador ao Kotlin/JS: como vocês delimitam as declarações externas e a ponte TypeScript para manter a compatibilidade entre WebViews? O projeto usa um decorator de RTCPeerConnection e uma ponte desktop para isso.
 >
 > Código: https://github.com/RafaelrainBR/screenshare-kotlin-js
-> Experimente: https://screen-share.fly.dev/ (interface em português brasileiro)
+> Página e demonstração: https://screen-share.fly.dev/about (interface do aplicativo em português brasileiro)
 >
 > Sou o autor do projeto e agradeço feedback técnico sobre essa fronteira.
 
@@ -71,7 +71,7 @@ Anexar o vídeo real legendado de 30–45 segundos quando validado. Não anexar 
 > For others integrating newer browser APIs with Kotlin/JS: how do you draw the boundary between external declarations and a TypeScript bridge to keep WebView compatibility manageable? This project uses an RTCPeerConnection decorator and a desktop bridge.
 >
 > Source: https://github.com/RafaelrainBR/screenshare-kotlin-js
-> Try it: https://screen-share.fly.dev/ (the interface is currently in Brazilian Portuguese)
+> Overview and demo: https://screen-share.fly.dev/about/en.html (the app interface is currently in Brazilian Portuguese)
 >
 > I'm the project's author and would appreciate technical feedback on that boundary.
 
@@ -83,7 +83,8 @@ Fontes das afirmações técnicas: [artigo com links para o código](technical-a
 |---|---|---|
 | Texto escolhido e aprovado | Pendente | Pendente |
 | Autorização explícita de envio | Pendente | Pendente |
-| Página/mídia e primeira experiência validadas | Pendente | Pendente |
+| Página/mídia: validação técnica | Concluída em 18/10/2026 | Concluída em 18/10/2026 |
+| Teste com cinco pessoas novas | Pendente | Pendente |
 | Responsável por responder | Pendente | Pendente |
 | Data/hora e URL da publicação | Não publicado | Não publicado |
 | D+7: coleta e dúvidas úteis | Pendente de publicação | Pendente de publicação |

@@ -17,6 +17,6 @@ Referência para download: [v0.11.1 estável](https://github.com/RafaelrainBR/sc
 | [Página, mídia e publicação](web-publication.md) | Reproduzir builds, gravações, QA e deploy | Procedimento implementado; evidência no registro de execução |
 | [Registro de execução](execution-2026-10-18.md) | Separar entregas, evidências e pendências | Atualizado durante esta entrega |
 
-Antes de divulgar, concluir a validação real da página, do vídeo e dos downloads. O usuário precisa escolher os textos e canais e autorizar explicitamente o envio. Convites para testes também não foram enviados. O responsável por acompanhar o feedback deve ser definido antes da publicação.
+A [página pública](https://screen-share.fly.dev/about), os vídeos e os downloads foram publicados e validados tecnicamente. O teste com cinco pessoas novas ainda precisa acontecer. O usuário precisa escolher os textos e canais e autorizar explicitamente o envio. Convites para testes não foram enviados. O responsável por acompanhar o feedback deve ser definido antes da divulgação.
 
 Não há automação nem calendário de envio. Após a primeira divulgação, registrar manualmente o horário e os links em [outreach-drafts.md](outreach-drafts.md), e repetir a coleta após 7 e 14 dias; a janela de tráfego do GitHub é móvel.

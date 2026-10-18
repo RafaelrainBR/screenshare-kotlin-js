@@ -6,7 +6,7 @@ Data: 18/10/2026. Referência de downloads: `v0.11.1`, linha estável Tauri. A v
 |---|---|
 | Mensagem e linha de base | Concluídas; [snapshot e limites](baseline-2026-10-18.md) |
 | Demonstração e capas | Gravadas/renderizadas; sessão real de aproximadamente 31 segundos, MP4 PT/EN, legendas e transcrições |
-| Página e downloads | Implementados em PT-BR/inglês; validação final e deploy em andamento |
+| Página e downloads | Publicados em [PT-BR](https://screen-share.fly.dev/about) e [inglês](https://screen-share.fly.dev/about/en.html); validação local e de produção concluída |
 | Primeira utilização com pessoas | 0/5; [protocolo e fichas](usability-test.md) prontos, sem participantes simulados |
 | Divulgação externa | [Textos PT/EN](outreach-drafts.md) e artigos [PT](technical-article.md)/[EN](technical-article.en.md) preparados; nada enviado |
 
@@ -38,7 +38,15 @@ Validação no checkout isolado:
 - Browser QA: PT/EN sem JavaScript; larguras 320, 390, 768, 1280 e 1440 px; downloads e guia macOS; HEAD das capas e HTTP 206 do vídeo; reprodução e seek; rota original com dois peers e entrega de chat.
 - As alterações de WebRTC e textos de ajuda observados em paralelo no checkout principal foram excluídos desta entrega.
 
-PR e deploy serão registrados após a publicação. A validação acima não equivale a testes com cinco pessoas ou em hardware nativo.
+Publicação em 18/10/2026:
+
+- [PR #38](https://github.com/RafaelrainBR/screenshare-kotlin-js/pull/38), fonte da aplicação no commit `a2bc6e3`; as checagens do código passaram antes do deploy. A revisão final do registro adiciona somente documentação.
+- Fly.io release **34**, concluída em `2026-10-18T16:59:21Z` (13:59:21 em São Paulo), com verificações de máquina e DNS aprovadas.
+- Produção: HTTP 200 em `/`, `/about`, `/about/en.html`, imagem social e legendas; MP4 com HTTP 206 e 1024 bytes no range solicitado; upgrade WebSocket confirmado sem criar uma sala pública de teste.
+- Homepage do repositório atualizada para a página pública.
+- [Notas da release estável](https://github.com/RafaelrainBR/screenshare-kotlin-js/releases/tag/v0.11.1) atualizadas para destacar benefícios e instalação; o changelog técnico anterior foi preservado. Nenhum instalador, assinatura ou tag foi alterado.
+
+A validação acima não equivale a testes com cinco pessoas, prévias em todos os serviços sociais ou captura em hardware nativo.
 
 ## Pendências que exigem participação externa
 
