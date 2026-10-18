@@ -1,5 +1,9 @@
 //! UI v4 tokens (client/src/jsMain/resources/ui.css) as an iced theme.
-use iced::{Border, Color, Font, Theme, color, theme::Palette, widget::container};
+use iced::{
+    Border, Color, Element, Font, Theme, alignment::Horizontal, color,
+    theme::Palette,
+    widget::{button, container, text},
+};
 
 pub const BARLOW: &[u8] = include_bytes!("../../../client/src/jsMain/resources/fonts/barlow-regular.ttf");
 pub const BARLOW_BOLD: &[u8] = include_bytes!("../../../client/src/jsMain/resources/fonts/barlow-bold.ttf");
@@ -64,11 +68,48 @@ pub fn notice(_: &Theme) -> container::Style {
     }
 }
 
-/// Selected tile in the share wizard.
-pub fn picked(_: &Theme) -> container::Style {
-    container::Style {
-        background: Some(color!(0x2b3546).into()),
-        border: Border { color: color!(0x8eb4fa), width: 2.0, radius: RADIUS.into() },
+/// .audio-source-tile / .switch-row: surface-2 with a line border, accent when picked.
+pub fn tile(picked: bool, _: &Theme, status: button::Status) -> button::Style {
+    let hover = matches!(status, button::Status::Hovered | button::Status::Pressed);
+    button::Style {
+        background: Some(if hover { color!(0x2b3546) } else { color!(0x222b38) }.into()),
+        text_color: color!(0xeef2fa),
+        border: Border { color: if picked { color!(0x8eb4fa) } else { LINE }, width: 1.0, radius: 7.0.into() },
         ..Default::default()
     }
 }
+
+/// .switch: a 34×20 track with a 14 px knob, accent when on.
+pub fn switch<'a, M: 'a>(on: bool) -> Element<'a, M> {
+    let knob = container(text("")).width(14).height(14).style(|_| container::Style {
+        background: Some(color!(0xeef2fa).into()),
+        border: Border { radius: 7.0.into(), ..Default::default() },
+        ..Default::default()
+    });
+    container(knob)
+        .width(34)
+        .height(20)
+        .padding(3)
+        .align_x(if on { Horizontal::Right } else { Horizontal::Left })
+        .style(move |_| container::Style {
+            background: Some(if on { color!(0x8eb4fa) } else { LINE }.into()),
+            border: Border { radius: 10.0.into(), ..Default::default() },
+            ..Default::default()
+        })
+        .into()
+}
+
+/// .modal-backdrop
+pub fn backdrop(_: &Theme) -> container::Style {
+    container::Style { background: Some(Color { a: 0.68, ..Color::BLACK }.into()), ..Default::default() }
+}
+
+/// .modal-panel
+pub fn modal(_: &Theme) -> container::Style {
+    container::Style {
+        background: Some(SURFACE.into()),
+        border: Border { color: color!(0x4a586c), width: 1.0, radius: 13.0.into() },
+        ..Default::default()
+    }
+}
+

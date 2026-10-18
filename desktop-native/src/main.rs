@@ -12,7 +12,7 @@ use std::{
 };
 
 use desktop_native::{
-    ScreenAudioMode, VideoSurface,
+    VideoSurface,
     session::{AudioControl, ScreenOptions, SessionView, UiConnection, run_controlled_with_ui},
     share::SharePreset,
 };
@@ -41,7 +41,9 @@ pub enum Message {
     Sources(Vec<desktop_capture::sources::Source>),
     Thumbnail(String, Option<image::Handle>),
     Pick(String),
-    AudioMode(ScreenAudioMode),
+    ToggleShareAudio,
+    /// The 2 s refresh (false) or the "Atualizar" button (true, which also retakes the thumbnails).
+    RefreshSources(bool),
     Preset(SharePreset),
     StartShare,
     StopShare,
@@ -166,41 +168,56 @@ fn update(app: &mut App, message: Message) -> Task<Message> {
             }
         }
         Message::OpenWizard => {
-            app.wizard = Some(Wizard::default());
-            return ui::wizard::load_sources();
+            app.wizard = Some(Wizard::open());
+            // Focusing an id nobody has unfocuses the chat behind the modal, so A, P and Enter reach the wizard.
+            return Task::batch([ui::wizard::load_sources(), operation::focus("share-wizard")]);
         }
-        Message::CloseWizard => app.wizard = None,
+        Message::CloseWizard => {
+            app.wizard = None;
+            return operation::focus(room::CHAT_INPUT);
+        }
         Message::Sources(sources) => {
             if let Some(wizard) = &mut app.wizard {
-                let task = ui::wizard::load_thumbnails(&sources);
-                wizard.sources = Some(sources);
-                return task;
+                return ui::wizard::load_thumbnails(&wizard.set_sources(sources));
+            }
+        }
+        Message::RefreshSources(force) => {
+            if let Some(wizard) = &mut app.wizard {
+                if force {
+                    // The listing in flight, if any, reloads every thumbnail when it lands.
+                    wizard.thumbs.clear();
+                }
+                if !wizard.loading {
+                    wizard.loading = true;
+                    return ui::wizard::load_sources();
+                }
             }
         }
         Message::Thumbnail(id, handle) => {
-            if let (Some(wizard), Some(handle)) = (&mut app.wizard, handle) {
+            if let Some(wizard) = &mut app.wizard {
                 wizard.thumbs.insert(id, handle);
             }
         }
         Message::Pick(id) => {
             if let Some(wizard) = &mut app.wizard {
-                wizard.select(id);
+                wizard.select(&id);
             }
         }
-        Message::AudioMode(mode) => {
+        Message::ToggleShareAudio => {
             if let Some(wizard) = &mut app.wizard {
-                wizard.audio = mode;
+                wizard.audio = !wizard.audio;
             }
         }
         Message::Preset(preset) => {
             if let Some(wizard) = &mut app.wizard {
-                wizard.preset = Some(preset);
+                wizard.set_preset(preset);
             }
         }
         Message::StartShare => {
             if let (Some(running), Some(options)) = (&app.running, app.wizard.as_ref().and_then(Wizard::options)) {
                 let _ = running.screen.send((app.view.generation, Some(options)));
                 app.wizard = None;
+                return operation::focus(room::CHAT_INPUT);
             }
         }
         Message::StopShare => {
@@ -245,10 +262,7 @@ fn shortcut(app: &mut App, key: keyboard::Key, modifiers: keyboard::Modifiers) -
             wizard.step(-1);
             return Task::none();
         }
-        (Key::Character("a"), Some(wizard)) => {
-            wizard.cycle_audio();
-            return Task::none();
-        }
+        (Key::Character("a"), Some(_)) => Message::ToggleShareAudio,
         (Key::Character("p"), Some(wizard)) => {
             wizard.cycle_preset();
             return Task::none();
@@ -416,6 +430,10 @@ fn subscription(app: &App) -> Subscription<Message> {
     let mut subscriptions = vec![close, keys];
     if app.running.is_some() {
         subscriptions.push(iced::time::every(Duration::from_millis(16)).map(|_| Message::Tick));
+    }
+    if app.wizard.is_some() {
+        // Like the web wizard: windows that open or close show up while it is open.
+        subscriptions.push(iced::time::every(Duration::from_secs(2)).map(|_| Message::RefreshSources(false)));
     }
     Subscription::batch(subscriptions)
 }

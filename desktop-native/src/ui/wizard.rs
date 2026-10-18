@@ -1,5 +1,6 @@
-//! Share wizard: pick a screen or window (with thumbnails), the audio mode and the preset.
-use std::collections::HashMap;
+//! Share wizard, like the web #quality-modal: pick a screen or window (with thumbnails),
+//! the preset and whether to send its audio.
+use std::{collections::HashMap, path::PathBuf};
 
 use desktop_capture::{
     sources::{Source, SourceKind, enumerate_sources},
@@ -7,33 +8,29 @@ use desktop_capture::{
 };
 use desktop_native::{ScreenAudioMode, ShareSource, session::ScreenOptions, share::SharePreset};
 use iced::{
-    Element, Length, Task,
-    widget::{button, column, container, image, pick_list, row, scrollable, text},
+    Alignment, Element, Length, Task,
+    widget::{Column, button, column, container, image, pick_list, row, scrollable, space, text},
 };
 use windows::Win32::Foundation::{HWND, RECT};
 
 use super::theme;
 use crate::Message;
 
-#[derive(Default)]
 pub struct Wizard {
+    /// Screens first, then windows by title, as the web lists them.
     pub sources: Option<Vec<Source>>,
-    pub thumbs: HashMap<String, image::Handle>,
-    pub selected: Option<String>,
-    pub audio: ScreenAudioMode,
-    pub preset: Option<SharePreset>,
+    /// None: the capture failed (usually a minimized window).
+    pub thumbs: HashMap<String, Option<image::Handle>>,
+    pub selected: Option<Source>,
+    pub audio: bool,
+    pub preset: SharePreset,
+    /// A listing is in flight, so the 2 s refresh does not stack them.
+    pub loading: bool,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct AudioChoice(pub ScreenAudioMode);
-
-impl std::fmt::Display for AudioChoice {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(match self.0 {
-            ScreenAudioMode::None => "Sem áudio",
-            ScreenAudioMode::Application => "Áudio do aplicativo",
-            ScreenAudioMode::Computer => "Áudio do PC (sem Discord)",
-        })
+impl Wizard {
+    pub fn open() -> Self {
+        Self { sources: None, thumbs: HashMap::new(), selected: None, audio: false, preset: load_preset(), loading: true }
     }
 }
 
@@ -47,6 +44,23 @@ impl std::fmt::Display for PresetChoice {
             SharePreset::Video => "Vídeo · filmes e séries, 30 fps",
             SharePreset::Text => "Código e texto · letras nítidas, 10 fps",
         })
+    }
+}
+
+/// The web keeps the profile in localStorage; here it is one small file per user.
+fn preset_path() -> Option<PathBuf> {
+    Some(PathBuf::from(std::env::var_os("APPDATA")?).join("Screenshare-native").join("share-preset"))
+}
+
+fn load_preset() -> SharePreset {
+    let saved = preset_path().and_then(|path| std::fs::read_to_string(path).ok()).unwrap_or_default();
+    SharePreset::ALL.into_iter().find(|p| format!("{p:?}") == saved.trim()).unwrap_or(SharePreset::Video)
+}
+
+fn save_preset(preset: SharePreset) {
+    if let Some(path) = preset_path() {
+        let _ = path.parent().map(std::fs::create_dir_all);
+        let _ = std::fs::write(path, format!("{preset:?}"));
     }
 }
 
@@ -83,38 +97,56 @@ fn thumbnail(source: &Source) -> Option<image::Handle> {
     let (left, top, right, bottom) = source.rect;
     let screen = (source.kind == SourceKind::Screen).then_some(RECT { left, top, right, bottom });
     let mut thumb = capture_thumbnail(HWND(source.hwnd as usize as *mut _), screen, 320).ok()??;
+    // Minimized windows come back as 0×0.
+    if thumb.width == 0 || thumb.height == 0 {
+        return None;
+    }
     // BGRA → RGBA for iced.
     thumb.data.chunks_exact_mut(4).for_each(|px| px.swap(0, 2));
     Some(image::Handle::from_rgba(thumb.width, thumb.height, thumb.data))
 }
 
+fn same(a: &Source, b: &Source) -> bool {
+    a.id == b.id && a.pid == b.pid
+}
+
 impl Wizard {
+    /// Takes a fresh listing and returns the sources that still need a thumbnail.
+    /// A closed window disappears and can no longer be chosen.
+    pub fn set_sources(&mut self, mut sources: Vec<Source>) -> Vec<Source> {
+        self.loading = false;
+        sources.sort_by_cached_key(|s| (s.kind != SourceKind::Screen, if s.kind == SourceKind::Screen { String::new() } else { s.title.to_lowercase() }));
+        self.selected = self.selected.take().and_then(|picked| sources.iter().find(|s| same(s, &picked)).cloned());
+        let missing = sources.iter().filter(|s| !self.thumbs.contains_key(&s.id)).cloned().collect();
+        self.sources = Some(sources);
+        missing
+    }
+
     pub fn options(&self) -> Option<ScreenOptions> {
-        let source = self.sources.as_ref()?.iter().find(|s| Some(&s.id) == self.selected.as_ref())?;
+        let source = self.selected.as_ref()?;
         let (left, top, right, bottom) = source.rect;
         let height = (bottom - top).max(1) as u32;
+        let window = source.kind == SourceKind::Window;
         Some(ScreenOptions {
-            source: match source.kind {
-                SourceKind::Screen => ShareSource::Screen { left, top, width: (right - left).max(1) as u32, height },
-                SourceKind::Window => ShareSource::Window { hwnd: source.hwnd, pid: source.pid },
+            source: if window {
+                ShareSource::Window { hwnd: source.hwnd, pid: source.pid }
+            } else {
+                ShareSource::Screen { left, top, width: (right - left).max(1) as u32, height }
             },
-            profile: self.preset.unwrap_or(SharePreset::Video).profile(),
+            profile: self.preset.profile(),
             // The bitrate ceiling follows the source height, capped like the web presets at 1080p.
             height: height.min(1080),
-            audio_mode: self.audio,
+            // Like nativeAudioMode in ScreenSharing.kt: a window sends its app, a screen the PC.
+            audio_mode: match (self.audio, window) {
+                (false, _) => ScreenAudioMode::None,
+                (true, true) => ScreenAudioMode::Application,
+                (true, false) => ScreenAudioMode::Computer,
+            },
         })
     }
 
-    fn selected_is_window(&self) -> bool {
-        self.sources.iter().flatten().any(|s| Some(&s.id) == self.selected.as_ref() && s.kind == SourceKind::Window)
-    }
-
-    /// Keeps the audio mode valid when the selection changes: app audio needs a window.
-    pub fn select(&mut self, id: String) {
-        self.selected = Some(id);
-        if self.audio == ScreenAudioMode::Application && !self.selected_is_window() {
-            self.audio = ScreenAudioMode::None;
-        }
+    pub fn select(&mut self, id: &str) {
+        self.selected = self.sources.iter().flatten().find(|s| s.id == id).cloned();
     }
 
     /// Arrow keys: move the selection through the tiles.
@@ -123,77 +155,112 @@ impl Wizard {
         if sources.is_empty() {
             return;
         }
-        let current = sources.iter().position(|s| Some(&s.id) == self.selected.as_ref());
+        let current = sources.iter().position(|s| self.selected.as_ref().is_some_and(|picked| same(s, picked)));
         let next = match current {
             Some(i) => (i as isize + delta).rem_euclid(sources.len() as isize) as usize,
             None => 0,
         };
-        self.select(sources[next].id.clone());
+        self.selected = Some(sources[next].clone());
     }
 
-    pub fn cycle_audio(&mut self) {
-        self.audio = match self.audio {
-            ScreenAudioMode::None if self.selected_is_window() => ScreenAudioMode::Application,
-            ScreenAudioMode::None | ScreenAudioMode::Application => ScreenAudioMode::Computer,
-            ScreenAudioMode::Computer => ScreenAudioMode::None,
-        };
+    pub fn set_preset(&mut self, preset: SharePreset) {
+        self.preset = preset;
+        save_preset(preset);
     }
 
     pub fn cycle_preset(&mut self) {
-        let current = self.preset.unwrap_or(SharePreset::Video);
-        let i = SharePreset::ALL.iter().position(|p| *p == current).unwrap_or(0);
-        self.preset = Some(SharePreset::ALL[(i + 1) % SharePreset::ALL.len()]);
+        let i = SharePreset::ALL.iter().position(|p| *p == self.preset).unwrap_or(0);
+        self.set_preset(SharePreset::ALL[(i + 1) % SharePreset::ALL.len()]);
+    }
+
+    /// Texts of setShareAudio in InterfaceHandlers.kt.
+    fn audio_texts(&self) -> (&'static str, String) {
+        match &self.selected {
+            None => ("Áudio", "Escolha uma tela ou janela.".into()),
+            Some(s) if s.kind == SourceKind::Screen => {
+                ("Áudio do computador", "Exclui o Discord desktop já aberto. Se abrir ou reiniciar o Discord, compartilhe novamente.".into())
+            }
+            Some(s) => ("Áudio do aplicativo", format!("Enviar só o som de {}.", s.title)),
+        }
+    }
+
+    /// updateSourceState in InterfaceHandlers.kt.
+    fn state(&self) -> &'static str {
+        match (&self.sources, &self.selected) {
+            (None, _) => "Carregando telas e janelas…",
+            (Some(sources), _) if sources.is_empty() => "Nenhuma tela ou janela disponível agora.",
+            (_, None) => "Escolha o que você quer compartilhar.",
+            (_, Some(s)) if s.kind == SourceKind::Window && self.preset.profile().fps > 30 => "Janelas são enviadas a até 30 fps.",
+            _ => "",
+        }
+    }
+
+    fn tile<'a>(&'a self, source: &'a Source) -> Element<'a, Message> {
+        let preview: Element<'_, Message> = match self.thumbs.get(&source.id) {
+            Some(Some(handle)) => image(handle.clone()).width(Length::Fill).height(124).into(),
+            Some(None) => container(text("Sem preview (janela minimizada?)").size(11).color(theme::DIM)).center_x(Length::Fill).center_y(124).into(),
+            None => container(text("Carregando preview…").size(11).color(theme::DIM)).center_x(Length::Fill).center_y(124).into(),
+        };
+        let picked = self.selected.as_ref().is_some_and(|s| same(s, source));
+        button(column![preview, text(&source.title).size(13)].spacing(7))
+            .padding(8)
+            .width(240)
+            .style(move |t, status| theme::tile(picked, t, status))
+            .on_press(Message::Pick(source.id.clone()))
+            .into()
     }
 
     pub fn view(&self) -> Element<'_, Message> {
-        let Some(sources) = &self.sources else {
-            return container(text("Procurando telas e janelas…").color(theme::DIM)).center(Length::Fill).into();
-        };
-        let tiles = sources.iter().fold(row![].spacing(10), |tiles, source| {
-            let preview: Element<'_, Message> = match self.thumbs.get(&source.id) {
-                Some(handle) => image(handle.clone()).width(200).height(112).into(),
-                None => container(text("…").color(theme::FAINT)).center_x(200).center_y(112).into(),
-            };
-            let label = if source.kind == SourceKind::Screen { format!("Tela: {}", source.title) } else { source.title.clone() };
-            let tile = column![preview, text(label).size(13).width(200)].spacing(6);
-            let picked = self.selected.as_ref() == Some(&source.id);
-            tiles.push(
-                button(container(tile).padding(8).style(if picked { theme::picked } else { theme::panel }))
-                    .padding(0)
-                    .style(button::text)
-                    .on_press(Message::Pick(source.id.clone())),
-            )
-        });
-        let audio_modes: Vec<_> = [ScreenAudioMode::None, ScreenAudioMode::Application, ScreenAudioMode::Computer]
-            .into_iter()
-            .filter(|mode| *mode != ScreenAudioMode::Application || self.selected_is_window())
-            .map(AudioChoice)
-            .collect();
+        let mut list = Column::new().spacing(8);
+        if let Some(sources) = &self.sources {
+            for (kind, label) in [(SourceKind::Screen, "Telas"), (SourceKind::Window, "Janelas")] {
+                let group: Vec<_> = sources.iter().filter(|s| s.kind == kind).collect();
+                if group.is_empty() {
+                    continue;
+                }
+                list = list.push(text(label).size(11).font(theme::BOLD).color(theme::DIM));
+                list = list.push(group.into_iter().fold(row![].spacing(8), |tiles, s| tiles.push(self.tile(s))).wrap().vertical_spacing(8));
+            }
+        }
+        let (audio_title, audio_desc) = self.audio_texts();
+        let audio = button(
+            row![
+                column![text(audio_title).font(theme::BOLD), text(audio_desc).size(11).color(theme::DIM)].spacing(3).width(Length::Fill),
+                theme::switch(self.audio),
+            ]
+            .spacing(12)
+            .align_y(Alignment::Center),
+        )
+        .padding([10, 12])
+        .width(Length::Fill)
+        .style(|t, status| theme::tile(false, t, status))
+        .on_press(Message::ToggleShareAudio);
         let presets: Vec<_> = SharePreset::ALL.into_iter().map(PresetChoice).collect();
         let start = button(text("Compartilhar").font(theme::BOLD)).padding([8, 16]).style(button::primary);
         column![
+            text("Compartilhamento de tela").size(12).color(theme::DIM),
+            text("Preparar compartilhamento").size(20).font(theme::BOLD),
+            text("Escolha a tela ou janela e o áudio que quer enviar.").color(theme::DIM),
+            text("Setas escolhem · A liga o áudio · P muda o preset · Enter compartilha · Esc cancela").size(11).color(theme::FAINT),
             row![
-                column![
-                    text("Compartilhar tela").size(22).font(theme::BOLD),
-                    text("Setas escolhem · A muda o áudio · P muda o preset · Enter compartilha · Esc cancela").size(12).color(theme::FAINT),
-                ]
-                .width(Length::Fill),
-                button("Cancelar").style(button::secondary).on_press(Message::CloseWizard),
-            ],
-            scrollable(tiles.wrap()).height(Length::Fill),
+                text("O que compartilhar").size(12).font(theme::BOLD).width(Length::Fill),
+                button(text("Atualizar").size(13)).style(button::text).on_press(Message::RefreshSources(true)),
+            ]
+            .align_y(Alignment::Center),
+            scrollable(list).height(Length::Fill),
+            text(self.state()).size(12).color(theme::DIM),
+            text("O que você vai mostrar").size(12).font(theme::BOLD),
+            pick_list(presets, Some(PresetChoice(self.preset)), |c| Message::Preset(c.0)).width(Length::Fill),
+            audio,
             row![
-                text("Áudio").color(theme::DIM),
-                pick_list(audio_modes, Some(AudioChoice(self.audio)), |c| Message::AudioMode(c.0)),
-                text("Preset").color(theme::DIM),
-                pick_list(presets, Some(PresetChoice(self.preset.unwrap_or(SharePreset::Video))), |c| Message::Preset(c.0)),
-                iced::widget::space::horizontal(),
+                space::horizontal(),
+                button("Cancelar").style(button::text).on_press(Message::CloseWizard),
                 if self.options().is_some() { start.on_press(Message::StartShare) } else { start },
             ]
             .spacing(10)
-            .align_y(iced::Alignment::Center),
+            .align_y(Alignment::Center),
         ]
-        .spacing(14)
-        .padding(16)
+        .spacing(8)
         .into()
     }
 }
@@ -207,10 +274,9 @@ mod tests {
     }
 
     fn wizard() -> Wizard {
-        Wizard {
-            sources: Some(vec![source("screen", SourceKind::Screen, (-1920, 0, 0, 1440)), source("window", SourceKind::Window, (10, 20, 970, 560))]),
-            ..Default::default()
-        }
+        let mut w = Wizard { preset: SharePreset::Video, ..Wizard::open() };
+        w.set_sources(vec![source("window", SourceKind::Window, (10, 20, 970, 560)), source("screen", SourceKind::Screen, (-1920, 0, 0, 1440))]);
+        w
     }
 
     #[test]
@@ -219,26 +285,37 @@ mod tests {
         assert!(w.options().is_none(), "nothing picked yet");
         w.step(1);
         let screen = w.options().unwrap();
-        assert_eq!(screen.source, ShareSource::Screen { left: -1920, top: 0, width: 1920, height: 1440 });
+        assert_eq!(screen.source, ShareSource::Screen { left: -1920, top: 0, width: 1920, height: 1440 }, "screens come first");
         assert_eq!(screen.height, 1080, "bitrate height capped at 1080p");
         w.step(1);
-        w.cycle_preset();
+        w.preset = SharePreset::Text;
         let window = w.options().unwrap();
         assert_eq!(window.source, ShareSource::Window { hwnd: 42, pid: 7 });
         assert_eq!((window.height, window.profile), (540, SharePreset::Text.profile()));
     }
 
     #[test]
-    fn app_audio_only_for_windows() {
+    fn audio_switch_follows_the_source_kind() {
         let mut w = wizard();
-        w.step(1); // screen
-        w.cycle_audio();
-        assert_eq!(w.audio, ScreenAudioMode::Computer, "screens skip app audio");
-        w.cycle_audio();
-        w.step(1); // window
-        w.cycle_audio();
-        assert_eq!(w.audio, ScreenAudioMode::Application);
-        w.step(1); // wraps to the screen
-        assert_eq!(w.audio, ScreenAudioMode::None, "app audio dropped when a screen is picked");
+        w.audio = true;
+        w.step(1);
+        assert_eq!(w.options().unwrap().audio_mode, ScreenAudioMode::Computer);
+        w.step(1);
+        assert_eq!(w.options().unwrap().audio_mode, ScreenAudioMode::Application);
+        w.audio = false;
+        assert_eq!(w.options().unwrap().audio_mode, ScreenAudioMode::None);
+    }
+
+    #[test]
+    fn refresh_keeps_the_pick_and_only_new_sources_need_thumbnails() {
+        let mut w = wizard();
+        w.select("window");
+        w.thumbs.insert("screen".into(), None);
+        w.thumbs.insert("window".into(), None);
+        let fresh = w.set_sources(vec![source("screen", SourceKind::Screen, (0, 0, 1, 1)), source("window", SourceKind::Window, (0, 0, 1, 1)), source("new", SourceKind::Window, (0, 0, 1, 1))]);
+        assert_eq!(fresh.iter().map(|s| s.id.as_str()).collect::<Vec<_>>(), ["new"]);
+        assert_eq!(w.selected.as_ref().map(|s| s.id.as_str()), Some("window"));
+        w.set_sources(vec![source("screen", SourceKind::Screen, (0, 0, 1, 1))]);
+        assert!(w.selected.is_none(), "a closed window can no longer be chosen");
     }
 }

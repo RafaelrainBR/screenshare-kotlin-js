@@ -4,7 +4,7 @@ use std::time::Duration;
 use desktop_native::session::AudioDevice;
 use iced::{
     Alignment, Element, Length,
-    widget::{button, column, container, image, pick_list, row, scrollable, text, text_input},
+    widget::{button, column, container, image, opaque, pick_list, row, scrollable, text, text_input},
 };
 
 use super::theme;
@@ -138,9 +138,7 @@ pub fn view(app: &App) -> Element<'_, Message> {
     .spacing(8)
     .align_y(Alignment::Center);
 
-    let body: Element<'_, Message> = match &app.wizard {
-        Some(wizard) => container(wizard.view()).style(theme::panel).width(Length::Fill).height(Length::Fill).into(),
-        None => row![
+    let body = row![
             container(scrollable(participants)).padding(12).width(210).height(Length::Fill).style(theme::panel),
             column![
                 container(stage).width(Length::Fill).height(Length::Fill).style(theme::stage).padding(1),
@@ -150,20 +148,22 @@ pub fn view(app: &App) -> Element<'_, Message> {
             .width(Length::Fill),
             container(chat).padding(12).width(280).height(Length::Fill).style(theme::panel),
         ]
-        .spacing(10)
-        .into(),
-    };
+    .spacing(10);
 
     let notice = app.notice.as_ref().filter(|(_, since)| since.elapsed() < Duration::from_secs(6));
     let screen = column![body, container(dock).padding(10).style(theme::panel)].spacing(10).padding(12);
-    match notice {
-        // Floats over the top like the web .notice, without moving the layout.
-        Some((notice, _)) => {
-            let toast = container(text(notice.as_str()).size(12)).padding([12, 15]).max_width(560).style(theme::notice);
-            iced::widget::stack![screen, container(toast).center_x(Length::Fill).padding(12)].into()
-        }
-        None => screen.into(),
+    let mut layers = iced::widget::stack![screen];
+    if let Some(wizard) = &app.wizard {
+        // The web #quality-modal: a dimmed room with the panel on top; opaque keeps clicks off the room.
+        let panel = container(wizard.view()).padding(24).max_width(540).height(Length::Fill).style(theme::modal);
+        layers = layers.push(opaque(container(panel).center_x(Length::Fill).padding(18).style(theme::backdrop)));
     }
+    // Floats over the top like the web .notice, without moving the layout.
+    if let Some((notice, _)) = notice {
+        let toast = container(text(notice.as_str()).size(12)).padding([12, 15]).max_width(560).style(theme::notice);
+        layers = layers.push(container(toast).center_x(Length::Fill).padding(12));
+    }
+    layers.into()
 }
 
 /// Errors worth a toast. While reconnecting, the dock status says it instead of the raw socket error.
