@@ -63,6 +63,7 @@ pub enum Message {
     ToggleAdvanced,
     /// The ⋯ menu of a participant (and of the clicked video, if any), or None to close it.
     PeerOptions(Option<(String, Option<bool>)>),
+    Cursor(Point),
     TogglePeerMute(String),
     ToggleHideVideo(TileKey),
     StartShare,
@@ -176,6 +177,9 @@ pub struct App {
     camera_device: Option<String>,
     /// A camera picked while on: started again once the old one has ended.
     camera_restart: bool,
+    /// Last cursor position in the window, where the participant menu opens (like the web contextmenu).
+    cursor: Point,
+    menu_at: Option<Point>,
     /// The camera stepped out for a new share and returns once the share is up.
     camera_after_share: bool,
     peer_options: Option<(String, Option<bool>)>,
@@ -239,7 +243,9 @@ fn show_window(app: &mut App) -> Task<Message> {
     let area = was_compact.then(|| ui::panel::work_area(cx, cy)).flatten();
     with_window(move |id| {
         let full = if was_compact {
-            let frame = window::toggle_decorations(id).chain(window::set_resizable(id, true)).chain(window::set_level(id, window::Level::Normal));
+            let frame = window::toggle_decorations(id)
+                .chain(window::set_resizable(id, true))
+                .chain(window::set_level(id, window::Level::Normal));
             frame.chain(window::scale_factor(id).then(move |scale| {
                 let Some((x, y, width, height)) = area else { return window::resize(id, Size::new(1280.0, 780.0)) };
                 let s = f64::from(scale);
@@ -250,7 +256,8 @@ fn show_window(app: &mut App) -> Task<Message> {
         } else {
             Task::none()
         };
-        full.chain(window::minimize(id, false)).chain(window::set_mode(id, window::Mode::Windowed)).chain(window::gain_focus(id))
+        let button = if was_compact { taskbar(id, true) } else { Task::none() };
+        full.chain(window::minimize(id, false)).chain(window::set_mode(id, window::Mode::Windowed)).chain(button).chain(window::gain_focus(id))
     })
 }
 
@@ -284,8 +291,33 @@ fn open_panel(app: &mut App, (x, y, w, h): (f64, f64, f64, f64)) -> Task<Message
             .chain(window::resize(id, Size::new(width, height)))
             .chain(place)
             .chain(window::set_mode(id, window::Mode::Windowed))
+            .chain(taskbar(id, false))
             .chain(window::gain_focus(id))
     }))
+}
+
+/// Tauri's set_skip_taskbar, done as winit does it (ITaskbarList): the panel has no taskbar button,
+/// the room window has. Called after the window is shown, since showing it adds the button back.
+fn taskbar(id: window::Id, shown: bool) -> Task<Message> {
+    window::run(id, move |handle| {
+        use window::raw_window_handle::RawWindowHandle;
+        use windows::Win32::{
+            Foundation::HWND,
+            System::Com::{CLSCTX_INPROC_SERVER, CoCreateInstance},
+            UI::Shell::{ITaskbarList, TaskbarList},
+        };
+        let Ok(raw) = handle.window_handle() else { return };
+        let RawWindowHandle::Win32(win32) = raw.as_raw() else { return };
+        let hwnd = HWND(win32.hwnd.get() as *mut _);
+        // SAFETY: runs on the window's thread, where winit has initialized COM; the window is alive.
+        unsafe {
+            let Ok(list) = CoCreateInstance::<_, ITaskbarList>(&TaskbarList, None, CLSCTX_INPROC_SERVER) else { return };
+            if list.HrInit().is_ok() {
+                let _ = if shown { list.AddTab(hwnd) } else { list.DeleteTab(hwnd) };
+            }
+        }
+    })
+    .discard()
 }
 
 fn hide_panel(app: &mut App) -> Task<Message> {
@@ -519,7 +551,11 @@ fn update(app: &mut App, message: Message) -> Task<Message> {
             app.share_menu = None;
         }
         Message::ToggleAdvanced => app.advanced = !app.advanced,
-        Message::PeerOptions(target) => app.peer_options = target,
+        Message::PeerOptions(target) => {
+            app.menu_at = target.is_some().then_some(app.cursor);
+            app.peer_options = target;
+        }
+        Message::Cursor(position) => app.cursor = position,
         Message::TogglePeerMute(peer) => {
             let muted = app.muted_peers.insert(peer.clone()) || !app.muted_peers.remove(&peer);
             audio(app, AudioControl::Peer { peer_id: peer, muted });
@@ -849,6 +885,12 @@ fn subscription(app: &App) -> Subscription<Message> {
         _ => None,
     });
     let mut subscriptions = vec![close, keys];
+    if app.running.is_some() {
+        subscriptions.push(iced::event::listen_with(|event, _, _| match event {
+            iced::Event::Mouse(iced::mouse::Event::CursorMoved { position }) => Some(Message::Cursor(position)),
+            _ => None,
+        }));
+    }
     // Tray clicks and a second launch's "show" request.
     subscriptions.push(iced::time::every(Duration::from_millis(100)).map(|_| Message::TrayPoll));
     if app.compact && app.visible {

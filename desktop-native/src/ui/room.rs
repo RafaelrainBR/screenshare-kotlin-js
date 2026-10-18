@@ -195,9 +195,15 @@ pub fn view(app: &App) -> Element<'_, Message> {
     if let Some((peer, camera)) = &app.peer_options {
         // Opens over the stage, above the rail; a click outside or Esc closes it.
         let outside = mouse_area(container(text("")).width(Length::Fill).height(Length::Fill)).on_press(Message::PeerOptions(None));
-        let menu = container(options_menu(app, peer, *camera))
-            .padding(iced::Padding { left: 24.0, bottom: 200.0, ..iced::Padding::ZERO })
-            .align_bottom(Length::Fill);
+        // At the click, kept 8 px inside the window (ui.js openContextMenu). The height is the rows it holds.
+        let at = app.menu_at.unwrap_or_default();
+        let rows = 1 + usize::from(camera.is_some());
+        let height = 14.0 + 26.0 + rows as f32 * 33.0 + 30.0;
+        let menu = iced::widget::responsive(move |size| {
+            let x = at.x.min(size.width - 248.0 - 8.0).max(8.0);
+            let y = at.y.min(size.height - height - 8.0).max(8.0);
+            column![iced::widget::space().height(y), row![iced::widget::space().width(x), options_menu(app, peer, *camera)]].into()
+        });
         layers = layers.push(outside).push(menu);
     }
     if let Some(wizard) = &app.wizard {
@@ -304,7 +310,9 @@ fn video_tile<'a>(app: &'a App, key: &TileKey, small: bool) -> Element<'a, Messa
     let focused = app.focused.as_ref() == Some(key);
     let speaking = app.view.speaking.contains(peer);
     let tile = button(layers).padding(1).style(move |_, _| theme::video_tile(focused, speaking)).on_press(Message::Focus(key.clone()));
-    if small { tile.width(168).height(94).into() } else { tile.width(Length::Fill).height(Length::Fill).into() }
+    let tile = if small { tile.width(168).height(94) } else { tile.width(Length::Fill).height(Length::Fill) };
+    // A right click opens the same menu as the corner button, like the web contextmenu on .screen-tile.
+    mouse_area(tile).on_right_press(Message::PeerOptions(Some((peer.clone(), Some(*camera))))).into()
 }
 
 /// .chat-hide (27 px, in the header) and .chat-restore (32 px glass, over the stage).
@@ -348,7 +356,8 @@ fn avatar_tile<'a>(p: &'a Participant, me: bool, speaking: bool) -> Element<'a, 
     }
     let name = if me { format!("{} (Você)", p.username) } else { p.username.clone() };
     let tile = container(column![badge, text(name).size(11)].spacing(4).align_x(Alignment::Center)).center_x(168).center_y(94).style(theme::participant_tile);
-    stack![tile, container(options_button(&p.socket_id, None)).padding(5).align_right(168)].into()
+    let tile = stack![tile, container(options_button(&p.socket_id, None)).padding(5).align_right(168)];
+    mouse_area(tile).on_right_press(Message::PeerOptions(Some((p.socket_id.clone(), None)))).into()
 }
 
 /// #participant-context: per-viewer options for one participant, opened by ⋯.
