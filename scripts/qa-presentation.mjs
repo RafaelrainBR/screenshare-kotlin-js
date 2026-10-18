@@ -28,15 +28,24 @@ try {
     assert.equal(await page.locator('video').getAttribute('preload'), 'none');
     assert.equal(await page.locator('h1').count(), 1);
     assert(!(await page.content()).includes('{{'));
-    for (const [width, height] of [[1440, 900], [1280, 720], [768, 1024], [390, 844], [320, 640]]) {
-      await page.setViewportSize({ width, height });
-      assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), `${locale}: overflow at ${width}`);
-      if (width >= 1280) {
-        const button = await page.locator('.actions .primary').boundingBox();
-        assert(button.y + button.height < height, `${locale}: primary action above the fold`);
+    for (const colorScheme of ['light', 'dark']) {
+      await page.emulateMedia({ colorScheme });
+      for (const [width, height] of [[1440, 900], [1280, 720], [768, 1024], [390, 844], [320, 640]]) {
+        await page.setViewportSize({ width, height });
+        assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), `${locale}: overflow at ${width}`);
+        if (width >= 1280) {
+          const button = await page.locator('.actions .primary').boundingBox();
+          assert(button.y + button.height < height, `${locale}: primary action above the fold`);
+        }
+        assert(await page.locator('.product-shot img').evaluate(img => img.complete && img.naturalWidth > 0), `${locale}: product image loaded`);
+        await page.screenshot({ path: `${output}/${locale}-${colorScheme}-${width}.png`, fullPage: true });
       }
-      await page.screenshot({ path: `${output}/${locale}-${width}.png`, fullPage: true });
     }
+    await page.setViewportSize({ width: 1280, height: 720 });
+    await page.keyboard.press('Tab');
+    assert.equal(await page.locator(':focus').getAttribute('class'), 'skip');
+    await page.keyboard.press('Enter');
+    assert.equal(new URL(page.url()).hash, '#main');
     await page.locator('#mac-install summary').click();
     assert(await page.locator('#mac-install code').isVisible());
     await page.keyboard.press('Tab');
@@ -49,10 +58,10 @@ try {
     const rangeResponse = await context.request.get(`${base}/about/assets/demo-${locale}.mp4`, { headers: { Range: 'bytes=0-1023' } });
     assert.equal(rangeResponse.status(), 206, 'Media supports seeking with byte ranges');
     assert.equal((await rangeResponse.body()).length, 1024);
-    for (const asset of ['/fonts/barlow-regular.ttf', '/brand/screenshare-logo-on-dark.svg', `/about/assets/captions-${locale}.vtt`, `/about/transcript-${locale}.html`]) {
+    for (const asset of ['/fonts/barlow-regular.ttf', '/brand/screenshare-logo-on-dark.svg', '/brand/screenshare-logo.svg', `/about/assets/captions-${locale}.vtt`, `/about/transcript-${locale}.html`]) {
       assert.equal((await context.request.get(base + asset)).status(), 200, asset);
     }
-    results.push(`${locale}: content and downloads without JavaScript, five viewports, macOS guide, metadata and assets`);
+    results.push(`${locale}: content and downloads without JavaScript, five viewports in light/dark, keyboard skip link, macOS guide, metadata and assets`);
     await context.close();
   }
   const mediaContext = await browser.newContext({ viewport: { width: 1280, height: 800 }, reducedMotion: 'reduce' });
