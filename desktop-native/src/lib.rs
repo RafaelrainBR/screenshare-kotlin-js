@@ -1274,7 +1274,7 @@ fn run_worker(
                                     .map_err(|error| error.to_string())?;
                                 pending_renegotiation.insert(peer_id.clone());
                             }
-                            let description = SessionDescription::parse(&sdp, sdp_type)
+                            let description = SessionDescription::parse(&share::improve_video_startup_sdp(&sdp), sdp_type)
                                 .map_err(|error| error.to_string())?;
                             runtime
                                 .block_on(peer.set_remote_description(description))

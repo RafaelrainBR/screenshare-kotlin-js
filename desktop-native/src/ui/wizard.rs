@@ -247,6 +247,7 @@ impl Wizard {
             if profile.max_bitrate.is_some() {
                 quality = quality.push(text("Acima do seu upload, a imagem trava para todos.").size(11).color(theme::DIM));
             }
+            quality = quality.push(text(profile::LIVE_NOTE).size(11).color(theme::DIM));
         }
         let start = button(text("Compartilhar").font(theme::BOLD)).padding([8, 16]).style(button::primary);
         column![

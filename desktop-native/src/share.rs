@@ -150,9 +150,80 @@ pub fn upgrade_audio_quality_sdp(sdp: &str) -> String {
         .collect()
 }
 
+/// improveVideoStartupSdp in VideoQuality.kt: seeds bandwidth estimation at 1.5 Mbps on every video
+/// codec of the remote description, without a minimum, so a share does not open at thumbnail quality.
+/// shortcut: a libwebrtc hint; replace it when WebRTC exposes a standard startup bitrate API.
+pub fn improve_video_startup_sdp(sdp: &str) -> String {
+    const HINT: &str = "x-google-start-bitrate=1500";
+    let newline = if sdp.contains("\r\n") { "\r\n" } else { "\n" };
+    let mut sections: Vec<String> = Vec::new();
+    for line in sdp.split_inclusive('\n') {
+        if line.starts_with("m=") || sections.is_empty() {
+            sections.push(String::new());
+        }
+        sections.last_mut().unwrap().push_str(line);
+    }
+    sections
+        .into_iter()
+        .map(|section| {
+            if !section.starts_with("m=video ") {
+                return section;
+            }
+            let codecs: Vec<String> = section
+                .lines()
+                .filter_map(|line| {
+                    let (payload, codec) = line.strip_prefix("a=rtpmap:")?.split_once(' ')?;
+                    let (name, clock) = codec.trim_end().split_once('/')?;
+                    (clock == "90000" && ["VP8", "VP9", "H264", "AV1"].iter().any(|c| c.eq_ignore_ascii_case(name))).then(|| payload.to_owned())
+                })
+                .collect();
+            let mut with_fmtp = Vec::new();
+            let mut result: String = section
+                .split_inclusive('\n')
+                .map(|raw| {
+                    let line = raw.trim_end_matches(['\r', '\n']);
+                    let Some((payload, params)) = line.strip_prefix("a=fmtp:").and_then(|rest| rest.split_once(' ')) else {
+                        return raw.to_owned();
+                    };
+                    if !codecs.iter().any(|c| c == payload) {
+                        return raw.to_owned();
+                    }
+                    with_fmtp.push(payload.to_owned());
+                    if params.to_ascii_lowercase().contains("x-google-start-bitrate=") {
+                        return raw.to_owned();
+                    }
+                    format!("{line};{HINT}{}", &raw[line.len()..])
+                })
+                .collect();
+            for payload in codecs.iter().filter(|c| !with_fmtp.contains(c)) {
+                if !result.ends_with('\n') {
+                    result.push_str(newline);
+                }
+                result.push_str(&format!("a=fmtp:{payload} {HINT}{newline}"));
+            }
+            result
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // WebRtcStartupTest.startupHintPreservesAudioRetransmissionAndExistingCodecOptions
+    #[test]
+    fn video_startup_hint_like_the_web() {
+        let audio = "m=audio 9 UDP/TLS/RTP/SAVPF 96\r\na=rtpmap:96 opus/48000/2\r\na=fmtp:96 stereo=1\r\n";
+        let video = "m=video 9 UDP/TLS/RTP/SAVPF 96 97\r\na=rtpmap:96 VP9/90000\r\na=fmtp:96 profile-id=0\r\na=rtpmap:97 rtx/90000\r\na=fmtp:97 apt=96\r\n";
+        let expected = format!("{audio}{}", video.replace("profile-id=0", "profile-id=0;x-google-start-bitrate=1500"));
+        assert_eq!(improve_video_startup_sdp(&format!("{audio}{video}")), expected);
+        assert_eq!(improve_video_startup_sdp(&expected), expected);
+        let explicit = expected.replace("x-google-start-bitrate=1500", "x-google-start-bitrate=500");
+        assert_eq!(improve_video_startup_sdp(&explicit), explicit);
+        // A codec without fmtp gets its own line at the end of its section.
+        let bare = "v=0\r\nm=video 9 UDP/TLS/RTP/SAVPF 98\r\na=rtpmap:98 VP8/90000\r\n";
+        assert_eq!(improve_video_startup_sdp(bare), format!("{bare}a=fmtp:98 x-google-start-bitrate=1500\r\n"));
+    }
 
     #[test]
     fn presets_and_bitrates_match_share_preset_kt() {
