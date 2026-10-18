@@ -3,6 +3,7 @@
 //! itself (hidden in the tray when Windows started it).
 use std::path::PathBuf;
 
+#[cfg(windows)]
 use windows::{
     Win32::System::Registry::{HKEY, HKEY_CURRENT_USER, KEY_READ, KEY_SET_VALUE, REG_SZ, RegCloseKey, RegDeleteValueW, RegOpenKeyExW, RegQueryValueExW, RegSetValueExW},
     core::{PCWSTR, w},
@@ -10,15 +11,19 @@ use windows::{
 
 /// Passed by the Run entry, like the Tauri login item, so a login launch stays in the tray.
 pub const AUTOSTART_ARG: &str = "--autostart";
+#[cfg(windows)]
 const RUN_KEY: PCWSTR = w!(r"Software\Microsoft\Windows\CurrentVersion\Run");
 // Not the Tauri app's name, so both can be installed and start on their own.
+#[cfg(windows)]
 const RUN_VALUE: PCWSTR = w!("Screenshare-native");
 
 /// The first instance's "show yourself" event, polled by the UI (a raw handle, never closed).
+#[cfg(windows)]
 static SHOW_EVENT: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
 
 /// One app at a time, like the Tauri single-instance plugin: false means another instance was
 /// already running, has been asked to show its window, and this one should quit.
+#[cfg(windows)]
 pub fn first_instance() -> bool {
     use windows::Win32::{
         Foundation::{ERROR_ALREADY_EXISTS, GetLastError},
@@ -37,6 +42,7 @@ pub fn first_instance() -> bool {
 }
 
 /// A second launch asked this instance to show its window.
+#[cfg(windows)]
 pub fn show_requested() -> bool {
     use windows::Win32::{Foundation::{HANDLE, WAIT_OBJECT_0}, System::Threading::WaitForSingleObject};
     SHOW_EVENT.get().is_some_and(|event| unsafe { WaitForSingleObject(HANDLE(*event as *mut _), 0) } == WAIT_OBJECT_0)
@@ -60,8 +66,17 @@ pub struct AudioPrefs {
     pub output_device: Option<String>,
 }
 
+/// %APPDATA%\Screenshare-native on Windows, ~/Library/Application Support/Screenshare-native on macOS.
+pub fn data_dir() -> Option<PathBuf> {
+    #[cfg(windows)]
+    let base = PathBuf::from(std::env::var_os("APPDATA")?);
+    #[cfg(target_os = "macos")]
+    let base = PathBuf::from(std::env::var_os("HOME")?).join("Library").join("Application Support");
+    Some(base.join("Screenshare-native"))
+}
+
 fn path(file: &str) -> Option<PathBuf> {
-    Some(PathBuf::from(std::env::var_os("APPDATA")?).join("Screenshare-native").join(file))
+    Some(data_dir()?.join(file))
 }
 
 fn read<T: serde::de::DeserializeOwned + Default>(file: &str) -> T {
@@ -91,12 +106,14 @@ pub fn save_audio_prefs(prefs: &AudioPrefs) {
     write("audio.json", prefs);
 }
 
+#[cfg(windows)]
 fn run_key(access: windows::Win32::System::Registry::REG_SAM_FLAGS) -> Option<HKEY> {
     let mut key = HKEY::default();
     // SAFETY: plain out-parameter; the key is closed by the caller.
     unsafe { RegOpenKeyExW(HKEY_CURRENT_USER, RUN_KEY, None, access, &mut key) }.is_ok().then_some(key)
 }
 
+#[cfg(windows)]
 pub fn autostart_enabled() -> bool {
     let Some(key) = run_key(KEY_READ) else { return false };
     let found = unsafe { RegQueryValueExW(key, RUN_VALUE, None, None, None, None) }.is_ok();
@@ -107,6 +124,7 @@ pub fn autostart_enabled() -> bool {
 }
 
 /// The Run entry points at this exe with `--autostart`; off removes it.
+#[cfg(windows)]
 pub fn set_autostart(enabled: bool) -> Result<(), String> {
     let key = run_key(KEY_SET_VALUE).ok_or("Não foi possível abrir o registro do Windows.")?;
     let result = if enabled {
@@ -124,4 +142,47 @@ pub fn set_autostart(enabled: bool) -> Result<(), String> {
         let _ = RegCloseKey(key);
     }
     result.map_err(|error| format!("Não foi possível alterar o início automático do sistema ({error})."))
+}
+
+// macOS: LaunchServices already keeps one copy of an .app running and brings it forward when it is
+// opened again, so there is no second instance to signal.
+#[cfg(target_os = "macos")]
+pub fn first_instance() -> bool {
+    true
+}
+
+#[cfg(target_os = "macos")]
+pub fn show_requested() -> bool {
+    false
+}
+
+/// The login item, as a LaunchAgent: this executable with `--autostart` at login.
+#[cfg(target_os = "macos")]
+fn launch_agent() -> Option<PathBuf> {
+    Some(PathBuf::from(std::env::var_os("HOME")?).join("Library/LaunchAgents/com.screenshare.native.plist"))
+}
+
+#[cfg(target_os = "macos")]
+pub fn autostart_enabled() -> bool {
+    launch_agent().is_some_and(|path| path.exists())
+}
+
+#[cfg(target_os = "macos")]
+pub fn set_autostart(enabled: bool) -> Result<(), String> {
+    let path = launch_agent().ok_or("Não foi possível encontrar a pasta do usuário.")?;
+    if !enabled {
+        // Already absent is fine.
+        return match std::fs::remove_file(&path) {
+            Err(error) if error.kind() != std::io::ErrorKind::NotFound => Err(format!("Não foi possível alterar o início automático do sistema ({error}).")),
+            _ => Ok(()),
+        };
+    }
+    let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+    let escape = |text: &str| text.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;");
+    let plist = format!(
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n<plist version=\"1.0\">\n<dict>\n\t<key>Label</key>\n\t<string>com.screenshare.native</string>\n\t<key>ProgramArguments</key>\n\t<array>\n\t\t<string>{}</string>\n\t\t<string>{AUTOSTART_ARG}</string>\n\t</array>\n\t<key>RunAtLoad</key>\n\t<true/>\n</dict>\n</plist>\n",
+        escape(&exe.display().to_string())
+    );
+    let _ = path.parent().map(std::fs::create_dir_all);
+    std::fs::write(&path, plist).map_err(|error| format!("Não foi possível alterar o início automático do sistema ({error})."))
 }

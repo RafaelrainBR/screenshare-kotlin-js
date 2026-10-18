@@ -252,6 +252,7 @@ pub fn position(tray: (f64, f64, f64, f64), window: (f64, f64), area: (f64, f64,
 }
 
 /// The work area (no taskbar) of the monitor holding a physical point.
+#[cfg(windows)]
 pub fn work_area(x: f64, y: f64) -> Option<(f64, f64, f64, f64)> {
     use windows::Win32::{
         Foundation::POINT,
@@ -264,7 +265,20 @@ pub fn work_area(x: f64, y: f64) -> Option<(f64, f64, f64, f64)> {
     ok.then(|| (f64::from(r.left), f64::from(r.top), f64::from(r.right - r.left), f64::from(r.bottom - r.top)))
 }
 
+/// shortcut: on macOS the panel opens right under the menu bar icon (Tauri's fallback without a
+/// work area) and the room window keeps its place; read NSScreen's visibleFrame to clamp them.
+#[cfg(target_os = "macos")]
+pub fn work_area(_x: f64, _y: f64) -> Option<(f64, f64, f64, f64)> {
+    None
+}
+
+#[cfg(target_os = "macos")]
+pub fn cursor() -> (f64, f64) {
+    (0.0, 0.0)
+}
+
 /// Where the cursor is: the monitor the user is looking at when the full window comes back.
+#[cfg(windows)]
 pub fn cursor() -> (f64, f64) {
     use windows::Win32::{Foundation::POINT, UI::WindowsAndMessaging::GetCursorPos};
     let mut point = POINT::default();

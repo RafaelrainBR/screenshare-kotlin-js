@@ -2,12 +2,9 @@
 //! the profile and whether to send its audio.
 use std::collections::HashMap;
 
-use desktop_capture::{
-    sources::{Source, SourceKind, enumerate_sources},
-    thumb::capture_thumbnail,
-};
 use desktop_native::{
     ScreenAudioMode, ShareSource,
+    sources::{Source, SourceKind},
     session::ScreenOptions,
     share::{SharePreset, ShareProfile},
 };
@@ -15,7 +12,6 @@ use iced::{
     Alignment, Element, Length, Task,
     widget::{Column, button, column, container, image, pick_list, row, scrollable, space, text},
 };
-use windows::Win32::Foundation::{HWND, RECT};
 
 use super::{profile, theme};
 use crate::Message;
@@ -56,7 +52,7 @@ pub fn load_sources() -> Task<Message> {
         async {
             let own = std::process::id();
             tokio::task::spawn_blocking(move || {
-                enumerate_sources().into_iter().filter(|s| s.pid != own || s.kind == SourceKind::Screen).collect()
+                desktop_native::sources::enumerate().into_iter().filter(|s| s.pid != own || s.kind == SourceKind::Screen).collect()
             })
             .await
             .unwrap_or_default()
@@ -80,16 +76,8 @@ pub fn load_thumbnails(sources: &[Source]) -> Task<Message> {
 }
 
 fn thumbnail(source: &Source) -> Option<image::Handle> {
-    let (left, top, right, bottom) = source.rect;
-    let screen = (source.kind == SourceKind::Screen).then_some(RECT { left, top, right, bottom });
-    let mut thumb = capture_thumbnail(HWND(source.hwnd as usize as *mut _), screen, 320).ok()??;
-    // Minimized windows come back as 0×0.
-    if thumb.width == 0 || thumb.height == 0 {
-        return None;
-    }
-    // BGRA → RGBA for iced.
-    thumb.data.chunks_exact_mut(4).for_each(|px| px.swap(0, 2));
-    Some(image::Handle::from_rgba(thumb.width, thumb.height, thumb.data))
+    let (width, height, rgba) = desktop_native::sources::thumbnail(source)?;
+    Some(image::Handle::from_rgba(width, height, rgba))
 }
 
 fn same(a: &Source, b: &Source) -> bool {

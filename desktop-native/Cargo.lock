@@ -1085,6 +1085,7 @@ dependencies = [
  "futures-util",
  "iced",
  "image",
+ "libc",
  "libwebrtc",
  "rand 0.9.5",
  "rustls",
