@@ -17,6 +17,7 @@ mod render;
 pub use render::{VideoFrameSnapshot, VideoFrames, VideoSurface};
 pub mod session;
 pub mod share;
+mod voice;
 use share::{ShareProfile, share_bitrate};
 
 #[cfg(not(feature = "synthetic-test"))]
@@ -142,6 +143,13 @@ enum Command {
         peer_id: String,
     },
     GetStats,
+    /// Emits `audioLevels`: each peer's loudest voice and the local microphone, 0..1.
+    GetAudioLevels,
+    /// "Silenciar áudio para você": only this client stops playing that peer's voice.
+    SetPeerMuted {
+        peer_id: String,
+        muted: bool,
+    },
 }
 
 fn enabled_by_default() -> bool {
@@ -404,6 +412,7 @@ fn validate_command(command: &Command) -> Result<(), String> {
             }
         }
         Command::EnsurePeer { peer_id, .. }
+        | Command::SetPeerMuted { peer_id, .. }
         | Command::RemovePeer { peer_id }
         | Command::RestartIce { peer_id } => validate_peer_id(peer_id),
         Command::StartScreen { profile, .. } | Command::SetShareProfile { profile, .. }
@@ -901,6 +910,8 @@ fn run_worker(
     #[cfg(feature = "synthetic-test")]
     let remote_audio = Arc::new(Mutex::new(HashMap::<String, Vec<RtcAudioTrack>>::new()));
     let mut microphone_enabled = false;
+    // Filled by on_track on libwebrtc's thread, read here for levels and mute.
+    let voices = Arc::new(std::sync::Mutex::new(voice::Voices::default()));
     loop {
         #[cfg(not(feature = "synthetic-test"))]
         while let Ok(capture_event) = capture_receiver.try_recv() {
@@ -1056,6 +1067,7 @@ fn run_worker(
                                         let render_runtime = runtime.handle().clone();
                                         let id = peer_id.clone();
                                         let track_output = output.clone();
+                                        let track_voices = voices.clone();
                                         peer.on_track(Some(Box::new(move |track_event| {
                                             let kind = if matches!(track_event.track, MediaStreamTrack::Video(_)) { "video" } else { "audio" };
                                             let stream_id = track_event.streams.first().map(|stream| stream.id()).unwrap_or_default();
@@ -1063,8 +1075,15 @@ fn run_worker(
                                                 "event": "remoteTrack", "peerId": id, "streamId": stream_id,
                                                 "trackId": track_event.track.id(), "kind": kind, "ended": false,
                                             }));
-                                            if kind == "video" {
-                                                render_sink.add_track(id.clone(), track_event.track, render_runtime.clone());
+                                            match track_event.track {
+                                                MediaStreamTrack::Video(_) => {
+                                                    render_sink.add_track(id.clone(), track_event.track, render_runtime.clone());
+                                                }
+                                                MediaStreamTrack::Audio(track) => {
+                                                    if track_event.streams.first().is_none_or(|stream| stream.video_tracks().is_empty()) {
+                                                        track_voices.lock().unwrap().add(&id, track);
+                                                    }
+                                                }
                                             }
                                         })));
                                     }
@@ -1110,6 +1129,7 @@ fn run_worker(
                         remote_audio.lock().unwrap().remove(&peer_id);
                         #[cfg(not(feature = "synthetic-test"))]
                         renderer.remove(&peer_id);
+                        voices.lock().unwrap().remove(&peer_id);
                         peer_media.remove(&peer_id);
                         polite_by_peer.remove(&peer_id);
                         ignore_offer.remove(&peer_id);
@@ -1235,6 +1255,27 @@ fn run_worker(
                                 .block_on(peer.add_ice_candidate(candidate))
                                 .map_err(|error| error.to_string())
                         }),
+                    Command::GetAudioLevels => {
+                        let voices = voices.lock().unwrap();
+                        let mut local = 0.0_f64;
+                        let mut remote = serde_json::Map::new();
+                        for (peer_id, peer) in &peers {
+                            let stats = runtime.block_on(peer.get_stats()).unwrap_or_default();
+                            let (level, microphone) = voice::levels(&stats, &voices.ids(peer_id));
+                            remote.insert(peer_id.clone(), json!(level));
+                            local = local.max(microphone);
+                        }
+                        event(&output, json!({ "event": "audioLevels", "peers": remote, "local": local }));
+                        Ok(())
+                    }
+                    Command::SetPeerMuted { peer_id, muted } => {
+                        if peers.contains_key(&peer_id) {
+                            voices.lock().unwrap().set_muted(&peer_id, muted);
+                            Ok(())
+                        } else {
+                            Err("INVALID_ARGUMENT: unknown peer".into())
+                        }
+                    }
                     Command::GetStats => peers
                         .iter()
                         .map(|(peer_id, peer)| {

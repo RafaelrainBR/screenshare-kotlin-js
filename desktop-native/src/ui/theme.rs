@@ -102,11 +102,12 @@ pub fn switch<'a, M: 'a>(on: bool) -> Element<'a, M> {
 }
 
 /// .screen-tile: video background, accent border while focused.
-pub fn video_tile(focused: bool) -> button::Style {
+pub fn video_tile(focused: bool, speaking: bool) -> button::Style {
     button::Style {
         background: Some(VIDEO.into()),
         text_color: color!(0xeef2fa),
-        border: Border { color: if focused { color!(0x8eb4fa) } else { LINE }, width: 1.0, radius: RADIUS.into() },
+        // .screen-tile.speaking: green while its owner talks.
+        border: Border { color: if speaking { GREEN } else if focused { color!(0x8eb4fa) } else { LINE }, width: 1.0, radius: RADIUS.into() },
         ..Default::default()
     }
 }
@@ -130,10 +131,11 @@ pub fn participant_tile(_: &Theme) -> container::Style {
 }
 
 /// .avatar-circle
-pub fn avatar(_: &Theme) -> container::Style {
+pub fn avatar(speaking: bool) -> container::Style {
     container::Style {
         background: Some(LINE.into()),
-        border: Border { radius: 23.0.into(), ..Default::default() },
+        // .avatar-circle.speaking: a green 2 px ring.
+        border: Border { color: if speaking { GREEN } else { Color::TRANSPARENT }, width: 2.0, radius: 23.0.into() },
         ..Default::default()
     }
 }
