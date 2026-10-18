@@ -12,7 +12,7 @@ use crate::{App, Message, TileKey, is_shared};
 
 pub const CHAT_INPUT: &str = "chat-input";
 
-/// pick_list entry; "Padrão do sistema" is None.
+/// pick_list entry; "Padrão" (the system default) is None.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Device(pub Option<String>, pub String);
 
@@ -23,7 +23,7 @@ impl std::fmt::Display for Device {
 }
 
 fn devices(list: &[AudioDevice]) -> Vec<Device> {
-    std::iter::once(Device(None, "Padrão do sistema".into()))
+    std::iter::once(Device(None, "Padrão".into()))
         .chain(list.iter().map(|d| Device(Some(d.id.clone()), d.label.clone())))
         .collect()
 }
@@ -106,14 +106,18 @@ pub fn view(app: &App) -> Element<'_, Message> {
 
     let mics = devices(&view.audio_inputs);
     let outputs = devices(&view.audio_outputs);
+    let cameras = devices(&view.cameras);
     let sharing = crate::sharing(view);
     // Like the web dock: the status only takes space while something is wrong.
     let (status, status_color) = status(app);
     let dock = row![
-        toggle(if view.microphone_enabled { "Microfone ligado · F2" } else { "Microfone mudo · F2" }, view.microphone_enabled, Message::ToggleMic),
-        pick_list(mics.clone(), chosen(&mics, &app.mic_device), |d| Message::MicDevice(d.0)).width(160),
-        toggle(if view.output_enabled { "Som ligado · F3" } else { "Som desligado · F3" }, view.output_enabled, Message::ToggleOutput),
-        pick_list(outputs.clone(), chosen(&outputs, &app.output_device), |d| Message::OutputDevice(d.0)).width(160),
+        toggle("Microfone · F2", view.microphone_enabled, Message::ToggleMic),
+        pick_list(mics.clone(), chosen(&mics, &app.mic_device), |d| Message::MicDevice(d.0)).width(110),
+        toggle("Som · F3", view.output_enabled, Message::ToggleOutput),
+        pick_list(outputs.clone(), chosen(&outputs, &app.output_device), |d| Message::OutputDevice(d.0)).width(110),
+        // Green while on, like the other toggles; the web shows a slashed icon when off.
+        toggle("Câmera · F6", crate::camera_on(view), Message::ToggleCamera),
+        pick_list(cameras.clone(), chosen(&cameras, &app.camera_device), |d| Message::CameraDevice(d.0)).width(110),
         // Fills the free space, so a long status wraps instead of squeezing the buttons.
         text(status).color(status_color).width(Length::Fill),
         if sharing {
@@ -170,7 +174,7 @@ pub fn view(app: &App) -> Element<'_, Message> {
 pub fn errors(app: &App) -> Vec<&str> {
     let view = &app.view;
     let reconnecting = view.local_socket_id.is_none() && app.joined;
-    [&view.error, &view.screen_error, &view.audio_error, &view.devices_error]
+    [&view.error, &view.screen_error, &view.audio_error, &view.camera_error, &view.devices_error]
         .into_iter()
         .skip(usize::from(reconnecting))
         .filter_map(|e| e.as_deref())

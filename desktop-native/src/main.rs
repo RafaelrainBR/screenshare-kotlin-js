@@ -32,6 +32,8 @@ pub enum Message {
     Leave,
     Draft(String),
     Send,
+    ToggleCamera,
+    CameraDevice(Option<String>),
     ToggleMic,
     ToggleOutput,
     MicDevice(Option<String>),
@@ -69,6 +71,7 @@ struct Running {
     thread: Option<JoinHandle<()>>,
     chat: Sender<(u64, String)>,
     screen: Sender<(u64, Option<ScreenOptions>)>,
+    camera: Sender<(u64, Option<Option<String>>)>,
     devices: Sender<u64>,
     audio: Sender<(u64, AudioControl)>,
     share_profile: Sender<(u64, ShareProfile, u32)>,
@@ -134,6 +137,11 @@ pub struct App {
     share_height: u32,
     /// A new source picked while sharing: started once the old share ends.
     pending_share: Option<ScreenOptions>,
+    camera_device: Option<String>,
+    /// A camera picked while on: started again once the old one has ended.
+    camera_restart: bool,
+    /// The camera stepped out for a new share and returns once the share is up.
+    camera_after_share: bool,
     peer_options: Option<(String, Option<bool>)>,
     /// "Silenciar áudio para você" and "Ocultar vídeo para você": this client only, this session only.
     muted_peers: HashSet<String>,
@@ -166,8 +174,8 @@ fn update(app: &mut App, message: Message) -> Task<Message> {
         Message::Join => {}
         Message::Leave => {
             // Dropping Running joins the session thread: the engine stops the share and closes peers.
-            let App { room, name, mic_device, output_device, profile, advanced, .. } = std::mem::take(app);
-            *app = App { room, name, mic_device, output_device, profile, advanced, ..Default::default() };
+            let App { room, name, mic_device, output_device, camera_device, profile, advanced, .. } = std::mem::take(app);
+            *app = App { room, name, mic_device, output_device, camera_device, profile, advanced, ..Default::default() };
         }
         Message::Draft(value) => app.draft = value,
         Message::Send => {
@@ -175,6 +183,20 @@ fn update(app: &mut App, message: Message) -> Task<Message> {
                 if !app.draft.trim().is_empty() {
                     let _ = running.chat.send((app.view.generation, std::mem::take(&mut app.draft)));
                 }
+            }
+        }
+        Message::ToggleCamera => {
+            if let Some(running) = &app.running {
+                let start = !camera_on(&app.view);
+                let _ = running.camera.send((app.view.generation, start.then(|| app.camera_device.clone())));
+            }
+        }
+        Message::CameraDevice(id) => {
+            app.camera_device = id;
+            // Like the microphone: a camera picked while on restarts with it.
+            if let (Some(running), true) = (&app.running, camera_on(&app.view)) {
+                let _ = running.camera.send((app.view.generation, None));
+                app.camera_restart = true;
             }
         }
         Message::ToggleMic => audio(app, AudioControl::Microphone { enabled: !app.view.microphone_enabled, device_id: app.mic_device.clone() }),
@@ -264,6 +286,13 @@ fn update(app: &mut App, message: Message) -> Task<Message> {
                     let _ = running.screen.send((app.view.generation, None));
                     app.pending_share = Some(options);
                 } else {
+                    // Receivers take a peer's first video track as the screen only while it shares no
+                    // camera (PeerConnections.onTrack), so the camera steps out and returns after it.
+                    // shortcut: viewers see the camera blink; the web recreates the peer connections instead.
+                    if camera_on(&app.view) {
+                        let _ = running.camera.send((app.view.generation, None));
+                        app.camera_after_share = true;
+                    }
                     let _ = running.screen.send((app.view.generation, Some(options)));
                 }
                 app.wizard = None;
@@ -330,12 +359,18 @@ fn shortcut(app: &mut App, key: keyboard::Key, modifiers: keyboard::Modifiers) -
         (Key::Named(Named::Enter), Some(_)) => Message::StartShare,
         (Key::Named(Named::F2), _) => Message::ToggleMic,
         (Key::Named(Named::F3), _) => Message::ToggleOutput,
+        (Key::Named(Named::F6), _) => Message::ToggleCamera,
         (Key::Named(Named::F4), None) if sharing(&app.view) => Message::StopShare,
         (Key::Named(Named::F4), None) => Message::OpenWizard,
         (Key::Named(Named::F5), None) => Message::ShareMenu(app.share_menu.is_none().then_some(ui::profile::Menu::Main)),
         _ => return Task::none(),
     };
     update(app, message)
+}
+
+/// The local camera is on or starting.
+pub fn camera_on(view: &SessionView) -> bool {
+    matches!(view.camera_state.as_str(), "pending" | "active")
 }
 
 /// The local share is on or starting.
@@ -368,6 +403,13 @@ fn tick(app: &mut App) -> Task<Message> {
         if let Some(options) = app.pending_share.take() {
             let _ = running.screen.send((app.view.generation, Some(options)));
         }
+    }
+    let camera_off = matches!(app.view.camera_state.as_str(), "" | "ended");
+    let screen_settled = app.view.screen_state == "active" || (app.view.screen_state == "ended" && app.view.screen_error.is_some());
+    if camera_off && ((app.camera_after_share && screen_settled) || app.camera_restart) {
+        app.camera_after_share = false;
+        app.camera_restart = false;
+        let _ = running.camera.send((app.view.generation, Some(app.camera_device.clone())));
     }
     if app.view.audio_pending == 0 {
         if app.mic_restart && !app.view.microphone_enabled {
@@ -425,12 +467,14 @@ fn start(room: String, name: String) -> Running {
     let surface = VideoSurface::default();
     let (chat, chat_rx) = channel();
     let (screen, screen_rx) = channel();
+    let (camera, camera_rx) = channel();
     let (devices, devices_rx) = channel();
     let (audio, audio_rx) = channel();
     let (share_profile, share_profile_rx) = channel();
     let ui = UiConnection {
         chat: chat_rx,
         screen: screen_rx,
+        camera: camera_rx,
         devices: devices_rx,
         audio: audio_rx,
         share_profile: share_profile_rx,
@@ -445,7 +489,7 @@ fn start(room: String, name: String) -> Running {
         ));
         eprintln!("session ended: {result:?}");
     });
-    Running { stop, thread: Some(thread), chat, screen, devices, audio, share_profile, view, surface }
+    Running { stop, thread: Some(thread), chat, screen, camera, devices, audio, share_profile, view, surface }
 }
 
 fn view(app: &App) -> Element<'_, Message> {

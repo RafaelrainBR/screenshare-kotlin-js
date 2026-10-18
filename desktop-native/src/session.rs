@@ -168,6 +168,11 @@ pub struct SessionView {
     pub error: Option<String>,
     pub screen_state: String,
     pub screen_error: Option<String>,
+    /// "pending", "active" or "ended", from the engine's cameraState.
+    pub camera_state: String,
+    pub camera_error: Option<String>,
+    /// Same shape as the audio devices: id and label.
+    pub cameras: Vec<AudioDevice>,
     pub audio_inputs: Vec<AudioDevice>,
     pub audio_outputs: Vec<AudioDevice>,
     pub devices_error: Option<String>,
@@ -210,6 +215,8 @@ impl SessionView {
 pub struct UiConnection {
     pub chat: std::sync::mpsc::Receiver<(u64, String)>,
     pub screen: std::sync::mpsc::Receiver<(u64, Option<ScreenOptions>)>,
+    /// (generation, Some(device or None for the default) to start, None to stop)
+    pub camera: std::sync::mpsc::Receiver<(u64, Option<Option<String>>)>,
     pub devices: std::sync::mpsc::Receiver<u64>,
     pub audio: std::sync::mpsc::Receiver<(u64, AudioControl)>,
     /// (generation, profile, share height): the running share follows it live.
@@ -347,6 +354,9 @@ impl Session {
         }
         let ice = json!({"candidate":candidate,"sdpMid":mid,"sdpMLineIndex":line,"usernameFragment":fragment});
         Some(json!({"type":"send-ice-candidate","rid":self.room,"tid":peer,"ice":ice.to_string()}))
+    }
+    pub fn camera(&self, active: bool) -> Value {
+        json!({"type":if active {"start-camera-share"} else {"stop-camera-share"},"rid":self.room})
     }
     pub fn screen(&self, active: bool) -> Value {
         json!({"type":if active {"start-screen-share"} else {"stop-screen-share"},"rid":self.room})
@@ -741,6 +751,7 @@ async fn run_inner(
             };
             while ui.chat.try_recv().is_ok() {}
             while ui.screen.try_recv().is_ok() {}
+            while ui.camera.try_recv().is_ok() {}
             while ui.devices.try_recv().is_ok() {}
             while ui.audio.try_recv().is_ok() {}
             while ui.share_profile.try_recv().is_ok() {}
@@ -798,6 +809,7 @@ async fn run_inner(
         let mut last_stats = Instant::now();
         let mut last_levels = Instant::now();
         let mut screen_request = None;
+        let mut camera_request = None;
         let mut devices_request = None;
         let mut audio_requests = HashSet::new();
         let mut ice_retries: HashMap<String, (u8, Instant)> = HashMap::new();
@@ -822,6 +834,9 @@ async fn run_inner(
                                         let previous = ui.view.lock().unwrap();
                                         view.screen_state.clone_from(&previous.screen_state);
                                         view.screen_error.clone_from(&previous.screen_error);
+                                        view.camera_state.clone_from(&previous.camera_state);
+                                        view.camera_error.clone_from(&previous.camera_error);
+                                        view.cameras.clone_from(&previous.cameras);
                                         view.audio_inputs.clone_from(&previous.audio_inputs);
                                         view.audio_outputs.clone_from(&previous.audio_outputs);
                                         view.devices_error.clone_from(&previous.devices_error);
@@ -870,7 +885,7 @@ async fn run_inner(
                             let result = if generation != ui_generation || session.identity().is_none() {
                                 Err("Sessão mudou ou ainda não está conectada.".into())
                             } else {
-                                engine.submit_tracked(json!({"command":"listAudioDevices"}))
+                                engine.submit(json!({"command":"listCameras"})).and_then(|()| engine.submit_tracked(json!({"command":"listAudioDevices"})))
                             };
                             match result {
                                 Ok(id) => { devices_request = Some(id); ui.view.lock().unwrap().devices_error = None; },
@@ -889,6 +904,18 @@ async fn run_inner(
                             };
                             match result { Ok(id) => { screen_request = Some(id); view.screen_error = None; }, Err(error) => view.screen_error = Some(error) }
                             if view.screen_error.is_none() && start { view.screen_state = "pending".into(); }
+                        }
+                        while let Ok((generation, device)) = ui.camera.try_recv() {
+                            let mut view = ui.view.lock().unwrap();
+                            let start = device.is_some();
+                            let result = if generation != ui_generation || session.identity().is_none() {
+                                Err("Sessão mudou ou ainda não está conectada.".into())
+                            } else if start && matches!(view.camera_state.as_str(), "pending" | "active") {
+                                Err("A câmera já está ligada.".into())
+                            } else {
+                                engine.submit_tracked(match device { Some(device_id) => json!({"command":"startCamera","deviceId":device_id}), None => json!({"command":"stopCamera"}) })
+                            };
+                            match result { Ok(id) => { camera_request = Some(id); view.camera_error = None; }, Err(error) => view.camera_error = Some(error) }
                         }
                         while let Ok((generation, text)) = ui.chat.try_recv() {
                             let result = queue_ui_chat(&mut session, generation, ui_generation, &text, &mut outgoing);
@@ -942,6 +969,17 @@ async fn run_inner(
                                 view.devices_error = Some(event.get("message").and_then(Value::as_str).unwrap_or("Dispositivos indisponíveis.").into());
                             }
                             if matches!(kind, "error" | "completed") && event.get("requestId").and_then(Value::as_i64) == devices_request { devices_request = None; }
+                            if kind == "cameraState" {
+                                view.camera_state = event.get("state").and_then(Value::as_str).unwrap_or("ended").into();
+                                view.camera_error = event.get("reason").and_then(Value::as_str).map(str::to_owned);
+                            }
+                            if kind == "cameraDevices" {
+                                view.cameras = serde_json::from_value(event["devices"].clone()).unwrap_or_default();
+                            }
+                            if kind == "error" && camera_request.is_some() && event.get("requestId").and_then(Value::as_i64) == camera_request {
+                                view.camera_error = Some(event.get("message").and_then(Value::as_str).unwrap_or("Falha na câmera.").into());
+                                if view.camera_state == "pending" { view.camera_state = "ended".into(); }
+                            }
                             if kind == "screenState" {
                                 view.screen_state = event.get("state").and_then(Value::as_str).unwrap_or("ended").into();
                                 view.screen_error = event.get("reason").and_then(Value::as_str).map(str::to_owned);
@@ -955,6 +993,8 @@ async fn run_inner(
                         let packet = match kind {
                             "localDescription" => Some(session.description(peer, event.get("type").and_then(Value::as_str).unwrap_or(""), event.get("sdp").and_then(Value::as_str).unwrap_or(""))),
                             "localIce" => session.ice(peer, event.get("candidate").and_then(Value::as_str).unwrap_or(""), event.get("sdpMid").and_then(Value::as_str), event.get("sdpMLineIndex").and_then(Value::as_u64).and_then(|n| n.try_into().ok()), event.get("usernameFragment").and_then(Value::as_str)),
+                            "cameraState" if event.get("state").and_then(Value::as_str) == Some("active") => Some(session.camera(true)),
+                            "cameraState" if event.get("state").and_then(Value::as_str) == Some("ended") => Some(session.camera(false)),
                             "screenState" if event.get("state").and_then(Value::as_str) == Some("active") => Some(session.screen(true)),
                             "screenState" if event.get("state").and_then(Value::as_str) == Some("ended") => Some(session.screen(false)),
                             "microphoneState" => event.get("enabled").and_then(Value::as_bool).map(|enabled| json!({"type":if enabled {"send-unmuted"} else {"send-muted"},"rid":room})),
@@ -1281,6 +1321,7 @@ mod tests {
         let view = Arc::new(Mutex::new(SessionView::default()));
         let (tx, chat) = mpsc::sync_channel(32);
         let (screen_tx, screen) = mpsc::sync_channel(8);
+        let (_camera_tx, camera) = mpsc::sync_channel(8);
         let (devices_tx, devices) = mpsc::sync_channel(8);
         let (audio_tx, audio) = mpsc::sync_channel(8);
         let (_profile_tx, share_profile) = mpsc::sync_channel(8);
@@ -1298,6 +1339,7 @@ mod tests {
                 Some(UiConnection {
                     chat,
                     screen,
+                    camera,
                     devices,
                     audio,
                     share_profile,
@@ -1499,6 +1541,7 @@ mod tests {
         let view = Arc::new(Mutex::new(SessionView::default()));
         let (chat_tx, chat) = mpsc::sync_channel(8);
         let (screen_tx, screen) = mpsc::sync_channel(8);
+        let (_camera_tx, camera) = mpsc::sync_channel(8);
         let (_devices_tx, devices) = mpsc::sync_channel(8);
         let (audio_tx, audio) = mpsc::sync_channel(8);
         let (_profile_tx, share_profile) = mpsc::sync_channel(8);
@@ -1515,6 +1558,7 @@ mod tests {
                 Some(UiConnection {
                     chat,
                     screen,
+                    camera,
                     devices,
                     audio,
                     share_profile,
@@ -1760,6 +1804,10 @@ mod tests {
         assert_eq!((&ice["type"], &ice["rid"], &ice["tid"]), (&json!("send-ice-candidate"), &json!("room"), &json!("b")));
         assert_eq!(spec(ice["ice"].as_str().unwrap())["usernameFragment"], "ufrag");
         assert!(s.ice("b", "", None, None, None).is_none());
+        assert_eq!(s.camera(true), json!({"type":"start-camera-share","rid":"room"}));
+        assert_eq!(s.camera(false), json!({"type":"stop-camera-share","rid":"room"}));
+        assert!(crate::parse_command(r#"{"command":"startCamera","deviceId":null}"#).is_ok());
+        assert!(crate::parse_command(r#"{"command":"stopCamera"}"#).is_ok());
         assert_eq!(s.screen(true), json!({"type":"start-screen-share","rid":"room"}));
         assert_eq!(s.screen(false), json!({"type":"stop-screen-share","rid":"room"}));
     }
