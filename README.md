@@ -1,195 +1,115 @@
-<!-- prettier-ignore -->
 <div align="center">
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="client/src/jsMain/resources/brand/screenshare-logo-on-dark.svg" />
+  <img src="client/src/jsMain/resources/brand/screenshare-logo.svg" alt="Screenshare" width="144" />
+</picture>
 
 # Screenshare
 
-Real-time screen sharing and voice chat application built with Kotlin Multiplatform
+**Share a screen. Talk it through. Keep everyone in the same room.**
 
-[![Live Demo](https://img.shields.io/badge/Live_Demo-screen--share.fly.dev-2ecc71?style=flat-square&logo=fly-dot-io&logoColor=white)](https://screen-share.fly.dev/)
-[![Kotlin](https://img.shields.io/badge/Kotlin-2.3-7f52ff?style=flat-square&logo=kotlin&logoColor=white)](https://kotlinlang.org)
-[![Ktor](https://img.shields.io/badge/Ktor-3.4-087cfa?style=flat-square)](https://ktor.io)
-[![License](https://img.shields.io/badge/License-MIT-yellow?style=flat-square)](LICENSE)
+Peer-to-peer screen sharing, voice, camera and chat in your browser — with native capture on Windows and macOS.
 
-[Overview](#overview) • [Features](#features) • [Architecture](#architecture) • [Getting started](#getting-started) • [Running](#running) • [Deployment](#deployment)
+[![Try in browser](https://img.shields.io/badge/Try_in_browser-screen--share.fly.dev-27855a?style=flat-square)](https://screen-share.fly.dev/)
+[![Download desktop](https://img.shields.io/github/v/release/RafaelrainBR/screenshare-kotlin-js?label=Desktop&style=flat-square)](https://github.com/RafaelrainBR/screenshare-kotlin-js/releases/latest)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue?style=flat-square)](LICENSE)
 
-<img src="docs/images/room_sharing.png" alt="Screenshot of a screen sharing session" width="800" />
+[Português](README.pt-BR.md) · [Features](#what-you-can-do) · [Screenshots](#see-it-in-action) · [Run locally](#run-locally) · [Documentation](docs/README.md)
+
+<img src="docs/images/room_sharing.png" alt="Current Screenshare interface: Kotlin source shared between two connected participants, with room chat and media controls" width="1000" />
 
 </div>
 
-## Overview
+## Get into a room
 
-Screenshare is a peer-to-peer screen sharing and voice chat application. The client is written entirely in **Kotlin/JS** using WebRTC for media streams, while the signaling server runs on the **JVM** with Ktor. Both share a common data model through **Kotlin Multiplatform**.
+1. Open **[Screenshare in your browser](https://screen-share.fly.dev/)** or **[download the desktop app](https://github.com/RafaelrainBR/screenshare-kotlin-js/releases/latest)**.
+2. Enter your name. Leave the room code empty to create a room, or paste a code to join one.
+3. Copy the room code from the conversation header and send it to the people you want to join.
+4. Share your screen, enable your microphone or camera, and chat.
 
-Users create or join rooms, share their screen, and communicate via real-time voice chat — all from the browser with no plugins required.
+No account is required. The interface is currently in Brazilian Portuguese. Anyone with the room code can join; use it with people you trust.
 
-> [!TIP]
-> Try it now at **https://screen-share.fly.dev/** — no installation needed.
+## What you can do
 
-## Features
+- **Share screens and windows**, with game, video, and code/text presets. Adjust frame rate (up to 60 fps), bitrate and the trade-off between sharpness and smoothness.
+- **Talk and use your camera** independently of screen sharing. Choose devices, mute your microphone or output, and adjust another participant's volume.
+- **Follow multiple streams** in a grid or focus on one with a preview rail. Hide the conversation when you need more space.
+- **Chat in the room**, including earlier messages while the room remains active.
+- **Use native desktop capture** with screen/window thumbnails, computer or application audio, tray controls, optional startup at login, and in-app updates for supported installations.
+- **Host your own server**. Kotlin/Ktor handles rooms, text chat and WebRTC signaling; media uses a direct connection when possible, with TURN relay when needed.
 
-- **Screen sharing** — Stream your screen at up to 1080p/60fps using the browser's `getDisplayMedia` API.
-- **Voice chat** — Built-in microphone support with echo cancellation, noise suppression, and real-time speaking indicators.
-- **Room-based sessions** — Create rooms with shareable IDs and join from any browser.
-- **Text chat** — In-room messaging with chat history replayed for late joiners.
-- **Peer-to-peer media** — Audio and video travel directly between peers via WebRTC; the server only handles signaling.
-- **Responsive UI** — DaisyUI + Tailwind CSS interface with multiple themes, fullscreen mode, participant list, and animated speaking indicators.
+Resolution, frame rate and audio availability depend on the source, browser, operating system, network and hardware. These are capture/encoder settings, not a performance guarantee.
 
-<div align="center">
-  <img src="docs/images/join_screen.png" alt="Join screen" width="440" />
-  &nbsp;
-  <img src="docs/images/sidebar.png" alt="Participants and chat sidebar" width="230" />
-</div>
+### Browser or desktop?
 
-## Architecture
+| | Browser | Windows desktop | macOS desktop |
+|---|---|---|---|
+| Screen sharing, camera, voice and chat | Yes | Yes | Yes |
+| Source selection | Browser picker | Native screens/windows and thumbnails | Native screens/windows and thumbnails |
+| Shared audio | Browser/source dependent | Computer or selected application | Computer or selected application |
+| Tray controls and startup at login | — | Yes | Yes |
+| Distribution | Open the web app | x64 installer, MSI or portable EXE | Apple Silicon app archive and install script |
 
-The project is a Gradle multi-module Kotlin Multiplatform application:
+Desktop builds use the same Kotlin/JS client and rooms as the browser. Windows builds are unsigned; macOS builds use ad hoc signing without notarization. See [installation, permissions and platform limits](docs/usage.md).
 
-```
-screenshare/
-├── common/        Shared data models and serialization (JS + JVM)
-├── client/        Kotlin/JS browser app (WebRTC, UI, Ktor WebSocket client)
-├── server/        Ktor signaling server (WebSockets, room management)
-└── server-java/   Deployment wrapper (fat JAR packaging, Docker, Fly.io)
-```
+## See it in action
 
-| Module | Target | Description |
-|---|---|---|
-| **common** | JS + JVM | `@Serializable` packet types for all client ↔ server messages (`JoinRoom`, `SendDescription`, `IceCandidateReceived`, etc.) |
-| **client** | Kotlin/JS (Browser) | Single-page app compiled to `clientApp.js`. Manages WebRTC peer connections, screen capture, voice chat, and the DaisyUI interface. |
-| **server** | JVM (KMP) | Ktor CIO server exposing a WebSocket endpoint for signaling. Handles room lifecycle, user presence, chat history, and ICE/SDP relay. Built with KMP so additional targets (e.g. Kotlin/Native) can be added directly to this module. |
-| **server-java** | JVM | Packages the server into a fat JAR for deployment. |
+Screenshots show the current browser client in a local demo room, with a real WebRTC screen stream and sample conversation. The shared content is this repository's Kotlin protocol source.
 
-### Communication flow
+| Join or create a room | Tune your transmission |
+|---|---|
+| ![Join form with name and optional room code](docs/images/join_screen.png) | ![Transmission settings with game, video and code/text presets](docs/images/share_settings.png) |
 
-```mermaid
-flowchart LR
-    A["Peer A (Browser)"] -- "Signaling + Chat (via WebSocket)" --> S["Server"]
-    S -- "Signaling + Chat (via WebSocket)" --> B["Peer B (Browser)"]
-    A <-- "Video + Audio (direct, via WebRTC)" --> B
+<details>
+<summary>Conversation sidebar</summary>
 
-    style S fill:#087cfa,color:#fff,stroke:#065bb5
-    style A fill:#7f52ff,color:#fff,stroke:#5c3bbf
-    style B fill:#7f52ff,color:#fff,stroke:#5c3bbf
-```
+![Room code, conversation history and message composer](docs/images/sidebar.png)
 
-1. Clients connect to the server via **WebSocket**.
-2. When a user starts sharing or joins a room, the server broadcasts presence events.
-3. Peers exchange **ICE candidates** and **SDP descriptions** through the server.
-4. Once negotiation completes, **audio and video streams flow directly peer-to-peer** via WebRTC.
+</details>
 
-## Getting started
+## Run locally
 
-### Prerequisites
-
-- [JDK 21+](https://adoptium.net/) (Amazon Corretto, Temurin, or similar)
-- [Gradle](https://gradle.org/install/) (or use the included `gradlew` wrapper)
-
-### Clone the repository
+Install **JDK 21** (the build uses a Java 21 toolchain), then clone and run:
 
 ```bash
-git clone https://github.com/rafaelrain/screenshare-kotlin-js.git
+git clone https://github.com/RafaelrainBR/screenshare-kotlin-js.git
 cd screenshare-kotlin-js
-```
-
-## Running
-
-### Development
-
-Start the server in development mode (with hot-reload enabled via Ktor's `io.ktor.development=true`):
-
-```bash
 ./gradlew :server-java:run
 ```
 
-This will:
-1. Compile the Kotlin/JS client and bundle it with Webpack.
-2. Copy the client assets into the server's static resources.
-3. Start the Ktor server on **http://localhost:8080**.
+On Windows PowerShell, use `.\gradlew.bat :server-java:run`.
 
-Open the URL in your browser, enter a username and room ID, and you're ready to share.
+Open **[http://localhost:8080](http://localhost:8080)** in two tabs and join the same room. The task builds the browser client and serves it with the signaling server. The included Gradle wrapper manages Gradle and the Kotlin/JS Node/Yarn tools; the first build downloads dependencies. For screen sharing on another host, serve the app over HTTPS.
 
-> [!TIP]
-> Share the same room ID with another person (or open a second browser tab) to test screen sharing and voice chat.
+See [development and tests](docs/development.md) for build commands and desktop prerequisites; see [self-hosting](docs/self-hosting.md) for Docker, Fly.io and STUN/TURN configuration.
 
-### Build only
+## How it works
 
-```bash
-# Build the client JS bundle
-./gradlew :client:jsBrowserDistribution
-
-# Build the server fat JAR
-./gradlew :server-java:buildFatJar
+```mermaid
+flowchart LR
+    A["Browser / desktop A"] <-->|"WebSocket: rooms, chat, SDP and ICE"| S["Ktor signaling server"]
+    S <-->|"WebSocket: rooms, chat, SDP and ICE"| B["Browser / desktop B"]
+    A <-->|"WebRTC: screen, camera and audio"| B
+    A <-.->|"When direct connectivity fails"| T["TURN relay"]
+    T <-.-> B
 ```
 
-### Run tests
-
-```bash
-./gradlew check
-```
-
-Tests use [Kotest](https://kotest.io/) and cover serialization round-trips for all packet types.
-
-## Deployment
-
-The `server-java` module includes everything needed for containerized deployment.
-
-### Docker
-
-```bash
-cd server-java
-docker compose up --build
-```
-
-The included [Dockerfile](server-java/Dockerfile) uses Amazon Corretto 21 Alpine and exposes port **8080**.
-
-### Fly.io
-
-The project ships with a [fly.toml](server-java/fly.toml) configured for the `gru` (São Paulo) region:
-
-```bash
-fly deploy
-```
-
-> [!NOTE]
-> The Fly.io configuration uses a shared CPU with 256 MB RAM, auto-stop/start, and force HTTPS. Adjust `fly.toml` to match your needs.
-
-#### Beta / canary environment
-
-A **separate** Fly app (`screen-share-beta`) is provided for testing new features
-without affecting production. It is fully isolated from the production app
-(`screen-share`) and serves its own bundled client (the client connects to the
-WebSocket using `window.location`, so each app talks to its own host).
-
-Deploy the beta from the branch you want to test (e.g. `beta`):
-
-```bash
-# One-shot: creates the app + allocates an IP on first run, then deploys
-./server-java/deploy-beta.sh
-
-# Or step-by-step (manual):
-cd server-java
-fly apps create screen-share-beta      # first time only
-fly ips allocate-v4 -c fly.beta.toml   # first time only
-fly deploy -c fly.beta.toml            # every deploy
-```
-
-The beta app will be available at `https://screen-share-beta.fly.dev`.
-
-> [!IMPORTANT]
-> Fly app names are globally unique. If `screen-share-beta` is taken, pick a
-> different unique name and update both the `app` field in
-> [fly.beta.toml](server-java/fly.beta.toml) and `APP_NAME` in
-> [deploy-beta.sh](server-java/deploy-beta.sh).
-
-## Tech stack
-
-| Layer | Technology |
+| Module | Responsibility |
 |---|---|
-| Language | [Kotlin 2.3](https://kotlinlang.org) (Multiplatform) |
-| Client | Kotlin/JS, WebRTC, Web Audio API |
-| Server | [Ktor 3.4](https://ktor.io) (CIO engine, WebSockets) |
-| Serialization | [kotlinx.serialization](https://github.com/Kotlin/kotlinx.serialization) |
-| UI | [DaisyUI](https://daisyui.com) + [Tailwind CSS](https://tailwindcss.com) |
-| Testing | [Kotest 6](https://kotest.io) |
-| Build | [Gradle](https://gradle.org) with Kotlin DSL & version catalogs |
-| Deployment | Docker, [Fly.io](https://fly.io) |
+| [`client/`](client) | Kotlin/JS interface, WebRTC, screen sharing, camera and voice |
+| [`common/`](common) | Kotlin Multiplatform packet types shared by JS and JVM |
+| [`server/`](server) | Ktor/JVM signaling, room membership and in-memory chat history |
+| [`server-java/`](server-java) | JVM entry point, fat JAR, Docker and Fly.io configuration |
+| [`desktop-tauri/`](desktop-tauri) | Tauri shell, tray, updater and TypeScript media bridge |
+| [`desktop-capture/`](desktop-capture) | Shared Rust capture: Windows DXGI/GDI/WASAPI and macOS ScreenCaptureKit/Core Audio |
+
+The UI uses local CSS, JavaScript and Barlow fonts. Dependency versions live in [`libs.versions.toml`](libs.versions.toml), [`desktop-tauri/package.json`](desktop-tauri/package.json) and the Cargo manifests.
+
+## Project status and contributing
+
+Screenshare is under active development. Documentation describes the current source; the [latest desktop release](https://github.com/RafaelrainBR/screenshare-kotlin-js/releases/latest) may lag behind `master`. Release assets and changes are listed on [GitHub Releases](https://github.com/RafaelrainBR/screenshare-kotlin-js/releases).
+
+Bug reports, platform testing and contributions are welcome. Start with [CONTRIBUTING.md](CONTRIBUTING.md), check [open issues](https://github.com/RafaelrainBR/screenshare-kotlin-js/issues), or read the [documentation index](docs/README.md).
+
+Licensed under [MIT](LICENSE).
