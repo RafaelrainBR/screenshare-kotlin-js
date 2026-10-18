@@ -32,11 +32,17 @@ pub fn help(media: Media, error: &str) -> &'static str {
 
 /// open_privacy_settings in the Tauri app: apps cannot grant themselves access, so open the OS page.
 pub fn open_settings(media: Media) {
-    let page = match media {
+    #[cfg(windows)]
+    let (opener, page) = ("explorer", match media {
         Media::Camera => "ms-settings:privacy-webcam",
         Media::Microphone => "ms-settings:privacy-microphone",
-    };
-    let _ = std::process::Command::new("explorer").arg(page).spawn();
+    });
+    #[cfg(target_os = "macos")]
+    let (opener, page) = ("open", match media {
+        Media::Camera => "x-apple.systempreferences:com.apple.preference.security?Privacy_Camera",
+        Media::Microphone => "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone",
+    });
+    let _ = std::process::Command::new(opener).arg(page).spawn();
 }
 
 /// Drops the engine's "CODE: " prefix before a message reaches a toast.

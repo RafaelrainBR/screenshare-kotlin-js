@@ -48,7 +48,7 @@ pub enum Message {
     OutputDevice(Option<String>),
     OpenWizard,
     CloseWizard,
-    Sources(Vec<desktop_capture::sources::Source>),
+    Sources(Vec<desktop_native::sources::Source>),
     Thumbnail(String, Option<image::Handle>),
     Pick(String),
     ToggleShareAudio,
@@ -280,9 +280,10 @@ fn open_panel(app: &mut App, (x, y, w, h): (f64, f64, f64, f64)) -> Task<Message
         let frame = if framed { window::toggle_decorations(id) } else { Task::none() };
         // shortcut: positions use this window's scale; a tray on a monitor with another DPI lands slightly off.
         let place = window::scale_factor(id).then(move |scale| {
-            let Some(area) = area else { return Task::none() };
             let s = f64::from(scale);
-            let (px, py) = ui::panel::position((x, y, w, h), (f64::from(width) * s, f64::from(height) * s), area);
+            let size = (f64::from(width) * s, f64::from(height) * s);
+            // Without a work area, right under the icon, as Tauri falls back.
+            let (px, py) = area.map_or((x + w - size.0, y + h), |area| ui::panel::position((x, y, w, h), size, area));
             window::move_to(id, Point::new((px / s) as f32, (py / s) as f32))
         });
         frame
@@ -298,6 +299,13 @@ fn open_panel(app: &mut App, (x, y, w, h): (f64, f64, f64, f64)) -> Task<Message
 
 /// Tauri's set_skip_taskbar, done as winit does it (ITaskbarList): the panel has no taskbar button,
 /// the room window has. Called after the window is shown, since showing it adds the button back.
+#[cfg(target_os = "macos")]
+fn taskbar(_id: window::Id, _shown: bool) -> Task<Message> {
+    // The panel is a menu bar window; the Dock icon follows the app, not this window.
+    Task::none()
+}
+
+#[cfg(windows)]
 fn taskbar(id: window::Id, shown: bool) -> Task<Message> {
     window::run(id, move |handle| {
         use window::raw_window_handle::RawWindowHandle;

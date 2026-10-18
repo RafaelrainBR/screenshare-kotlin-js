@@ -118,7 +118,7 @@ pub fn summary(profile: ShareProfile) -> String {
 
 /// The web keeps the profile in localStorage; here it is one small JSON file per user.
 fn path() -> Option<PathBuf> {
-    Some(PathBuf::from(std::env::var_os("APPDATA")?).join("Screenshare-native").join("share-profile.json"))
+    Some(crate::startup::data_dir()?.join("share-profile.json"))
 }
 
 pub fn load() -> ShareProfile {
