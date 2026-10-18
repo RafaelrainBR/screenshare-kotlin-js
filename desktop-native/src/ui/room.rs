@@ -4,10 +4,10 @@ use std::time::Duration;
 use desktop_native::session::{AudioDevice, Participant};
 use iced::{
     Alignment, Element, Length,
-    widget::{button, column, container, image, mouse_area, opaque, pick_list, row, scrollable, stack, text, text_input},
+    widget::{button, column, container, image, mouse_area, opaque, row, scrollable, stack, text, text_input},
 };
 
-use super::{profile, theme};
+use super::{dock, theme};
 use crate::{App, Message, TileKey, is_shared};
 
 pub const CHAT_INPUT: &str = "chat-input";
@@ -22,14 +22,10 @@ impl std::fmt::Display for Device {
     }
 }
 
-fn devices(list: &[AudioDevice]) -> Vec<Device> {
+pub fn devices(list: &[AudioDevice]) -> Vec<Device> {
     std::iter::once(Device(None, "Padrão".into()))
         .chain(list.iter().map(|d| Device(Some(d.id.clone()), d.label.clone())))
         .collect()
-}
-
-fn chosen(options: &[Device], id: &Option<String>) -> Option<Device> {
-    options.iter().find(|d| &d.0 == id).cloned()
 }
 
 pub fn view(app: &App) -> Element<'_, Message> {
@@ -104,50 +100,15 @@ pub fn view(app: &App) -> Element<'_, Message> {
     ]
     .spacing(10);
 
-    let mics = devices(&view.audio_inputs);
-    let outputs = devices(&view.audio_outputs);
-    let cameras = devices(&view.cameras);
-    let sharing = crate::sharing(view);
-    // Like the web dock: the status only takes space while something is wrong.
-    let (status, status_color) = status(app);
-    let dock = row![
-        toggle("Microfone · F2", view.microphone_enabled, Message::ToggleMic),
-        pick_list(mics.clone(), chosen(&mics, &app.mic_device), |d| Message::MicDevice(d.0)).width(110),
-        toggle("Som · F3", view.output_enabled, Message::ToggleOutput),
-        pick_list(outputs.clone(), chosen(&outputs, &app.output_device), |d| Message::OutputDevice(d.0)).width(110),
-        // Green while on, like the other toggles; the web shows a slashed icon when off.
-        toggle("Câmera · F6", crate::camera_on(view), Message::ToggleCamera),
-        pick_list(cameras.clone(), chosen(&cameras, &app.camera_device), |d| Message::CameraDevice(d.0)).width(110),
-        // Fills the free space, so a long status wraps instead of squeezing the buttons.
-        text(status).color(status_color).width(Length::Fill),
-        if sharing {
-            button(text(if view.screen_state == "active" { "Parar compartilhamento · F4" } else { "Iniciando…" })).style(button::danger).on_press(Message::StopShare)
-        } else {
-            button(text("Compartilhar tela · F4")).style(button::primary).on_press(Message::OpenWizard)
-        },
-        // The web #share-picker chevron: the transmission menu, live while sharing.
-        button(text(if app.share_menu.is_some() { "▾ F5" } else { "▴ F5" }))
-            .style(button::secondary)
-            .on_press(Message::ShareMenu(app.share_menu.is_none().then_some(profile::Menu::Main))),
-        // Leave keeps the old arrow icon, as in the v4 dock.
-        button(text("⇤ Sair").wrapping(iced::widget::text::Wrapping::None)).style(button::danger).on_press(Message::Leave),
-    ]
-    .spacing(8)
-    .align_y(Alignment::Center);
+    let dock = dock::view(app);
 
     let body = row![stage.width(Length::Fill), container(chat).padding(12).width(300).height(Length::Fill).style(theme::panel)].spacing(10);
 
     let notice = app.notice.as_ref().filter(|(_, since)| since.elapsed() < Duration::from_secs(6));
     let screen = column![body, container(dock).padding(10).style(theme::panel)].spacing(10).padding(12);
     let mut layers = iced::widget::stack![screen];
-    if let Some(page) = app.share_menu {
-        // A click outside closes the menu, like the web <details> pickers; it sits above the dock's share button.
-        let outside = mouse_area(container(text("")).width(Length::Fill).height(Length::Fill)).on_press(Message::ShareMenu(None));
-        let menu = container(profile::menu(page, app.profile, view.screen_state == "active"))
-            .align_right(Length::Fill)
-            .align_bottom(Length::Fill)
-            .padding(iced::Padding { right: 92.0, bottom: 70.0, ..iced::Padding::ZERO });
-        layers = layers.push(outside).push(menu);
+    if let Some(popover) = dock::popover(app) {
+        layers = layers.push(popover);
     }
     if let Some((peer, camera)) = &app.peer_options {
         // Opens over the stage, above the rail; a click outside or Esc closes it.
@@ -181,7 +142,7 @@ pub fn errors(app: &App) -> Vec<&str> {
         .collect()
 }
 
-fn status(app: &App) -> (String, iced::Color) {
+pub fn status(app: &App) -> (String, iced::Color) {
     let view = &app.view;
     let ended = app.running.as_ref().is_some_and(|r| r.thread.as_ref().is_none_or(|t| t.is_finished()));
     if ended {
@@ -208,10 +169,6 @@ fn local_time(timestamp_ms: i64) -> String {
     // SAFETY: plain out-parameters on the stack.
     let ok = unsafe { FileTimeToSystemTime(&file, &mut utc).is_ok() && SystemTimeToTzSpecificLocalTime(None, &utc, &mut local).is_ok() };
     if ok { format!("{:02}:{:02}", local.wHour, local.wMinute) } else { String::new() }
-}
-
-fn toggle(label: &str, on: bool, message: Message) -> Element<'_, Message> {
-    button(text(label)).style(if on { button::success } else { button::secondary }).on_press(message).into()
 }
 
 /// A remote screen or camera (.screen-tile); click shows it alone or goes back to the grid.

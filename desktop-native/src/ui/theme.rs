@@ -19,6 +19,9 @@ pub const GREEN: Color = color!(0x60c99b);
 pub const RED: Color = color!(0xef8791);
 pub const ACCENT: Color = color!(0x8eb4fa);
 pub const TEXT: Color = color!(0xeef2fa);
+pub const SURFACE_2: Color = color!(0x222b38);
+pub const HOVER: Color = color!(0x2b3546);
+pub const RED_LINE: Color = color!(0xa8525e);
 pub const RADIUS: f32 = 10.0;
 
 pub fn theme() -> Theme {

@@ -52,6 +52,8 @@ pub enum Message {
     SetProfile(ShareProfile),
     /// Opens a page of the dock's transmission menu, or closes it.
     ShareMenu(Option<ui::profile::Menu>),
+    /// Opens the device list above a dock chevron, or closes it.
+    DevicePicker(Option<ui::dock::Picker>),
     ToggleAdvanced,
     /// The ⋯ menu of a participant (and of the clicked video, if any), or None to close it.
     PeerOptions(Option<(String, Option<bool>)>),
@@ -137,6 +139,7 @@ pub struct App {
     /// Kept across rooms and runs (share-profile.json), like the web localStorage.
     profile: ShareProfile,
     share_menu: Option<ui::profile::Menu>,
+    device_picker: Option<ui::dock::Picker>,
     /// The wizard's "Ajustes avançados" is open.
     advanced: bool,
     /// Height of the running share, for live bitrate changes.
@@ -281,6 +284,7 @@ fn update(app: &mut App, message: Message) -> Task<Message> {
             }
         }
         Message::CameraDevice(id) => {
+            app.device_picker = None;
             app.camera_device = id;
             // Like the microphone: a camera picked while on restarts with it.
             if let (Some(running), true) = (&app.running, camera_on(&app.view)) {
@@ -291,6 +295,7 @@ fn update(app: &mut App, message: Message) -> Task<Message> {
         Message::ToggleMic => audio(app, AudioControl::Microphone { enabled: !app.view.microphone_enabled, device_id: app.mic_device.clone() }),
         Message::ToggleOutput => audio(app, AudioControl::Output { enabled: !app.view.output_enabled, device_id: app.output_device.clone() }),
         Message::MicDevice(id) => {
+            app.device_picker = None;
             app.mic_device = id;
             if app.view.microphone_enabled {
                 app.mic_restart = true;
@@ -298,6 +303,7 @@ fn update(app: &mut App, message: Message) -> Task<Message> {
             }
         }
         Message::OutputDevice(id) => {
+            app.device_picker = None;
             app.output_device = id;
             if app.view.output_enabled {
                 app.output_restart = true;
@@ -353,7 +359,15 @@ fn update(app: &mut App, message: Message) -> Task<Message> {
                 let _ = running.share_profile.send((app.view.generation, profile, app.share_height));
             }
         }
-        Message::ShareMenu(page) => app.share_menu = page,
+        // One popover at a time, like the web <details> pickers.
+        Message::ShareMenu(page) => {
+            app.share_menu = page;
+            app.device_picker = None;
+        }
+        Message::DevicePicker(picker) => {
+            app.device_picker = picker;
+            app.share_menu = None;
+        }
         Message::ToggleAdvanced => app.advanced = !app.advanced,
         Message::PeerOptions(target) => app.peer_options = target,
         Message::TogglePeerMute(peer) => {
@@ -430,6 +444,7 @@ fn shortcut(app: &mut App, key: keyboard::Key, modifiers: keyboard::Modifiers) -
         (_, _) if app.running.is_none() => return Task::none(),
         (Key::Named(Named::Escape), Some(_)) => Message::CloseWizard,
         (Key::Named(Named::Escape), None) if app.peer_options.is_some() => Message::PeerOptions(None),
+        (Key::Named(Named::Escape), None) if app.device_picker.is_some() => Message::DevicePicker(None),
         // Like the web menu: Esc leaves a field's options first, then closes the menu.
         (Key::Named(Named::Escape), None) if app.share_menu.is_some() => {
             Message::ShareMenu((app.share_menu != Some(ui::profile::Menu::Main)).then_some(ui::profile::Menu::Main))
