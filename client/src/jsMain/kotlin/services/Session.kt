@@ -192,7 +192,11 @@ class Session(
     /** Applies [profile] to the running share without restarting it. */
     fun updateShareProfile(profile: ShareProfile) =
         launch {
-            if (screenSharing.updateProfile(profile)) peerConnections.applyShareEncoding()
+            if (screenSharing.updateProfile(profile) && !peerConnections.applyShareEncoding()) {
+                InterfaceMutations.showError(
+                    "Não foi possível aplicar a qualidade para todos os visualizadores. Tente selecionar novamente.",
+                )
+            }
         }
 
     fun handleStopScreenShare() {

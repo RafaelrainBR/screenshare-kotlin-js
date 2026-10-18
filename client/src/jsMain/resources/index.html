@@ -59,6 +59,7 @@
             <details id="share-picker" class="device-picker share-picker">
               <summary aria-label="Ajustes da transmissão" title="Ajustes da transmissão"><svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg></summary>
               <div class="picker-panel share-menu">
+                <p class="share-menu-note">FPS, prioridade e bitrate mudam durante a transmissão, sem reiniciar. Sem transmissão ativa, ficam salvos para a próxima.</p>
                 <div id="share-menu-main">
                   <p class="share-menu-title">Transmissão <span id="share-menu-state" class="share-menu-state">Próxima tela</span></p>
                   <div class="share-menu-presets" role="group" aria-label="O que você vai mostrar">
@@ -219,6 +220,7 @@
             </div>
             <div id="resolution-section" class="advanced-field">
               <label class="field-label" for="share-resolution">Resolução</label>
+              <p class="advanced-hint">Usada ao iniciar a próxima captura. Para mudar a tela atual, pare e compartilhe novamente.</p>
               <select id="share-resolution" class="select">
                 <option value="source">Fonte</option>
                 <option value="1280x720">720p</option>
@@ -239,6 +241,7 @@
             </div>
           </div>
           <p id="share-bitrate-hint" class="advanced-hint hidden">Acima do seu upload, a imagem trava para todos.</p>
+          <p class="advanced-hint">FPS, prioridade e bitrate mudam durante a transmissão, sem reiniciar. Sem transmissão ativa, ficam salvos para a próxima.</p>
         </details>
       </div>
       <div id="share-audio-step" class="modal-section hidden">

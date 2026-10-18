@@ -188,7 +188,13 @@ class ScreenSharing(
                     constraints.frameRate = json("ideal" to profile.fps, "max" to profile.fps)
                     (track.asDynamic().applyConstraints(constraints) as kotlin.js.Promise<Any?>).await()
                 }
-            }.onFailure { console.warn("Não foi possível mudar os quadros por segundo da captura") }
+            }.onFailure {
+                lastShareProfile = profile.copy(fps = previousFps)
+                InterfaceMutations.showError(
+                    "Não foi possível mudar os quadros por segundo da captura. " +
+                        "Tente selecionar novamente ou reinicie o compartilhamento.",
+                )
+            }
         }
         return true
     }
