@@ -27,6 +27,7 @@ class RTCPeerConnectionDecorator(
     // mensagens de signaling chegam fora de ordem.
     private val pendingCandidates = mutableListOf<dynamic>()
     private var remoteSet = false
+    private val videoEncodings = mutableMapOf<String, Json>()
 
     fun createOffer(): Promise<Json> = windowRTCPeerConnection.createOffer() as Promise<Json>
 
@@ -78,7 +79,10 @@ class RTCPeerConnectionDecorator(
     fun removeEndedSenders() {
         getSenders()
             .filter { sender -> sender.track?.readyState == "ended" }
-            .forEach { sender -> windowRTCPeerConnection.removeTrack(sender) }
+            .forEach { sender ->
+                videoEncodings.remove(sender.track.id as String)
+                windowRTCPeerConnection.removeTrack(sender)
+            }
     }
 
     fun replaceTrack(
@@ -101,22 +105,40 @@ class RTCPeerConnectionDecorator(
         maxBitrate: Int,
         maxFramerate: Int,
         degradationPreference: String,
-    ) {
-        val sender = senderForTrack(trackId) ?: return
+    ): Promise<Boolean> {
+        val limits =
+            json(
+                "maxBitrate" to maxBitrate,
+                "maxFramerate" to maxFramerate,
+                "degradationPreference" to degradationPreference,
+            )
+        videoEncodings[trackId] = limits
+        return applyVideoEncoding(trackId, limits)
+    }
+
+    private fun applyVideoEncoding(
+        trackId: String,
+        limits: Json,
+    ): Promise<Boolean> {
+        val sender = senderForTrack(trackId) ?: return Promise.resolve(false)
         val params = sender.getParameters()
         val encodings = params.encodings as? Array<dynamic>
-        if (encodings != null) {
-            for (enc in encodings) {
-                enc.maxBitrate = maxBitrate
-                enc.maxFramerate = maxFramerate
-            }
-        } else {
-            params.encodings = js("[{ maxBitrate: maxBitrate, maxFramerate: maxFramerate }]")
+        // addTrack can expose no encodings until SDP is applied; retry after negotiation.
+        if (encodings.isNullOrEmpty()) return Promise.resolve(false)
+        for (enc in encodings) {
+            enc.maxBitrate = limits["maxBitrate"]
+            enc.maxFramerate = limits["maxFramerate"]
         }
-        params.degradationPreference = degradationPreference
-        runCatching { sender.setParameters(params) }
-            .onFailure { console.warn("Não foi possível aplicar a configuração de vídeo") }
+        params.degradationPreference = limits["degradationPreference"]
+        val applied = runCatching { sender.setParameters(params) as Promise<dynamic> }.getOrElse { Promise.reject(it) }
+        return applied.then<Boolean> { true }.catch {
+            console.warn("Não foi possível aplicar a configuração de vídeo")
+            false
+        }
     }
+
+    private fun reapplyVideoEncodings(): Promise<Array<out Boolean>> =
+        Promise.all(videoEncodings.map { (trackId, limits) -> applyVideoEncoding(trackId, limits) }.toTypedArray())
 
     /**
      * Prefere codecs na ordem: VP9 > H264 > VP8 > AV1.
@@ -128,9 +150,10 @@ class RTCPeerConnectionDecorator(
         // Mira o sender de VÍDEO (não o primeiro sender): se o mic fosse
         // adicionado antes da tela, firstOrNull() cairia num sender de áudio
         // e a preferência de codec não teria efeito no vídeo.
-        val sender =
-            getSenders().firstOrNull { s -> (s.track?.kind as? String) == "video" } ?: return
-        val transceiver = sender.transceiver ?: return
+        val transceivers =
+            (windowRTCPeerConnection.getTransceivers() as Array<dynamic>)
+                .filter { it.sender.track?.kind == "video" }
+        if (transceivers.isEmpty()) return
         // getCapabilities belongs to RTCRtpSender, not RTCPeerConnection.
         val capabilities: dynamic = js("RTCRtpSender.getCapabilities('video')") ?: return
         val allCodecs: Array<dynamic> = capabilities.codecs as Array<dynamic>
@@ -150,8 +173,10 @@ class RTCPeerConnectionDecorator(
             }
         val preferred = (primary + auxiliary).distinct()
         if (preferred.isNotEmpty()) {
-            runCatching { transceiver.setCodecPreferences(preferred) }
-                .onFailure { console.warn("Não foi possível aplicar a preferência de codec") }
+            transceivers.forEach { transceiver ->
+                runCatching { transceiver.setCodecPreferences(preferred.toTypedArray()) }
+                    .onFailure { console.warn("Não foi possível aplicar a preferência de codec") }
+            }
         }
     }
 
@@ -183,15 +208,25 @@ class RTCPeerConnectionDecorator(
     }
 
     fun setLocalDescription(description: Json): Promise<Json> =
-        windowRTCPeerConnection.setLocalDescription(description) as Promise<Json>
+        windowRTCPeerConnection.setLocalDescription(description).then { value: dynamic ->
+            reapplyVideoEncodings().then { value }
+        } as Promise<Json>
 
     fun setRemoteDescription(description: RTCSessionDescription): Promise<Json> {
-        remoteSet = true
+        remoteSet = false
+        val data = description.asDynamic()
+        val configured =
+            RTCSessionDescription(
+                json(
+                    "type" to data.type,
+                    "sdp" to improveVideoStartupSdp(data.sdp as String),
+                ),
+            )
         return windowRTCPeerConnection
-            .setRemoteDescription(description)
+            .setRemoteDescription(configured)
             .then { value ->
-                drainPendingCandidates()
-                value
+                remoteSet = true
+                drainPendingCandidates().then { reapplyVideoEncodings().then { value } }
             } as Promise<Json>
     }
 
@@ -204,13 +239,21 @@ class RTCPeerConnectionDecorator(
         return windowRTCPeerConnection.addIceCandidate(candidate) as Promise<Json>
     }
 
-    private fun drainPendingCandidates() {
+    private fun drainPendingCandidates(): Promise<Array<out Boolean>> {
         val toAdd = pendingCandidates.toList()
         pendingCandidates.clear()
-        toAdd.forEach { candidate ->
-            runCatching { windowRTCPeerConnection.addIceCandidate(candidate) }
-                .onFailure { console.warn("Não foi possível aplicar uma atualização de conexão") }
-        }
+        return Promise.all(
+            toAdd
+                .map { candidate ->
+                    val applied =
+                        runCatching { windowRTCPeerConnection.addIceCandidate(candidate) as Promise<dynamic> }
+                            .getOrElse { Promise.reject(it) }
+                    applied.then<Boolean> { true }.catch {
+                        console.warn("Não foi possível aplicar uma atualização de conexão")
+                        false
+                    }
+                }.toTypedArray(),
+        )
     }
 
     fun onConnectionStateChange(block: (state: String) -> Unit) {

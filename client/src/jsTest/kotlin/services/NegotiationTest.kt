@@ -2,6 +2,7 @@ package services
 
 import decorators.RTCPeerConnectionDecorator
 import kotlinx.coroutines.MainScope
+import kotlinx.coroutines.async
 import kotlinx.coroutines.await
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.promise
@@ -12,6 +13,23 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 class NegotiationTest {
+    @Test
+    fun incomingOfferWaitsForAnOfferAlreadyBeingCreated() =
+        MainScope().promise {
+            var finishOffer: (kotlin.js.Json) -> Unit = {}
+            val fake = FakePeer()
+            fake.offer = Promise { resolve, _ -> finishOffer = resolve }
+            val (peers, _) = peersWith(isInitiator = false, fake)
+            fake.negotiate()
+            delay(10)
+            val incoming = async { offer(peers) }
+            delay(10)
+            assertTrue(fake.calls.isEmpty(), "Remote SDP must not race an unfinished local offer")
+            finishOffer(json("type" to "offer", "sdp" to ""))
+            incoming.await()
+            assertEquals(listOf("sld:offer", "sld:rollback", "srd:offer", "sld:answer"), fake.calls)
+        }
+
     @Test
     fun rollbackReturnsARealPeerConnectionToStable() =
         MainScope().promise {
@@ -80,6 +98,8 @@ class NegotiationTest {
         val calls = mutableListOf<String>()
         var senders = emptyArray<dynamic>()
         var onTrack: (dynamic) -> Unit = {}
+        var offer: Promise<kotlin.js.Json>? = null
+        var negotiate: () -> Unit = {}
     }
 
     private suspend fun peersWith(
@@ -94,7 +114,8 @@ class NegotiationTest {
         pc.getSenders = { fake.senders }
         pc.removeTrack = { sender: dynamic -> fake.calls += "remove:${sender.track.id}" }
         pc.addEventListener = { _: dynamic, listener: (dynamic) -> Unit -> fake.onTrack = listener }
-        pc.createOffer = { Promise.reject(Throwable("offer not under test")) }
+        pc.createOffer = { fake.offer ?: Promise.reject(Throwable("offer not under test")) }
+        fake.negotiate = { pc.onnegotiationneeded() }
         pc.createAnswer = { Promise.resolve(json("type" to "answer", "sdp" to "")) }
         pc.setRemoteDescription = { desc: dynamic ->
             fake.calls += "srd:${desc.type}"
@@ -103,7 +124,7 @@ class NegotiationTest {
         }
         pc.setLocalDescription = { desc: dynamic ->
             fake.calls += "sld:${desc.type}"
-            fake.signalingState = "stable"
+            fake.signalingState = if (desc.type == "offer") "have-local-offer" else "stable"
             Promise.resolve(null)
         }
         val scope = MainScope()

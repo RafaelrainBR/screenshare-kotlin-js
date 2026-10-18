@@ -8,6 +8,8 @@ import decorators.upgradeAudioQualitySdp
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.await
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import org.w3c.dom.mediacapture.MediaStreamTrack
 import screenshare.common.IceServer
 import kotlin.js.Json
@@ -21,8 +23,8 @@ class PeerConnections(
     val peers: MutableMap<String, RTCPeerConnectionDecorator> = mutableMapOf()
 
     // Perfect-negotiation state, keyed by socketId (see MDN "Perfect Negotiation").
-    private val makingOffer = mutableMapOf<String, Boolean>()
     private val isPolite = mutableMapOf<String, Boolean>()
+    private val negotiationLocks = mutableMapOf<String, Mutex>()
 
     // Sinalização local de quais compartilhamentos cada peer está transmitindo.
     // Usado para decidir, em onTrack, se um track de vídeo é da TELA ou da CÂMERA
@@ -66,18 +68,18 @@ class PeerConnections(
     }
 
     /** Re-applies the share profile to every viewer; setParameters needs no renegotiation. */
-    fun applyShareEncoding() {
-        val track = screenSharing.localScreenStream?.getVideoTracks()?.firstOrNull() ?: return
-        peers.values.forEach { applyShareEncoding(it, track) }
+    suspend fun applyShareEncoding(): Boolean {
+        val track = screenSharing.localScreenStream?.getVideoTracks()?.firstOrNull() ?: return false
+        return peers.values.map { applyShareEncoding(it, track) }.all { it.await() }
     }
 
     private fun applyShareEncoding(
         peerConnection: RTCPeerConnectionDecorator,
         track: MediaStreamTrack,
-    ) {
+    ): kotlin.js.Promise<Boolean> {
         val profile = screenSharing.lastShareProfile
         track.asDynamic().contentHint = profile.priority.contentHint
-        peerConnection.applyVideoEncoding(
+        return peerConnection.applyVideoEncoding(
             trackId = track.id,
             maxBitrate = shareBitrate(profile, screenSharing.lastShareHeight),
             maxFramerate = profile.fps,
@@ -155,8 +157,9 @@ class PeerConnections(
 
         addTracksIfNotPresent(peerConnection)
 
-        makingOffer[socketId] = false
         isPolite[socketId] = !isInitiator
+        val negotiationLock = Mutex()
+        negotiationLocks[socketId] = negotiationLock
 
         peerConnection.onIceCandidateAdd { iceCandidate ->
             if (iceCandidate != null) {
@@ -166,17 +169,11 @@ class PeerConnections(
             }
         }
 
-        // renegotiationneeded: fires on initial connection (if tracks exist) AND
-        // whenever a track is added later (screen share start/stop). Guard against
-        // firing while we are already mid-negotiation (signaling state != stable)
-        // to avoid a race where a renegotiation offer collides with the answer we
-        // are about to send.
-        peerConnection.onNegotiationNeeded {
-            if (makingOffer[socketId] == true) return@onNegotiationNeeded
-            if (peerConnection.signalingState != "stable") return@onNegotiationNeeded
-            coroutineScope.launch {
+        // Serialize SDP operations, including the awaits inside createOffer and rollback.
+        suspend fun sendOffer() {
+            negotiationLock.withLock {
+                if (peerConnection.signalingState != "stable") return@withLock
                 runCatching {
-                    makingOffer[socketId] = true
                     val offer = peerConnection.createOffer().await()
                     val sdp = upgradeAudioQualitySdp(offer["sdp"] as String)
                     peerConnection.setLocalDescription(json("type" to offer["type"] as String, "sdp" to sdp)).await()
@@ -188,32 +185,15 @@ class PeerConnections(
                 }.onFailure {
                     console.warn("Não foi possível renegociar a conexão")
                 }
-                makingOffer[socketId] = false
             }
         }
 
-        // For the peer who created the connection (isInitiator), send the
-        // initial offer explicitly.  negotiationneeded may not fire for a
-        // completely empty PC, and we must not depend on it for the first
-        // offer.
-        if (isInitiator) {
-            makingOffer[socketId] = true
-            coroutineScope.launch {
-                runCatching {
-                    val offer = peerConnection.createOffer().await()
-                    val sdp = upgradeAudioQualitySdp(offer["sdp"] as String)
-                    peerConnection.setLocalDescription(json("type" to offer["type"] as String, "sdp" to sdp)).await()
-                    websocketService.sendDescription(
-                        roomId = roomId,
-                        targetId = socketId,
-                        description = mapOf("type" to offer["type"] as String, "sdp" to sdp),
-                    )
-                }.onFailure {
-                    console.warn("Não foi possível iniciar a conexão de mídia")
-                }
-                makingOffer[socketId] = false
-            }
+        peerConnection.onNegotiationNeeded {
+            coroutineScope.launch { sendOffer() }
         }
+
+        // An empty connection may not fire negotiationneeded for its first offer.
+        if (isInitiator) coroutineScope.launch { sendOffer() }
 
         peerConnection.onTrack { streams ->
             val remoteStream = streams[0]
@@ -280,13 +260,15 @@ class PeerConnections(
         screenShareSockets.remove(socketId)
         cameraShareSockets.remove(socketId)
         receivedVideoCount.remove(socketId)
+        isPolite.remove(socketId)
+        negotiationLocks.remove(socketId)
     }
 
     fun closeAll() {
         peers.values.forEach { it.close() }
         peers.clear()
-        makingOffer.clear()
         isPolite.clear()
+        negotiationLocks.clear()
         screenShareSockets.clear()
         cameraShareSockets.clear()
         receivedVideoCount.clear()
@@ -317,36 +299,40 @@ class PeerConnections(
         senderId: String,
         descriptionJson: Json,
     ) {
-        peers[senderId]?.let { peerConnection ->
+        val lock = negotiationLocks[senderId] ?: return
+        lock.withLock {
+            peers[senderId]?.let { peerConnection ->
 
-            // Glare: the impolite peer ignores the incoming offer (the polite side
-            // will answer ours); the polite peer rolls back its own offer.
-            val collision = makingOffer[senderId] == true || peerConnection.signalingState != "stable"
-            if (collision && isPolite[senderId] == false) return@let
-            if (peerConnection.signalingState != "stable") peerConnection.rollback().await()
+                // Glare: the impolite peer ignores the incoming offer (the polite side
+                // will answer ours); the polite peer rolls back its own offer.
+                val collision = peerConnection.signalingState != "stable"
+                if (collision && isPolite[senderId] == false) return@let
+                if (peerConnection.signalingState != "stable") peerConnection.rollback().await()
 
-            peerConnection.setRemoteDescription(RTCSessionDescription(descriptionJson)).await()
-            peerConnection.setVideoReception(videoReceptionEnabled)
+                peerConnection.setRemoteDescription(RTCSessionDescription(descriptionJson)).await()
+                peerConnection.setVideoReception(videoReceptionEnabled)
 
-            val answer = peerConnection.createAnswer().await()
-            val answerSdp = upgradeAudioQualitySdp(answer["sdp"] as String)
-            peerConnection.setLocalDescription(json("type" to "answer", "sdp" to answerSdp)).await()
+                val answer = peerConnection.createAnswer().await()
+                val answerSdp = upgradeAudioQualitySdp(answer["sdp"] as String)
+                peerConnection.setLocalDescription(json("type" to "answer", "sdp" to answerSdp)).await()
 
-            val answerDescriptionMap = mapOf("type" to "answer", "sdp" to answerSdp)
-            websocketService.sendDescription(
-                roomId = roomId,
-                description = answerDescriptionMap,
-                targetId = senderId,
-            )
+                val answerDescriptionMap = mapOf("type" to "answer", "sdp" to answerSdp)
+                websocketService.sendDescription(
+                    roomId = roomId,
+                    description = answerDescriptionMap,
+                    targetId = senderId,
+                )
+            }
         }
     }
 
-    fun updateDescriptionFromAnswer(
+    suspend fun updateDescriptionFromAnswer(
         senderId: String,
         descriptionJson: Json,
     ) {
-        peers[senderId]?.let { peerConnection ->
-            peerConnection.setRemoteDescription(RTCSessionDescription(descriptionJson))
+        val lock = negotiationLocks[senderId] ?: return
+        lock.withLock {
+            peers[senderId]?.setRemoteDescription(RTCSessionDescription(descriptionJson))?.await()
         }
     }
 }
