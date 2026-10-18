@@ -77,22 +77,39 @@ pub fn view(app: &App) -> Element<'_, Message> {
         }
     };
     // .screens-rail: in focus mode the focused video and the others, then everyone without a video.
-    let mut rail = row![].spacing(8).align_y(Alignment::Center);
-    if let Some(key) = focused {
-        rail = rail.push(video_tile(app, key, true));
-        for key in videos.iter().filter(|other| Some(*other) != focused) {
+    let videos_in_rail = if focused.is_some() { videos.len() } else { 0 };
+    let tiles = videos_in_rail + view.participants.iter().filter(|p| !videos.iter().any(|(peer, _)| *peer == p.socket_id)).count();
+    // The layout closure outlives this function, so it gets its own copy of the list.
+    let rail_videos = videos.clone();
+    let build_rail = move || {
+        let videos = &rail_videos;
+        let mut rail = row![].spacing(8).align_y(Alignment::Center);
+        if let Some(key) = focused {
             rail = rail.push(video_tile(app, key, true));
+            for key in videos.iter().filter(|other| Some(*other) != focused) {
+                rail = rail.push(video_tile(app, key, true));
+            }
         }
-    }
-    for p in view.participants.iter().filter(|p| !videos.iter().any(|(peer, _)| *peer == p.socket_id)) {
-        rail = rail.push(avatar_tile(p, Some(p.socket_id.as_str()) == local, view.speaking.contains(&p.socket_id)));
-    }
+        for p in view.participants.iter().filter(|p| !videos.iter().any(|(peer, _)| *peer == p.socket_id)) {
+            rail = rail.push(avatar_tile(p, Some(p.socket_id.as_str()) == local, view.speaking.contains(&p.socket_id)));
+        }
+        rail
+    };
     // .strip-toggle hides the rail; the rail keeps 46 px on the right for it, as .screens-rail does.
-    // shortcut: the rail does not scroll; add a horizontal scrollable when rooms outgrow one row.
+    // Centered while it fits, scrolled sideways with a hidden bar once it does not (safe center, overflow-x).
     let rail: Element<'_, Message> = if app.rail_hidden {
         iced::widget::space().height(34).into()
     } else {
-        container(rail).center_x(Length::Fill).height(110).center_y(110).padding(iced::Padding { right: 46.0, ..iced::Padding::ZERO }).into()
+        let width = tiles as f32 * (168.0 + 8.0) - 8.0;
+        let fitted = iced::widget::responsive(move |size| {
+            if width <= size.width {
+                container(build_rail()).center_x(Length::Fill).into()
+            } else {
+                let hidden = scrollable::Scrollbar::new().width(0).scroller_width(0);
+                scrollable(build_rail()).direction(scrollable::Direction::Horizontal(hidden)).width(Length::Fill).into()
+            }
+        });
+        container(fitted).height(110).center_y(110).padding(iced::Padding { right: 46.0, ..iced::Padding::ZERO }).into()
     };
     let (paths, hint) = if app.rail_hidden { (CHEVRON_UP, "Mostrar prévias") } else { (dock::CHEVRON_DOWN, "Ocultar prévias") };
     let toggle = glass_button(paths, 16.0, 32.0, hint, Message::ToggleRail);
