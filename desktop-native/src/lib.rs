@@ -162,6 +162,13 @@ enum Command {
         peer_id: String,
         muted: bool,
     },
+    /// "Volume para você", 0..1: that peer's voice, or the audio of the screen it shares.
+    SetPeerVolume {
+        peer_id: String,
+        volume: f64,
+        #[serde(default)]
+        screen: bool,
+    },
 }
 
 fn enabled_by_default() -> bool {
@@ -471,6 +478,8 @@ fn validate_command(command: &Command) -> Result<(), String> {
                 Ok(())
             }
         }
+        Command::SetPeerVolume { volume, .. } if !(0.0..=1.0).contains(volume) => Err("INVALID_ARGUMENT: invalid peer volume".into()),
+        Command::SetPeerVolume { peer_id, .. } => validate_peer_id(peer_id),
         Command::EnsurePeer { peer_id, .. }
         | Command::SetPeerMuted { peer_id, .. }
         | Command::RemovePeer { peer_id }
@@ -1180,6 +1189,8 @@ fn run_worker(
                                                 MediaStreamTrack::Audio(track) => {
                                                     if track_event.streams.first().is_none_or(|stream| stream.video_tracks().is_empty()) {
                                                         track_voices.lock().unwrap().add(&id, track);
+                                                    } else {
+                                                        track_voices.lock().unwrap().add_screen(&id, track);
                                                     }
                                                 }
                                             }
@@ -1400,6 +1411,11 @@ fn run_worker(
                         } else {
                             Err("INVALID_ARGUMENT: unknown peer".into())
                         }
+                    }
+                    // Kept for a peer whose connection is not up yet: its tracks pick the volume up on arrival.
+                    Command::SetPeerVolume { peer_id, volume, screen } => {
+                        voices.lock().unwrap().set_volume(&peer_id, volume, screen);
+                        Ok(())
                     }
                     Command::GetStats => peers
                         .iter()

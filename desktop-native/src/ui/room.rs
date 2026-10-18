@@ -198,7 +198,9 @@ pub fn view(app: &App) -> Element<'_, Message> {
         // At the click, kept 8 px inside the window (ui.js openContextMenu). The height is the rows it holds.
         let at = app.menu_at.unwrap_or_default();
         let rows = 1 + usize::from(camera.is_some());
-        let height = 14.0 + 26.0 + rows as f32 * 33.0 + 30.0;
+        let remote = app.view.local_socket_id.as_deref() != Some(peer.as_str());
+        // The volume label and slider add about 50 px for someone else.
+        let height = 14.0 + 26.0 + rows as f32 * 33.0 + 30.0 + if remote { 50.0 } else { 0.0 };
         let menu = iced::widget::responsive(move |size| {
             let x = at.x.min(size.width - 248.0 - 8.0).max(8.0);
             let y = at.y.min(size.height - height - 8.0).max(8.0);
@@ -304,6 +306,20 @@ fn video_tile<'a>(app: &'a App, key: &TileKey, small: bool) -> Element<'a, Messa
         let target = (app.fullscreen.as_ref() != Some(key)).then(|| key.clone());
         controls = controls.push(glass_button(paths, 17.0, 34.0, label, Message::Fullscreen(target)));
     }
+    // The screen's .glass-chip volume: a speaker that mutes and a 78 px slider, on someone else's large screen tile.
+    if !small && !*camera && app.view.local_socket_id.as_deref() != Some(peer.as_str()) {
+        let level = crate::volume(app, peer, true);
+        let (glyph, hint) = if level == 0 { (format!("{}{}", dock::OUTPUT, dock::SLASH), "Ativar áudio da tela") } else { (dock::OUTPUT.to_owned(), "Silenciar áudio da tela") };
+        let toggle = button(dock::icon(&glyph, 17.0, theme::TEXT)).padding(0).style(button::text).on_press(Message::TogglePeerMute(peer.clone(), true));
+        let owner = peer.clone();
+        let slider = iced::widget::slider(0..=100u8, level, move |value| Message::Volume(owner.clone(), true, value)).width(78);
+        let chip = container(row![dock::hint_on(toggle.into(), hint.into()), slider].spacing(6).align_y(Alignment::Center))
+            .padding([0, 9])
+            .height(34)
+            .center_y(34)
+            .style(|_| container::Style { background: Some(iced::Color { a: 0.92, ..theme::BG }.into()), border: iced::Border { color: theme::LINE_2, width: 1.0, radius: 8.0.into() }, ..Default::default() });
+        controls = controls.push(chip);
+    }
     let options = Message::PeerOptions(Some((peer.clone(), Some(*camera))));
     let options = if small { options_button(peer, Some(*camera)) } else { glass_button(DOTS, 17.0, 34.0, "Opções", options) };
     layers = layers.push(container(controls.push(options)).padding(if small { 5 } else { 12 }).align_right(Length::Fill).align_bottom(Length::Fill));
@@ -382,8 +398,15 @@ fn options_menu<'a>(app: &'a App, peer: &'a str, camera: Option<bool>) -> Elemen
     if me {
         menu = menu.push(container(text("Use o microfone no dock para alterar seu áudio.").size(12).color(theme::DIM)).padding([4, 8]));
     } else {
-        let muted = app.muted_peers.contains(peer);
-        menu = menu.push(row_button(if muted { "Reativar áudio para você" } else { "Silenciar áudio para você" }, Message::TogglePeerMute(peer.to_owned())));
+        // On a screen tile the slider is that screen's audio; elsewhere the person's voice (ui.js openContext).
+        let screen = camera == Some(false);
+        let level = crate::volume(app, peer, screen);
+        let owner = peer.to_owned();
+        let volume = iced::widget::slider(0..=100u8, level, move |value| Message::Volume(owner.clone(), screen, value)).width(Length::Fill);
+        menu = menu
+            .push(container(text("Volume para você").size(11).color(theme::DIM)).padding(iced::Padding { top: 9.0, right: 8.0, bottom: 4.0, left: 8.0 }))
+            .push(container(volume).padding([0, 8]))
+            .push(row_button(if level == 0 { "Reativar áudio para você" } else { "Silenciar áudio para você" }, Message::TogglePeerMute(peer.to_owned(), screen)));
     }
     if let Some(camera) = camera {
         let key = (peer.to_owned(), camera);

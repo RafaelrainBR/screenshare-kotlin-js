@@ -12,23 +12,62 @@ pub const MICROPHONE: &str = "microphone";
 pub struct Voices {
     tracks: HashMap<String, Vec<RtcAudioTrack>>,
     muted: HashSet<String>,
+    /// "Volume para você", 0..1, per peer: the voice, and the audio that travels with a shared screen.
+    volumes: HashMap<String, f64>,
+    screens: HashMap<String, Vec<RtcAudioTrack>>,
+    screen_volumes: HashMap<String, f64>,
+}
+
+/// 0 disables the track (libwebrtc then plays silence); above, the remote source's playout gain.
+fn apply(track: &RtcAudioTrack, volume: f64) {
+    track.set_enabled(volume > 0.0);
+    if volume > 0.0 {
+        track.set_volume(volume);
+    }
+}
+
+fn keep(tracks: &mut Vec<RtcAudioTrack>, track: RtcAudioTrack) {
+    if !tracks.iter().any(|known| known.id() == track.id()) {
+        tracks.push(track);
+    }
 }
 
 impl Voices {
     pub fn add(&mut self, peer: &str, track: RtcAudioTrack) {
-        // A voice arriving after "Silenciar" (renegotiation, mic turned on later) starts silent too.
+        // A voice arriving after "Silenciar" or a volume change (renegotiation, mic turned on later) starts like the others.
         if self.muted.contains(peer) {
             track.set_enabled(false);
+        } else if let Some(volume) = self.volumes.get(peer) {
+            apply(&track, *volume);
         }
-        let tracks = self.tracks.entry(peer.to_owned()).or_default();
-        if !tracks.iter().any(|known| known.id() == track.id()) {
-            tracks.push(track);
+        keep(self.tracks.entry(peer.to_owned()).or_default(), track);
+    }
+
+    /// The audio of a shared screen: not a voice, but it has its own volume on the screen tile.
+    pub fn add_screen(&mut self, peer: &str, track: RtcAudioTrack) {
+        if let Some(volume) = self.screen_volumes.get(peer) {
+            apply(&track, *volume);
         }
+        keep(self.screens.entry(peer.to_owned()).or_default(), track);
     }
 
     pub fn remove(&mut self, peer: &str) {
         self.tracks.remove(peer);
         self.muted.remove(peer);
+        self.volumes.remove(peer);
+        self.screens.remove(peer);
+        self.screen_volumes.remove(peer);
+    }
+
+    pub fn set_volume(&mut self, peer: &str, volume: f64, screen: bool) {
+        let (tracks, volumes) = if screen { (&self.screens, &mut self.screen_volumes) } else { (&self.tracks, &mut self.volumes) };
+        volumes.insert(peer.to_owned(), volume);
+        if !screen {
+            self.muted.remove(peer);
+        }
+        for track in tracks.get(peer).into_iter().flatten() {
+            apply(track, volume);
+        }
     }
 
     /// A disabled remote audio track plays silence: libwebrtc sets its output volume to 0.

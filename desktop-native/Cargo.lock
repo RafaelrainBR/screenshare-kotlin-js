@@ -2775,7 +2775,7 @@ dependencies = [
 [[package]]
 name = "libwebrtc"
 version = "0.3.48"
-source = "git+https://github.com/livekit/rust-sdks.git?rev=2ff180e403b33ac55caaf88639aaf6aa95cbb6fc#2ff180e403b33ac55caaf88639aaf6aa95cbb6fc"
+source = "git+https://github.com/RafaelrainBR/rust-sdks.git?rev=81434ab0f41ec1ebdae95881fb56a545acdaa4e7#81434ab0f41ec1ebdae95881fb56a545acdaa4e7"
 dependencies = [
  "cxx",
  "jni 0.21.1",
@@ -5921,7 +5921,7 @@ dependencies = [
 [[package]]
 name = "webrtc-sys"
 version = "0.3.45"
-source = "git+https://github.com/livekit/rust-sdks.git?rev=2ff180e403b33ac55caaf88639aaf6aa95cbb6fc#2ff180e403b33ac55caaf88639aaf6aa95cbb6fc"
+source = "git+https://github.com/RafaelrainBR/rust-sdks.git?rev=81434ab0f41ec1ebdae95881fb56a545acdaa4e7#81434ab0f41ec1ebdae95881fb56a545acdaa4e7"
 dependencies = [
  "cc",
  "cxx",
@@ -5935,7 +5935,7 @@ dependencies = [
 [[package]]
 name = "webrtc-sys-build"
 version = "0.3.19"
-source = "git+https://github.com/livekit/rust-sdks.git?rev=2ff180e403b33ac55caaf88639aaf6aa95cbb6fc#2ff180e403b33ac55caaf88639aaf6aa95cbb6fc"
+source = "git+https://github.com/RafaelrainBR/rust-sdks.git?rev=81434ab0f41ec1ebdae95881fb56a545acdaa4e7#81434ab0f41ec1ebdae95881fb56a545acdaa4e7"
 dependencies = [
  "anyhow",
  "fs2",

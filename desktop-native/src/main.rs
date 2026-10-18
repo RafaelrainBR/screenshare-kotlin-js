@@ -64,7 +64,10 @@ pub enum Message {
     /// The ⋯ menu of a participant (and of the clicked video, if any), or None to close it.
     PeerOptions(Option<(String, Option<bool>)>),
     Cursor(Point),
-    TogglePeerMute(String),
+    /// "Silenciar áudio para você": volume to 0 and back; true for the audio of that peer's screen.
+    TogglePeerMute(String, bool),
+    /// "Volume para você", 0..=100: (peer, screen audio, percent).
+    Volume(String, bool, u8),
     ToggleHideVideo(TileKey),
     StartShare,
     StopShare,
@@ -184,7 +187,15 @@ pub struct App {
     camera_after_share: bool,
     peer_options: Option<(String, Option<bool>)>,
     /// "Silenciar áudio para você" and "Ocultar vídeo para você": this client only, this session only.
-    muted_peers: HashSet<String>,
+    /// Voice volume by name, kept across runs like the web's screenshare.volume.user.<name>.
+    voice_volumes: HashMap<String, u8>,
+    /// Shared screen audio volume by peer, this session only (the web's screenVolumes).
+    screen_volumes: HashMap<String, u8>,
+    /// What "Reativar" goes back to.
+    volume_before_mute: HashMap<(String, bool), u8>,
+    /// The volumes the engine has, per (peer, screen); reset on each new connection.
+    sent_volumes: HashMap<(String, bool), u8>,
+    volumes_generation: u64,
     hidden_videos: HashSet<TileKey>,
     fullscreen: Option<TileKey>,
     chat_hidden: bool,
@@ -219,6 +230,7 @@ fn boot() -> (App, Task<Message>) {
         autostart: startup::autostart_enabled(),
         has_tray: tray::install(),
         output_muted: prefs.output_muted,
+        voice_volumes: startup::voice_volumes(),
         output_device: prefs.output_device,
         ..Default::default()
     };
@@ -429,8 +441,8 @@ fn update(app: &mut App, message: Message) -> Task<Message> {
             }
             // Dropping Running joins the session thread: the engine stops the share and closes peers.
             let windowed = set_fullscreen(app, None);
-            let App { name, mic_device, output_device, output_muted, camera_device, profile, advanced, has_tray, notice, chat_hidden, rail_hidden, compact, visible, .. } = std::mem::take(app);
-            *app = App { name, mic_device, output_device, output_muted, camera_device, profile, advanced, has_tray, notice, chat_hidden, rail_hidden, compact, visible, ..Default::default() };
+            let App { name, mic_device, output_device, output_muted, camera_device, profile, advanced, has_tray, notice, chat_hidden, rail_hidden, compact, visible, voice_volumes, .. } = std::mem::take(app);
+            *app = App { name, mic_device, output_device, output_muted, camera_device, profile, advanced, has_tray, notice, chat_hidden, rail_hidden, compact, visible, voice_volumes, ..Default::default() };
             tray::update(tray_state(app));
             return windowed.chain(operation::focus(NAME_INPUT));
         }
@@ -556,9 +568,24 @@ fn update(app: &mut App, message: Message) -> Task<Message> {
             app.peer_options = target;
         }
         Message::Cursor(position) => app.cursor = position,
-        Message::TogglePeerMute(peer) => {
-            let muted = app.muted_peers.insert(peer.clone()) || !app.muted_peers.remove(&peer);
-            audio(app, AudioControl::Peer { peer_id: peer, muted });
+        Message::TogglePeerMute(peer, screen) => {
+            let current = volume(app, &peer, screen);
+            let next = if current > 0 {
+                app.volume_before_mute.insert((peer.clone(), screen), current);
+                0
+            } else {
+                app.volume_before_mute.remove(&(peer.clone(), screen)).filter(|v| *v > 0).unwrap_or(100)
+            };
+            return update(app, Message::Volume(peer, screen, next));
+        }
+        Message::Volume(peer, screen, percent) => {
+            if screen {
+                app.screen_volumes.insert(peer.clone(), percent);
+            } else if let Some(name) = app.view.participants.iter().find(|p| p.socket_id == peer).map(|p| p.username.clone()) {
+                app.voice_volumes.insert(name, percent);
+                startup::save_voice_volumes(&app.voice_volumes);
+            }
+            send_volume(app, peer, screen, percent);
         }
         Message::ToggleHideVideo(key) => {
             if !app.hidden_videos.insert(key.clone()) {
@@ -699,6 +726,20 @@ fn save_audio(app: &App) {
     startup::save_audio_prefs(&startup::AudioPrefs { output_muted: app.output_muted, output_device: app.output_device.clone() });
 }
 
+/// "Volume para você" as the engine has it: the saved one for voices, 100 when never set.
+pub fn volume(app: &App, peer: &str, screen: bool) -> u8 {
+    if screen {
+        return app.screen_volumes.get(peer).copied().unwrap_or(100);
+    }
+    let name = app.view.participants.iter().find(|p| p.socket_id == peer).map(|p| p.username.as_str());
+    name.and_then(|name| app.voice_volumes.get(name)).copied().unwrap_or(100)
+}
+
+fn send_volume(app: &mut App, peer: String, screen: bool, percent: u8) {
+    app.sent_volumes.insert((peer.clone(), screen), percent);
+    audio(app, AudioControl::Volume { peer_id: peer, volume: f64::from(percent) / 100.0, screen });
+}
+
 fn audio(app: &mut App, control: AudioControl) {
     app.mic_attempt = matches!(control, AudioControl::Microphone { enabled: true, .. });
     if let Some(running) = &app.running {
@@ -751,6 +792,27 @@ fn tick(app: &mut App) -> Task<Message> {
         app.camera_after_share = false;
         app.camera_restart = false;
         let _ = running.camera.send((app.view.generation, Some(app.camera_device.clone())));
+    }
+    // Saved volumes reach each peer's tracks, again after a reconnection (the engine forgets them).
+    if app.volumes_generation != app.view.generation {
+        app.volumes_generation = app.view.generation;
+        app.sent_volumes.clear();
+    }
+    let local = app.view.local_socket_id.clone();
+    let pending: Vec<(String, bool, u8)> = app
+        .view
+        .participants
+        .iter()
+        .filter(|p| Some(&p.socket_id) != local.as_ref())
+        .flat_map(|p| [(p.socket_id.clone(), false), (p.socket_id.clone(), true)])
+        .map(|(peer, screen)| {
+            let want = volume(app, &peer, screen);
+            (peer, screen, want)
+        })
+        .filter(|(peer, screen, want)| app.sent_volumes.get(&(peer.clone(), *screen)).copied().unwrap_or(100) != *want)
+        .collect();
+    for (peer, screen, percent) in pending {
+        send_volume(app, peer, screen, percent);
     }
     // The web plays the room sound unless it was muted last time; again after each reconnection.
     if app.view.local_socket_id.is_some() && app.output_generation != app.view.generation {
