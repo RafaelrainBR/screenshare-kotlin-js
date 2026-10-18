@@ -282,6 +282,6 @@ fn options_menu<'a>(app: &'a App, peer: &'a str, camera: Option<bool>) -> Elemen
 }
 
 /// getUsernameInitials in Util.kt: the first letter of up to two words.
-fn initials(name: &str) -> String {
+pub fn initials(name: &str) -> String {
     name.split(' ').filter_map(|word| word.chars().next()).take(2).flat_map(char::to_uppercase).collect()
 }

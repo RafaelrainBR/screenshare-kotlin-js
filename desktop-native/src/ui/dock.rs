@@ -43,14 +43,14 @@ enum Tone {
     Danger,
 }
 
-const SCREEN: &str = r#"<rect x="3" y="4" width="18" height="14" rx="2"/><path d="M8 21h8M12 18v3"/>"#;
-const STOP_SCREEN: &str = r#"<rect x="3" y="4" width="18" height="14" rx="2"/><path d="M9 8h6v6H9z"/>"#;
-const CAMERA_ON: &str = r#"<rect x="3" y="6" width="12" height="12" rx="2"/><path d="m15 10 6-3v10l-6-3"/>"#;
-const CAMERA_OFF: &str = r#"<rect x="3" y="6" width="12" height="12" rx="2"/><path d="m15 10 6-3v10l-6-3M3 3l18 18"/>"#;
-const MIC: &str = r#"<path d="M9 5a3 3 0 0 1 6 0v6a3 3 0 0 1-6 0V5ZM5 11a7 7 0 0 0 14 0M12 18v3M8 21h8"/>"#;
-const OUTPUT: &str = r#"<path d="M11 5 6 9H3v6h3l5 4V5ZM15 9a4 4 0 0 1 0 6M18 6a8 8 0 0 1 0 12"/>"#;
-const SLASH: &str = r#"<line x1="3" y1="3" x2="21" y2="21"/>"#;
-const LEAVE: &str = r#"<path d="M14 4h4a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-4M10 16l-4-4 4-4M6 12h10"/>"#;
+pub const SCREEN: &str = r#"<rect x="3" y="4" width="18" height="14" rx="2"/><path d="M8 21h8M12 18v3"/>"#;
+pub const STOP_SCREEN: &str = r#"<rect x="3" y="4" width="18" height="14" rx="2"/><path d="M9 8h6v6H9z"/>"#;
+pub const CAMERA_ON: &str = r#"<rect x="3" y="6" width="12" height="12" rx="2"/><path d="m15 10 6-3v10l-6-3"/>"#;
+pub const CAMERA_OFF: &str = r#"<rect x="3" y="6" width="12" height="12" rx="2"/><path d="m15 10 6-3v10l-6-3M3 3l18 18"/>"#;
+pub const MIC: &str = r#"<path d="M9 5a3 3 0 0 1 6 0v6a3 3 0 0 1-6 0V5ZM5 11a7 7 0 0 0 14 0M12 18v3M8 21h8"/>"#;
+pub const OUTPUT: &str = r#"<path d="M11 5 6 9H3v6h3l5 4V5ZM15 9a4 4 0 0 1 0 6M18 6a8 8 0 0 1 0 12"/>"#;
+pub const SLASH: &str = r#"<line x1="3" y1="3" x2="21" y2="21"/>"#;
+pub const LEAVE: &str = r#"<path d="M14 4h4a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-4M10 16l-4-4 4-4M6 12h10"/>"#;
 const CHEVRON_DOWN: &str = r#"<path d="m6 9 6 6 6-6"/>"#;
 
 /// The web's global `svg` rule: no fill, a 1.8 round stroke in currentColor.

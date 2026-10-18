@@ -1,4 +1,4 @@
-//! The tray icon and its menu, with the Tauri app's texts. Left click opens the window;
+//! The tray icon and its menu, with the Tauri app's texts. Left click opens the compact panel;
 //! closing the window keeps the app here, and "Encerrar app" quits.
 use std::cell::RefCell;
 
@@ -8,9 +8,11 @@ use tray_icon::{
 };
 
 /// What the tray asked for, read on every UI tick.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Action {
     Open,
+    /// Left click: the compact panel, placed by the icon (physical x, y, width, height).
+    Panel(f64, f64, f64, f64),
     Mic,
     Camera,
     Output,
@@ -107,8 +109,8 @@ pub fn install() -> bool {
 pub fn actions() -> Vec<Action> {
     let mut actions = Vec::new();
     while let Ok(event) = TrayIconEvent::receiver().try_recv() {
-        if let TrayIconEvent::Click { button: MouseButton::Left, button_state: MouseButtonState::Up, .. } = event {
-            actions.push(Action::Open);
+        if let TrayIconEvent::Click { button: MouseButton::Left, button_state: MouseButtonState::Up, rect, .. } = event {
+            actions.push(Action::Panel(rect.position.x, rect.position.y, f64::from(rect.size.width), f64::from(rect.size.height)));
         }
     }
     while let Ok(event) = MenuEvent::receiver().try_recv() {
