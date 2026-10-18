@@ -1,19 +1,23 @@
 //! Share wizard, like the web #quality-modal: pick a screen or window (with thumbnails),
-//! the preset and whether to send its audio.
-use std::{collections::HashMap, path::PathBuf};
+//! the profile and whether to send its audio.
+use std::collections::HashMap;
 
 use desktop_capture::{
     sources::{Source, SourceKind, enumerate_sources},
     thumb::capture_thumbnail,
 };
-use desktop_native::{ScreenAudioMode, ShareSource, session::ScreenOptions, share::SharePreset};
+use desktop_native::{
+    ScreenAudioMode, ShareSource,
+    session::ScreenOptions,
+    share::{SharePreset, ShareProfile},
+};
 use iced::{
     Alignment, Element, Length, Task,
     widget::{Column, button, column, container, image, pick_list, row, scrollable, space, text},
 };
 use windows::Win32::Foundation::{HWND, RECT};
 
-use super::theme;
+use super::{profile, theme};
 use crate::Message;
 
 pub struct Wizard {
@@ -23,14 +27,13 @@ pub struct Wizard {
     pub thumbs: HashMap<String, Option<image::Handle>>,
     pub selected: Option<Source>,
     pub audio: bool,
-    pub preset: SharePreset,
     /// A listing is in flight, so the 2 s refresh does not stack them.
     pub loading: bool,
 }
 
 impl Wizard {
     pub fn open() -> Self {
-        Self { sources: None, thumbs: HashMap::new(), selected: None, audio: false, preset: load_preset(), loading: true }
+        Self { sources: None, thumbs: HashMap::new(), selected: None, audio: false, loading: true }
     }
 }
 
@@ -44,23 +47,6 @@ impl std::fmt::Display for PresetChoice {
             SharePreset::Video => "Vídeo · filmes e séries, 30 fps",
             SharePreset::Text => "Código e texto · letras nítidas, 10 fps",
         })
-    }
-}
-
-/// The web keeps the profile in localStorage; here it is one small file per user.
-fn preset_path() -> Option<PathBuf> {
-    Some(PathBuf::from(std::env::var_os("APPDATA")?).join("Screenshare-native").join("share-preset"))
-}
-
-fn load_preset() -> SharePreset {
-    let saved = preset_path().and_then(|path| std::fs::read_to_string(path).ok()).unwrap_or_default();
-    SharePreset::ALL.into_iter().find(|p| format!("{p:?}") == saved.trim()).unwrap_or(SharePreset::Video)
-}
-
-fn save_preset(preset: SharePreset) {
-    if let Some(path) = preset_path() {
-        let _ = path.parent().map(std::fs::create_dir_all);
-        let _ = std::fs::write(path, format!("{preset:?}"));
     }
 }
 
@@ -122,7 +108,7 @@ impl Wizard {
         missing
     }
 
-    pub fn options(&self) -> Option<ScreenOptions> {
+    pub fn options(&self, profile: ShareProfile) -> Option<ScreenOptions> {
         let source = self.selected.as_ref()?;
         let (left, top, right, bottom) = source.rect;
         let height = (bottom - top).max(1) as u32;
@@ -133,7 +119,7 @@ impl Wizard {
             } else {
                 ShareSource::Screen { left, top, width: (right - left).max(1) as u32, height }
             },
-            profile: self.preset.profile(),
+            profile,
             // The bitrate ceiling follows the source height, capped like the web presets at 1080p.
             height: height.min(1080),
             // Like nativeAudioMode in ScreenSharing.kt: a window sends its app, a screen the PC.
@@ -163,16 +149,6 @@ impl Wizard {
         self.selected = Some(sources[next].clone());
     }
 
-    pub fn set_preset(&mut self, preset: SharePreset) {
-        self.preset = preset;
-        save_preset(preset);
-    }
-
-    pub fn cycle_preset(&mut self) {
-        let i = SharePreset::ALL.iter().position(|p| *p == self.preset).unwrap_or(0);
-        self.set_preset(SharePreset::ALL[(i + 1) % SharePreset::ALL.len()]);
-    }
-
     /// Texts of setShareAudio in InterfaceHandlers.kt.
     fn audio_texts(&self) -> (&'static str, String) {
         match &self.selected {
@@ -185,12 +161,12 @@ impl Wizard {
     }
 
     /// updateSourceState in InterfaceHandlers.kt.
-    fn state(&self) -> &'static str {
+    fn state(&self, profile: ShareProfile) -> &'static str {
         match (&self.sources, &self.selected) {
             (None, _) => "Carregando telas e janelas…",
             (Some(sources), _) if sources.is_empty() => "Nenhuma tela ou janela disponível agora.",
             (_, None) => "Escolha o que você quer compartilhar.",
-            (_, Some(s)) if s.kind == SourceKind::Window && self.preset.profile().fps > 30 => "Janelas são enviadas a até 30 fps.",
+            (_, Some(s)) if s.kind == SourceKind::Window && profile.fps > 30 => "Janelas são enviadas a até 30 fps.",
             _ => "",
         }
     }
@@ -210,7 +186,8 @@ impl Wizard {
             .into()
     }
 
-    pub fn view(&self) -> Element<'_, Message> {
+    /// `advanced`: the "Ajustes avançados" section is open.
+    pub fn view(&self, profile: ShareProfile, advanced: bool) -> Element<'_, Message> {
         let mut list = Column::new().spacing(8);
         if let Some(sources) = &self.sources {
             for (kind, label) in [(SourceKind::Screen, "Telas"), (SourceKind::Window, "Janelas")] {
@@ -236,6 +213,41 @@ impl Wizard {
         .style(|t, status| theme::tile(false, t, status))
         .on_press(Message::ToggleShareAudio);
         let presets: Vec<_> = SharePreset::ALL.into_iter().map(PresetChoice).collect();
+        let preset = pick_list(presets, profile::matching(profile).map(PresetChoice), |c| Message::SetProfile(c.0.profile()))
+            .placeholder("Personalizado")
+            .width(Length::Fill);
+        // #share-quality: a summary that opens the three fields; the native capture keeps the source size.
+        let mut quality = column![
+            button(
+                row![
+                    text(if advanced { "▾" } else { "▸" }).color(theme::DIM),
+                    text("Ajustes avançados").size(12).font(theme::BOLD),
+                    text(profile::summary(profile)).size(12).color(theme::DIM),
+                ]
+                .spacing(8)
+                .align_y(Alignment::Center),
+            )
+            .padding([4, 0])
+            .style(button::text)
+            .on_press(Message::ToggleAdvanced),
+        ]
+        .spacing(6);
+        if advanced {
+            let fields = profile::Field::ALL.into_iter().fold(row![].spacing(8), |line, field| {
+                line.push(
+                    column![
+                        text(field.title()).size(12).font(theme::BOLD),
+                        pick_list(field.choices(), field.current(profile), move |choice| Message::SetProfile(field.set(profile, choice.value))).width(Length::Fill),
+                    ]
+                    .spacing(4)
+                    .width(Length::Fill),
+                )
+            });
+            quality = quality.push(fields);
+            if profile.max_bitrate.is_some() {
+                quality = quality.push(text("Acima do seu upload, a imagem trava para todos.").size(11).color(theme::DIM));
+            }
+        }
         let start = button(text("Compartilhar").font(theme::BOLD)).padding([8, 16]).style(button::primary);
         column![
             text("Compartilhamento de tela").size(12).color(theme::DIM),
@@ -248,14 +260,15 @@ impl Wizard {
             ]
             .align_y(Alignment::Center),
             scrollable(list).height(Length::Fill),
-            text(self.state()).size(12).color(theme::DIM),
+            text(self.state(profile)).size(12).color(theme::DIM),
             text("O que você vai mostrar").size(12).font(theme::BOLD),
-            pick_list(presets, Some(PresetChoice(self.preset)), |c| Message::Preset(c.0)).width(Length::Fill),
+            preset,
+            quality,
             audio,
             row![
                 space::horizontal(),
                 button("Cancelar").style(button::text).on_press(Message::CloseWizard),
-                if self.options().is_some() { start.on_press(Message::StartShare) } else { start },
+                if self.options(profile).is_some() { start.on_press(Message::StartShare) } else { start },
             ]
             .spacing(10)
             .align_y(Alignment::Center),
@@ -274,7 +287,7 @@ mod tests {
     }
 
     fn wizard() -> Wizard {
-        let mut w = Wizard { preset: SharePreset::Video, ..Wizard::open() };
+        let mut w = Wizard::open();
         w.set_sources(vec![source("window", SourceKind::Window, (10, 20, 970, 560)), source("screen", SourceKind::Screen, (-1920, 0, 0, 1440))]);
         w
     }
@@ -282,14 +295,13 @@ mod tests {
     #[test]
     fn maps_sources_to_screen_options() {
         let mut w = wizard();
-        assert!(w.options().is_none(), "nothing picked yet");
+        assert!(w.options(SharePreset::Video.profile()).is_none(), "nothing picked yet");
         w.step(1);
-        let screen = w.options().unwrap();
+        let screen = w.options(SharePreset::Video.profile()).unwrap();
         assert_eq!(screen.source, ShareSource::Screen { left: -1920, top: 0, width: 1920, height: 1440 }, "screens come first");
         assert_eq!(screen.height, 1080, "bitrate height capped at 1080p");
         w.step(1);
-        w.preset = SharePreset::Text;
-        let window = w.options().unwrap();
+        let window = w.options(SharePreset::Text.profile()).unwrap();
         assert_eq!(window.source, ShareSource::Window { hwnd: 42, pid: 7 });
         assert_eq!((window.height, window.profile), (540, SharePreset::Text.profile()));
     }
@@ -299,11 +311,11 @@ mod tests {
         let mut w = wizard();
         w.audio = true;
         w.step(1);
-        assert_eq!(w.options().unwrap().audio_mode, ScreenAudioMode::Computer);
+        assert_eq!(w.options(SharePreset::Video.profile()).unwrap().audio_mode, ScreenAudioMode::Computer);
         w.step(1);
-        assert_eq!(w.options().unwrap().audio_mode, ScreenAudioMode::Application);
+        assert_eq!(w.options(SharePreset::Video.profile()).unwrap().audio_mode, ScreenAudioMode::Application);
         w.audio = false;
-        assert_eq!(w.options().unwrap().audio_mode, ScreenAudioMode::None);
+        assert_eq!(w.options(SharePreset::Video.profile()).unwrap().audio_mode, ScreenAudioMode::None);
     }
 
     #[test]
