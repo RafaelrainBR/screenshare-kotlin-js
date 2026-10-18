@@ -34,6 +34,10 @@ pub enum Message {
     /// With a draft in the chat it asks first, like the web confirm(); again from the dialog it leaves.
     Leave,
     CancelLeave,
+    /// #permission-recovery: "Tentar novamente", "Abrir configurações" and "Depois".
+    PermissionRetry,
+    PermissionSettings,
+    PermissionClose,
     Draft(String),
     Send,
     ToggleCamera,
@@ -179,6 +183,13 @@ pub struct App {
     rail_hidden: bool,
     /// "Há uma mensagem não enviada…" is open.
     confirm_leave: bool,
+    /// The camera or microphone failed: the help dialog, with its text.
+    permission: Option<(ui::permission::Media, &'static str)>,
+    /// The last audio request turned the microphone on, so an audio error is the microphone's.
+    mic_attempt: bool,
+    /// Errors already turned into the dialog, so each opens it once.
+    seen_camera_error: Option<String>,
+    seen_audio_error: Option<String>,
     /// The window is the tray panel (Tauri's compact mode), not the room.
     compact: bool,
     /// Shown, as far as the tray toggle is concerned.
@@ -355,6 +366,17 @@ fn update(app: &mut App, message: Message) -> Task<Message> {
             // The tray's "Sair da sala" may come with the window hidden; unfocusing keeps Enter off the chat.
             return set_fullscreen(app, None).chain(show_window(app)).chain(operation::focus("leave-confirm"));
         }
+        Message::PermissionRetry => match app.permission.take() {
+            Some((ui::permission::Media::Camera, _)) => return update(app, Message::ToggleCamera),
+            Some((ui::permission::Media::Microphone, _)) => audio(app, AudioControl::Microphone { enabled: true, device_id: app.mic_device.clone() }),
+            None => {}
+        },
+        Message::PermissionSettings => {
+            if let Some((media, _)) = app.permission {
+                ui::permission::open_settings(media);
+            }
+        }
+        Message::PermissionClose => app.permission = None,
         Message::CancelLeave => {
             app.confirm_leave = false;
             return operation::focus(room::CHAT_INPUT);
@@ -579,6 +601,8 @@ fn shortcut(app: &mut App, key: keyboard::Key, modifiers: keyboard::Modifiers) -
         (Key::Named(Named::Tab), _) => return operation::focus_next(),
         (_, _) if app.running.is_none() => return Task::none(),
         (Key::Named(Named::Escape), _) if app.confirm_leave => Message::CancelLeave,
+        (Key::Named(Named::Escape), _) if app.permission.is_some() => Message::PermissionClose,
+        (Key::Named(Named::Enter), _) if app.permission.is_some() => Message::PermissionRetry,
         (Key::Named(Named::Enter), _) if app.confirm_leave => Message::Leave,
         (Key::Named(Named::Escape), Some(_)) => Message::CloseWizard,
         (Key::Named(Named::Escape), None) if app.peer_options.is_some() => Message::PeerOptions(None),
@@ -624,6 +648,7 @@ pub fn sharing(view: &SessionView) -> bool {
 }
 
 fn audio(app: &mut App, control: AudioControl) {
+    app.mic_attempt = matches!(control, AudioControl::Microphone { enabled: true, .. });
     if let Some(running) = &app.running {
         let _ = running.audio.send((app.view.generation, control));
     }
@@ -633,6 +658,25 @@ fn tick(app: &mut App) -> Task<Message> {
     let Some(running) = &app.running else { return Task::none() };
     app.view = running.view.lock().unwrap().clone();
     app.joined |= app.view.local_socket_id.is_some();
+    // A new camera error, or an audio error right after turning the microphone on, opens the help.
+    let had_dialog = app.permission.is_some();
+    let mut unfocus = Task::none();
+    if app.view.camera_error != app.seen_camera_error {
+        app.seen_camera_error.clone_from(&app.view.camera_error);
+        if let Some(error) = &app.view.camera_error {
+            app.permission = Some((ui::permission::Media::Camera, ui::permission::help(ui::permission::Media::Camera, error)));
+        }
+    }
+    if app.view.audio_error != app.seen_audio_error {
+        app.seen_audio_error.clone_from(&app.view.audio_error);
+        if let Some(error) = app.view.audio_error.as_ref().filter(|_| app.mic_attempt) {
+            app.permission = Some((ui::permission::Media::Microphone, ui::permission::help(ui::permission::Media::Microphone, error)));
+        }
+    }
+    if !had_dialog && app.permission.is_some() {
+        // Like the wizard: Enter and Esc reach the dialog instead of the chat field.
+        unfocus = operation::focus("permission-recovery");
+    }
     let errors = room::errors(app).join(" · ");
     if errors != app.shown_errors {
         if !errors.is_empty() {
@@ -695,6 +739,7 @@ fn tick(app: &mut App) -> Task<Message> {
     }
     // Like the browser leaving fullscreen when the video element goes away.
     let windowed = if app.fullscreen.as_ref().is_some_and(|key| !is_shared(view, key)) { set_fullscreen(app, None) } else { Task::none() };
+    let windowed = unfocus.chain(windowed);
     // iced uploads images asynchronously: each tile swaps once its upload is done, dropping late ones.
     windowed.chain(Task::batch(frames.into_iter().map(|(key, snapshot)| {
         let snapshot = Arc::try_unwrap(snapshot).unwrap_or_else(|shared| (*shared).clone());
