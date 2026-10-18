@@ -1,0 +1,45 @@
+name: Bug report / Relatar problema
+description: Help reproduce a problem / Ajude a reproduzir um problema
+body:
+  - type: markdown
+    attributes:
+      value: "English or Portuguese is welcome. Remove room codes, private messages, captured content, IPs and credentials from attachments. / Português ou inglês: remova dados privados dos anexos."
+  - type: input
+    id: version
+    attributes:
+      label: Version / Versão
+      description: Desktop version or date/time of the browser test.
+      placeholder: "0.11.1, or web on YYYY-MM-DD"
+    validations:
+      required: true
+  - type: dropdown
+    id: client
+    attributes:
+      label: Client / Cliente
+      options:
+        - Browser / Navegador
+        - Windows desktop
+        - macOS desktop
+        - Experimental native app
+    validations:
+      required: true
+  - type: input
+    id: platform
+    attributes:
+      label: OS and browser / Sistema e navegador
+      placeholder: "Windows 11 + Chrome; macOS + desktop"
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce / Como reproduzir
+      description: Include browser/desktop for both peers and the audio/video source if relevant.
+    validations:
+      required: true
+  - type: textarea
+    id: result
+    attributes:
+      label: Expected and actual behavior / Esperado e observado
+    validations:
+      required: true

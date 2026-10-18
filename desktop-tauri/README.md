@@ -104,3 +104,5 @@ The updater requires the repository secrets `TAURI_SIGNING_PRIVATE_KEY` and `TAU
 Re-run failed jobs to retry. If the workflow needed a fix, dispatch it again from `master` with the existing version tag: it still builds the tag's original source. Use a new version to include new app source. A changed tag stops publication, partial uploads remain a draft, and an already published release is never overwritten.
 
 The workflow caches Gradle, npm and Cargo work per platform. See its source for current runner/SDK versions and exact asset packaging.
+
+After publishing a stable release, refresh and deploy the public presentation so its static download links match the new updater manifest. Follow [web publication](../docs/presence/web-publication.md); the website assets are separate from the Tauri frontend bundle.

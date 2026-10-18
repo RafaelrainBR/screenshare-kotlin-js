@@ -10,6 +10,7 @@ Start with the [project overview](../README.md) or [Português](../README.pt-BR.
 | Develop the desktop app or publish a desktop release | [Desktop guide](../desktop-tauri/README.md) |
 | Report a bug or contribute a change | [Contributing](../CONTRIBUTING.md) |
 | Refresh the README screenshots | [Screenshot workflow](images/README.md) |
+| Maintain the public presentation, demo and launch materials | [Presence and publication](presence/README.md) |
 | Read version-specific release notes | [Release notes](releases) and [GitHub Releases](https://github.com/RafaelrainBR/screenshare-kotlin-js/releases) |
 
 These guides describe the current source. Published desktop builds may differ; use the release notes for the version you installed. Build manifests and workflow files are the source of truth for dependency versions and release automation.

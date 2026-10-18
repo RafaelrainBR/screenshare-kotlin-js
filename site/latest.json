@@ -1,0 +1,15 @@
+{
+  "version": "0.11.1",
+  "notes": "",
+  "pub_date": "2026-10-17T22:26:00.617Z",
+  "platforms": {
+    "windows-x86_64": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSeEZhSlRlV3F3R1JhY2Rqb0d4cTAwcWtkdG1ORU1LdklCakNyMFNsTEJQSUdCaW5FSFFmSnFLRzlhbWRQaGpPRENWd2xmRUVlQzc3RWRWS1pqTUswNlR4LzJkQ240MFFRPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkyMjc1ODg1CWZpbGU6U2NyZWVuc2hhcmVfMC4xMS4xX3g2NC1zZXR1cC5leGUJdmVyc2lvbjowLjExLjEKVnAwZllpY0pXRVoxbVFZTk9oRThXTWJpZkVNK2FKWm9TMGo1b2pJZWsyMmNidk4ybG05UkU5MnRodURaQkVOc282QXFxMU9DS1dhQVlrM2dCYzJjQ1E9PQo=",
+      "url": "https://github.com/RafaelrainBR/screenshare-kotlin-js/releases/download/v0.11.1/Screenshare_0.11.1_x64-setup.exe"
+    },
+    "darwin-aarch64": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSeEZhSlRlV3F3R1E1T05SQ2E2ZUVEd0VNbXBYV0daREJya3BTUjkxVHQrZDB5N0hXbHo3ZGM5TkJIMXVpcmc4YjNkd2wyMXNiTDRVTEU1cGlZbTFMcUtiNWQ3UEhwN1E4PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkyMjc1NjYyCWZpbGU6U2NyZWVuc2hhcmUuYXBwLnRhci5negl2ZXJzaW9uOjAuMTEuMQpoKzkvVUo5d0JMdzEybmlmc3RtNytTRS9Rd1c3bzZRalRwMGtKazFqRk11cHNiTVpjbW43aFAxdTRFSEkxZEhXUjVvbk43cjJGcU0xcEhVN0NhWTFBdz09Cg==",
+      "url": "https://github.com/RafaelrainBR/screenshare-kotlin-js/releases/download/v0.11.1/Screenshare-macos-arm64.tar.gz"
+    }
+  }
+}

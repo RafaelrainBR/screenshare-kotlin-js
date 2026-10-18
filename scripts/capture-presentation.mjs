@@ -1,0 +1,146 @@
+import assert from 'node:assert/strict';
+import { createServer } from 'node:http';
+import { createRequire } from 'node:module';
+import { readFile, writeFile, mkdir, copyFile } from 'node:fs/promises';
+import { execFileSync } from 'node:child_process';
+import { resolve, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { escapeHTML } from './build-presentation.mjs';
+
+const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+const require = createRequire(resolve(process.env.PLAYWRIGHT_MODULE_DIR || 'node_modules', 'package.json'));
+const { chromium } = require('playwright');
+const base = process.env.SCREENSHARE_DOCS_URL || 'http://localhost:8080';
+assert(['localhost', '127.0.0.1'].includes(new URL(base).hostname), 'Demo rooms must stay local');
+const ffmpeg = process.env.FFMPEG_PATH;
+assert(ffmpeg, 'Set FFMPEG_PATH to an existing FFmpeg with libx264 and libass');
+const output = resolve(root, 'server/src/jvmMain/resources/presentation/assets');
+const work = resolve(root, 'artifacts/qa/presence/video');
+await mkdir(output, { recursive: true });
+await mkdir(resolve(work, 'fonts'), { recursive: true });
+for (const weight of ['regular', 'bold']) await copyFile(resolve(root, `client/src/jsMain/resources/fonts/barlow-${weight}.ttf`), resolve(work, `fonts/barlow-${weight}.ttf`));
+const source = await readFile(resolve(root, 'common/src/commonMain/kotlin/screenshare/common/Packet.kt'), 'utf8');
+const server = createServer((_, response) => {
+  response.setHeader('Content-Type', 'text/html; charset=utf-8');
+  response.end(`<!doctype html><meta charset="utf-8"><title>Screenshare demo source</title><style>body{margin:0;background:#10141c;color:#d1dae8;font:20px/1.4 monospace}header{padding:20px 32px;border-bottom:1px solid #354151;font:16px system-ui;color:#aab6c8}pre{margin:24px 32px}</style><header>Screenshare / common / Packet.kt</header><pre>${escapeHTML(source.split('\n').slice(12, 36).join('\n'))}</pre>`);
+});
+await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+const timeline = [];
+let browser;
+let startedAt;
+const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
+const caption = (pt, en) => timeline.push({ start: (Date.now() - startedAt) / 1000, pt, en });
+let duration;
+let recording = false;
+let frameRecording;
+const frames = [];
+try {
+  browser = await chromium.launch({ channel: 'chrome', headless: true, args: ['--window-size=1600,1200', '--force-device-scale-factor=1', '--enable-usermedia-screen-capturing', '--auto-select-tab-capture-source-by-title=Screenshare demo source', '--allow-http-screen-capture', '--autoplay-policy=no-user-gesture-required'] });
+  const sourceContext = await browser.newContext({ viewport: { width: 1280, height: 720 } });
+  const sample = await sourceContext.newPage();
+  await sample.goto(`http://127.0.0.1:${server.address().port}`);
+  const viewerContext = await browser.newContext({ viewport: { width: 1280, height: 720 }, permissions: ['clipboard-read', 'clipboard-write'] });
+  const viewer = await viewerContext.newPage();
+  const errors = [];
+  viewer.on('pageerror', error => errors.push(error.message));
+  await viewer.goto(base);
+  await viewer.bringToFront();
+  await viewer.evaluate(() => document.fonts.ready);
+  startedAt = Date.now();
+  recording = true;
+  // shortcut: sampling caps this UI demo at 10 fps; use a compositor recorder for motion/performance demonstrations.
+  frameRecording = (async () => {
+    while (recording) {
+      const stamp = Date.now();
+      const name = `frame-${String(frames.length).padStart(5, '0')}.jpg`;
+      await viewer.screenshot({ path: resolve(work, name), type: 'jpeg', quality: 85 });
+      frames.push({ name, time: (stamp - startedAt) / 1000 });
+      await pause(Math.max(0, 100 - (Date.now() - stamp)));
+    }
+  })();
+  caption('Screenshare: tela e conversa na mesma sala.', 'Screenshare: your screen and conversation in one room.');
+  await pause(3500);
+  caption('Digite seu nome. Deixe o código vazio para criar uma sala.', 'Enter your name. Leave the code empty to create a room.');
+  await viewer.locator('#username').pressSequentially('Marina', { delay: 120 });
+  await pause(1000);
+  await viewer.locator('#joinBtn').click();
+  await viewer.waitForFunction(() => !document.querySelector('#send-message-btn').disabled);
+  const room = await viewer.locator('#current-room-id').textContent();
+  await pause(2500);
+  caption('Copie o código para outra pessoa entrar na mesma sala.', 'Copy the code so another person can join the same room.');
+  await viewer.locator('#copyRoomBtn').click();
+  const sharer = await sourceContext.newPage();
+  sharer.on('pageerror', error => errors.push(error.message));
+  await sharer.goto(base);
+  await sharer.locator('#username').fill('Rafael');
+  await sharer.locator('#roomId').fill(room);
+  await sharer.locator('#joinBtn').click();
+  await sharer.waitForFunction(() => !document.querySelector('#send-message-btn').disabled);
+  await viewer.waitForFunction(() => document.querySelector('#participant-count').textContent === '2');
+  await viewer.bringToFront();
+  await pause(2500);
+  caption('A conversa acontece junto da transmissão.', 'Keep the conversation alongside the stream.');
+  await viewer.locator('#message-input').pressSequentially('Vamos revisar o código?', { delay: 50 });
+  await viewer.locator('#message-input').press('Enter');
+  await sharer.locator('.chat-bubble').filter({ hasText: 'Vamos revisar' }).waitFor();
+  await sharer.locator('#message-input').fill('Claro! Vou compartilhar a janela.');
+  await sharer.locator('#message-input').press('Enter');
+  await viewer.locator('.chat-bubble').filter({ hasText: 'Claro!' }).waitFor();
+  await pause(2500);
+  caption('Uma aba real, transmitida ao outro participante por WebRTC.', 'A real browser tab, streamed to the other peer over WebRTC.');
+  await sharer.locator('#share-picker summary').click();
+  await sharer.locator('[data-menu-preset="TEXT"]').click();
+  await sharer.locator('#share-picker summary').click();
+  await sharer.locator('#shareScreenBtn').click();
+  await viewer.waitForFunction(() => [...document.querySelectorAll('.screen-tile video')].some(v => v.videoWidth >= 1280), null, { timeout: 30000 });
+  await viewer.bringToFront();
+  await pause(4500);
+  caption('Foque a transmissão e mantenha as prévias por perto.', 'Focus the stream and keep the previews nearby.');
+  await viewer.locator('.screen-tile').first().click({ position: { x: 24, y: 24 } });
+  await viewer.locator('#screen-mirror').waitFor();
+  await pause(3000);
+  caption('Escolha o perfil da sua próxima tela: jogo, vídeo ou código.', 'Choose a profile for your next share: games, video or code.');
+  await viewer.locator('#share-picker summary').click();
+  await viewer.locator('#share-menu-main').waitFor();
+  await pause(3500);
+  await viewer.locator('#share-picker summary').click();
+  caption('Experimente em screen-share.fly.dev/about. Navegador, Windows e macOS.', 'Try screen-share.fly.dev/about. Browser, Windows and macOS.');
+  await pause(3500);
+  duration = (Date.now() - startedAt) / 1000;
+  assert(duration >= 30 && duration <= 48, `Demo duration: ${duration.toFixed(1)} seconds`);
+  assert.deepEqual(errors, [], 'No client runtime errors during the recording');
+  await viewer.screenshot({ path: resolve(work, 'final-frame.png') });
+  recording = false;
+  await frameRecording;
+  await viewerContext.close();
+} finally {
+  recording = false;
+  await frameRecording;
+  await browser?.close();
+  await new Promise(resolve => server.close(resolve));
+}
+assert(frames.length > 100, 'Recorded the full UI sequence, not isolated stills');
+await writeFile(resolve(work, 'frames.txt'), frames.map((frame, i) => `file '${frame.name}'\nduration ${Math.max(0.001, (frames[i + 1]?.time ?? duration) - frame.time).toFixed(3)}`).join('\n') + `\nfile '${frames.at(-1).name}'\n`);
+
+const clock = seconds => {
+  const ms = Math.floor(seconds * 1000);
+  const h = String(Math.floor(ms / 3600000)).padStart(2, '0');
+  const m = String(Math.floor(ms / 60000) % 60).padStart(2, '0');
+  const s = String(Math.floor(ms / 1000) % 60).padStart(2, '0');
+  return `${h}:${m}:${s}.${String(ms % 1000).padStart(3, '0')}`;
+};
+const assClock = seconds => clock(seconds).slice(1, -1);
+const content = JSON.parse(await readFile(resolve(root, 'site/content.json'), 'utf8'));
+for (const locale of ['pt', 'en']) {
+  const vtt = 'WEBVTT\n\n' + timeline.map((entry, i) => `${clock(entry.start)} --> ${clock(timeline[i + 1]?.start ?? duration)}\n${entry[locale]}\n`).join('\n');
+  await writeFile(resolve(output, `captions-${locale}.vtt`), vtt);
+  const ass = `[Script Info]\nScriptType: v4.00+\nPlayResX: 1280\nPlayResY: 800\nWrapStyle: 0\n[V4+ Styles]\nFormat: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\nStyle: Default,Barlow,28,&H00FAF2EE,&H00FFFFFF,&H00000000,&H00000000,-1,0,0,0,100,100,0,0,1,0,0,8,32,32,16,1\n[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n` + timeline.map((entry, i) => `Dialogue: 0,${assClock(entry.start)},${assClock(timeline[i + 1]?.start ?? duration)},Default,,0,0,0,,${entry[locale]}`).join('\n');
+  await writeFile(resolve(work, `demo-${locale}.ass`), ass);
+  execFileSync(ffmpeg, ['-y', '-f', 'concat', '-safe', '0', '-i', 'frames.txt', '-vf', `fps=24,pad=1280:800:0:80:color=0x101318,ass=demo-${locale}.ass:fontsdir=fonts`, '-an', '-c:v', 'libx264', '-preset', 'medium', '-crf', '23', '-pix_fmt', 'yuv420p', '-movflags', '+faststart', resolve(output, `demo-${locale}.mp4`)], { cwd: work, stdio: ['ignore', 'ignore', 'pipe'] });
+  const copy = content[locale];
+  const transcript = `<!doctype html><html lang="${copy.lang}"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${escapeHTML(copy.transcript)} | Screenshare</title><meta name="robots" content="noindex"><link rel="stylesheet" href="/about/style.css"><main class="wrap transcript"><a href="${copy.canonicalPath}">Screenshare</a><h1>${escapeHTML(copy.videoLabel)}</h1><p>${escapeHTML(copy.demoNote)}</p><ol>${timeline.map(entry => `<li>${escapeHTML(entry[locale])}</li>`).join('')}</ol><a href="/about/assets/demo-${locale}.mp4">${escapeHTML(copy.videoFallback)}</a></main></html>`;
+  await writeFile(resolve(output, `../transcript-${locale}.html`), transcript);
+}
+execFileSync(ffmpeg, ['-y', '-ss', '22', '-i', resolve(output, 'demo-pt.mp4'), '-frames:v', '1', '-q:v', '3', resolve(output, 'demo-poster.jpg')], { stdio: ['ignore', 'ignore', 'pipe'] });
+await writeFile(resolve(work, 'recording.json'), JSON.stringify({ recordedAt: new Date().toISOString(), duration, browser: 'Chrome', source: 'real local two-peer browser tab capture', recording: 'full-viewport samples, at most 10 fps; not a performance demonstration', frames: frames.length, audio: 'not recorded or claimed', timeline }, null, 2));
+console.log(`Recorded ${duration.toFixed(1)}s real two-peer demo; PT/EN MP4, captions, transcripts and poster generated.`);

@@ -28,6 +28,8 @@ jobs:
           chmod +x gradlew
           ./gradlew --build-cache --no-problems-report -Pkotlin.compiler.execution.strategy=in-process :client:jsTest :common:allTests :server:jvmTest :server-java:buildFatJar ktlintCheck
           node vendor/braces/test.cjs
+          node --test scripts/build-presentation.test.mjs
+          node scripts/build-presentation.mjs --check
       - name: Test the GLib backport with optimizations
         run: |
           sudo apt-get update
