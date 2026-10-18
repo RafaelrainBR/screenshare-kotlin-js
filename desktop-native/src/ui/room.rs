@@ -13,6 +13,9 @@ use crate::{App, Message, TileKey, is_shared};
 pub const CHAT_INPUT: &str = "chat-input";
 const CHEVRON_RIGHT: &str = r#"<path d="m9 5 7 7-7 7"/>"#;
 const CHEVRON_LEFT: &str = r#"<path d="m15 5-7 7 7 7"/>"#;
+const CHEVRON_UP: &str = r#"<path d="m6 15 6-6 6 6"/>"#;
+const COPY: &str = r#"<rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/>"#;
+const DOTS: &str = r#"<circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/>"#;
 // The web .screen-tile-controls glyph, and the same corners pointing in to leave.
 const FULLSCREEN: &str = r#"<path d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4"/>"#;
 const EXIT_FULLSCREEN: &str = r#"<path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5"/>"#;
@@ -84,46 +87,89 @@ pub fn view(app: &App) -> Element<'_, Message> {
     for p in view.participants.iter().filter(|p| !videos.iter().any(|(peer, _)| *peer == p.socket_id)) {
         rail = rail.push(avatar_tile(p, Some(p.socket_id.as_str()) == local, view.speaking.contains(&p.socket_id)));
     }
+    // .strip-toggle hides the rail; the rail keeps 46 px on the right for it, as .screens-rail does.
     // shortcut: the rail does not scroll; add a horizontal scrollable when rooms outgrow one row.
-    let stage = column![main, container(rail).center_x(Length::Fill).height(110).center_y(110)].spacing(8);
+    let rail: Element<'_, Message> = if app.rail_hidden {
+        iced::widget::space().height(34).into()
+    } else {
+        container(rail).center_x(Length::Fill).height(110).center_y(110).padding(iced::Padding { right: 46.0, ..iced::Padding::ZERO }).into()
+    };
+    let (paths, hint) = if app.rail_hidden { (CHEVRON_UP, "Mostrar prévias") } else { (dock::CHEVRON_DOWN, "Ocultar prévias") };
+    let toggle = glass_button(paths, 16.0, 32.0, hint, Message::ToggleRail);
+    let toggle = container(toggle)
+        .padding(iced::Padding { right: 6.0, bottom: if app.rail_hidden { 2.0 } else { 40.0 }, ..iced::Padding::ZERO })
+        .align_right(Length::Fill)
+        .align_bottom(Length::Fill);
+    let stage = stack![column![main, rail].spacing(8), toggle];
 
-    let messages = view.messages.iter().fold(column![].spacing(8), |list, m| {
+    // .chat: avatar, name and time over the bubble; ours on the right with the accent avatar.
+    let messages = view.messages.iter().fold(column![].spacing(16), |list, m| {
         let own = m.sender_socket_id.is_some() && m.sender_socket_id.as_deref() == local;
+        let avatar = container(text(initials(&m.username)).size(10).font(theme::BOLD).color(if own { theme::ON_ACCENT } else { theme::TEXT }))
+            .center(26)
+            .style(move |_| container::Style {
+                background: Some(if own { theme::ACCENT } else { theme::SURFACE_2 }.into()),
+                border: iced::Border { radius: 13.0.into(), ..Default::default() },
+                ..Default::default()
+            });
         let header = row![
-            text(if own { "Você" } else { &m.username }).size(13).font(theme::BOLD).color(theme::DIM),
-            text(local_time(m.timestamp)).size(12).color(theme::FAINT),
+            text(if own { "Você" } else { &m.username }).size(11).color(theme::DIM),
+            text(local_time(m.timestamp)).size(10).font(iced::Font::MONOSPACE).color(theme::FAINT),
         ]
-        .spacing(8);
+        .spacing(8)
+        .align_y(Alignment::Center);
         let side = if own { Alignment::End } else { Alignment::Start };
-        list.push(column![header, container(text(&m.content)).padding([7, 10]).style(theme::bubble(own))].spacing(2).width(Length::Fill).align_x(side))
+        let body = column![header, container(text(&m.content)).padding([7, 10]).style(theme::bubble(own))].spacing(3).width(Length::Fill).align_x(side);
+        list.push(if own { row![body, avatar] } else { row![avatar, body] }.spacing(8))
     });
-    let chat = column![
-        row![
-            text("Conversa").font(theme::BOLD).width(Length::Fill),
-            button(text(format!("SALA {}", app.room)).size(12)).padding([3, 8]).style(button::secondary).on_press(Message::CopyRoom),
-            chat_button(CHEVRON_RIGHT, "Ocultar conversa"),
-        ]
-        .align_y(Alignment::Center),
-        scrollable(messages).height(Length::Fill).anchor_bottom(),
-        text_input("Mensagem", &app.draft).id(CHAT_INPUT).on_input(Message::Draft).on_submit(Message::Send).padding(8),
+    // .conversation-header: the room code chip copies, like #copyRoomBtn.
+    let code = row![
+        text("SALA").size(9).color(theme::FAINT),
+        text(&app.room).size(11).font(iced::Font::MONOSPACE).wrapping(text::Wrapping::None),
+        dock::icon(COPY, 13.0, theme::TEXT),
     ]
-    .spacing(10);
+    .spacing(6)
+    .align_y(Alignment::Center);
+    let code = button(code).padding([5, 7]).style(|_, status| theme::chip_button(status)).on_press(Message::CopyRoom);
+    let header = row![text("Conversa").size(13).font(theme::BOLD).width(Length::Fill), code, chat_button(CHEVRON_RIGHT, "Ocultar conversa", 27.0)]
+        .spacing(6)
+        .align_y(Alignment::Center);
+    let composer = text_input("Mensagem", &app.draft)
+        .id(CHAT_INPUT)
+        .on_input(Message::Draft)
+        .on_submit(Message::Send)
+        .size(13)
+        .padding([8, 12])
+        .style(theme::input);
+    // .sidebar: header, messages and composer read as one bordered box split by lines.
+    let chat = container(
+        column![
+            container(header).padding([0, 8]).height(32).center_y(32),
+            rule(),
+            scrollable(container(messages).padding([15, 10])).height(Length::Fill).anchor_bottom(),
+            rule(),
+            container(composer).padding([0, 8]).height(54).center_y(54),
+        ],
+    )
+    .style(theme::panel);
 
     let dock = dock::view(app);
 
     // .workspace.chat-collapsed: the stage takes the width and .chat-restore floats at its top right.
+    let stage = container(stage).padding(10);
     let body: Element<'_, Message> = if app.chat_hidden {
-        let restore = chat_button(CHEVRON_LEFT, "Mostrar conversa");
-        stack![stage, container(restore).padding(8).align_right(Length::Fill)].into()
+        let restore = chat_button(CHEVRON_LEFT, "Mostrar conversa", 32.0);
+        stack![stage, container(restore).padding(16).align_right(Length::Fill)].into()
     } else {
-        row![stage.width(Length::Fill), container(chat).padding(12).width(300).height(Length::Fill).style(theme::panel)].spacing(10).into()
+        row![stage.width(Length::Fill), container(chat).padding(iced::Padding { top: 10.0, right: 10.0, bottom: 10.0, left: 0.0 }).width(300).height(Length::Fill)].into()
     };
 
     let notice = app.notice.as_ref().filter(|(_, since)| since.elapsed() < Duration::from_secs(6));
     // Like requestFullscreen on the .screen-tile: only that video, edge to edge; Esc or its button leaves.
     let screen: Element<'_, Message> = match app.fullscreen.as_ref().filter(|key| videos.contains(key)) {
         Some(key) => video_tile(app, key, false),
-        None => column![body, container(dock).padding(10).style(theme::panel)].spacing(10).padding(12).into(),
+        // .dock: a 64 px bar under a line, on the page background.
+        None => column![container(body).height(Length::Fill), rule(), container(dock).padding([8, 12]).height(63).center_y(63)].into(),
     };
     let mut layers = iced::widget::stack![screen];
     if let Some(popover) = dock::popover(app) {
@@ -227,23 +273,46 @@ fn video_tile<'a>(app: &'a App, key: &TileKey, small: bool) -> Element<'a, Messa
     if !small {
         let (paths, label) = if app.fullscreen.as_ref() == Some(key) { (EXIT_FULLSCREEN, "Sair da tela cheia") } else { (FULLSCREEN, "Tela cheia") };
         let target = (app.fullscreen.as_ref() != Some(key)).then(|| key.clone());
-        controls = controls.push(dock::hint_on(button(dock::icon(paths, 16.0, theme::TEXT)).padding(5).style(button::secondary).on_press(Message::Fullscreen(target)).into(), label.into()));
+        controls = controls.push(glass_button(paths, 17.0, 34.0, label, Message::Fullscreen(target)));
     }
-    layers = layers.push(container(controls.push(options_button(peer, Some(*camera)))).padding(if small { 5 } else { 12 }).align_right(Length::Fill).align_bottom(Length::Fill));
+    let options = Message::PeerOptions(Some((peer.clone(), Some(*camera))));
+    let options = if small { options_button(peer, Some(*camera)) } else { glass_button(DOTS, 17.0, 34.0, "Opções", options) };
+    layers = layers.push(container(controls.push(options)).padding(if small { 5 } else { 12 }).align_right(Length::Fill).align_bottom(Length::Fill));
     let focused = app.focused.as_ref() == Some(key);
     let speaking = app.view.speaking.contains(peer);
     let tile = button(layers).padding(1).style(move |_, _| theme::video_tile(focused, speaking)).on_press(Message::Focus(key.clone()));
     if small { tile.width(168).height(94).into() } else { tile.width(Length::Fill).height(Length::Fill).into() }
 }
 
-/// .chat-hide and .chat-restore.
-fn chat_button(paths: &str, label: &'static str) -> Element<'static, Message> {
-    dock::hint_on(button(dock::icon(paths, 16.0, theme::TEXT)).padding(7).style(button::secondary).on_press(Message::ToggleChat).into(), label.into())
+/// .chat-hide (27 px, in the header) and .chat-restore (32 px glass, over the stage).
+fn chat_button(paths: &str, label: &'static str, size: f32) -> Element<'static, Message> {
+    if size > 30.0 {
+        return glass_button(paths, 16.0, size, label, Message::ToggleChat);
+    }
+    let press = button(container(dock::icon(paths, 16.0, theme::DIM)).center(size - 2.0)).padding(0).width(size).height(size).style(|_, status| theme::chip_button(status));
+    dock::hint_on(press.on_press(Message::ToggleChat).into(), label.into())
+}
+
+/// .glass-chip, .strip-toggle and .chat-restore: a dark see-through square over the video.
+fn glass_button(paths: &str, glyph: f32, size: f32, label: &'static str, press: Message) -> Element<'static, Message> {
+    let square = button(container(dock::icon(paths, glyph, theme::TEXT)).center(size - 2.0)).padding(0).width(size).height(size).style(|_, status| theme::glass(status));
+    dock::hint_on(square.on_press(press).into(), label.into())
+}
+
+/// A 1 px line in the border colour, for the web's border-top and border-bottom.
+fn rule() -> Element<'static, Message> {
+    container(iced::widget::space()).width(Length::Fill).height(1).style(|_| container::Style { background: Some(theme::LINE.into()), ..Default::default() }).into()
 }
 
 /// button.participant-options
 fn options_button(peer: &str, camera: Option<bool>) -> Element<'static, Message> {
-    button(text("⋯").size(14)).padding([2, 8]).style(button::secondary).on_press(Message::PeerOptions(Some((peer.to_owned(), camera)))).into()
+    button(container(dock::icon(DOTS, 16.0, theme::TEXT)).center(26))
+        .padding(0)
+        .width(28)
+        .height(28)
+        .style(|_, status| theme::options_button(status))
+        .on_press(Message::PeerOptions(Some((peer.to_owned(), camera))))
+        .into()
 }
 
 /// .participant-tile: initials, the speaking ring, the mute badge and the name, for someone without a video.

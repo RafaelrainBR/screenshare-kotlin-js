@@ -20,8 +20,8 @@ use desktop_native::{
     share::{SharePreset, ShareProfile},
 };
 use iced::{
-    Element, Length, Point, Size, Subscription, Task, keyboard,
-    widget::{button, checkbox, column, container, image, operation, text, text_input},
+    Element, Point, Size, Subscription, Task, keyboard,
+    widget::{image, operation},
     window,
 };
 use ui::{room, theme, wizard::Wizard};
@@ -72,6 +72,8 @@ pub enum Message {
     Fullscreen(Option<TileKey>),
     /// "Ocultar conversa" / "Mostrar conversa".
     ToggleChat,
+    /// .strip-toggle: hide or show the rail under the stage.
+    ToggleRail,
     /// A tray action from the compact panel's buttons.
     Tray(tray::Action),
     /// The panel lost focus: it hides, like the Tauri panel.
@@ -174,6 +176,7 @@ pub struct App {
     hidden_videos: HashSet<TileKey>,
     fullscreen: Option<TileKey>,
     chat_hidden: bool,
+    rail_hidden: bool,
     /// "Há uma mensagem não enviada…" is open.
     confirm_leave: bool,
     /// The window is the tray panel (Tauri's compact mode), not the room.
@@ -184,7 +187,7 @@ pub struct App {
     panel_blurred: Option<Instant>,
 }
 
-const NAME_INPUT: &str = "name-input";
+pub const NAME_INPUT: &str = "name-input";
 
 fn boot() -> (App, Task<Message>) {
     let last = startup::last_room();
@@ -365,8 +368,8 @@ fn update(app: &mut App, message: Message) -> Task<Message> {
             }
             // Dropping Running joins the session thread: the engine stops the share and closes peers.
             let windowed = set_fullscreen(app, None);
-            let App { name, mic_device, output_device, camera_device, profile, advanced, has_tray, notice, chat_hidden, compact, visible, .. } = std::mem::take(app);
-            *app = App { name, mic_device, output_device, camera_device, profile, advanced, has_tray, notice, chat_hidden, compact, visible, ..Default::default() };
+            let App { name, mic_device, output_device, camera_device, profile, advanced, has_tray, notice, chat_hidden, rail_hidden, compact, visible, .. } = std::mem::take(app);
+            *app = App { name, mic_device, output_device, camera_device, profile, advanced, has_tray, notice, chat_hidden, rail_hidden, compact, visible, ..Default::default() };
             tray::update(tray_state(app));
             return windowed.chain(operation::focus(NAME_INPUT));
         }
@@ -536,6 +539,7 @@ fn update(app: &mut App, message: Message) -> Task<Message> {
         Message::Focus(key) => app.focused = (app.focused.as_ref() != Some(&key)).then_some(key),
         Message::Fullscreen(key) => return set_fullscreen(app, key),
         Message::ToggleChat => app.chat_hidden = !app.chat_hidden,
+        Message::ToggleRail => app.rail_hidden = !app.rail_hidden,
         Message::Tray(action) => return tray_action(app, action),
         // hide_panel_on_blur: not while it is still opening.
         Message::PanelBlur if app.compact && app.visible && app.panel_shown.is_some_and(|at| at.elapsed() >= Duration::from_millis(250)) => {
@@ -767,23 +771,7 @@ fn view(app: &App) -> Element<'_, Message> {
     if app.running.is_some() {
         return room::view(app);
     }
-    let join = button(text("Entrar na sala").font(theme::BOLD)).padding([8, 16]).style(button::primary);
-    container(
-        column![
-            text("Participar de uma sala").size(26).font(theme::BOLD),
-            text("Seu nome").color(theme::DIM),
-            text_input("Como você aparece na sala", &app.name).id(NAME_INPUT).on_input(Message::Name).on_submit(Message::Join).padding(8),
-            text("Código da sala").color(theme::DIM),
-            text("Use um código recebido ou deixe vazio para criar uma sala.").size(12).color(theme::FAINT),
-            text_input("ex: 4f8a2c1e", &app.room).on_input(Message::Room).on_submit(Message::Join).padding(8),
-            checkbox(app.autostart).label("Iniciar com o sistema e voltar a esta sala").on_toggle(Message::ToggleAutostart).text_size(13),
-            if app.name.trim().is_empty() { join } else { join.on_press(Message::Join) },
-        ]
-        .spacing(10)
-        .max_width(380),
-    )
-    .center(Length::Fill)
-    .into()
+    ui::join::view(app)
 }
 
 fn subscription(app: &App) -> Subscription<Message> {
@@ -815,9 +803,10 @@ fn main() -> iced::Result {
     iced::application(boot, update, view)
         .title("Screenshare")
         .theme(|_: &App| theme::theme())
+        // body { font: 14px Barlow }
+        .settings(iced::Settings { default_font: theme::FONT, default_text_size: 14.into(), ..Default::default() })
         .font(theme::BARLOW)
         .font(theme::BARLOW_BOLD)
-        .default_font(theme::FONT)
         .subscription(subscription)
         .window(window::Settings {
             size: iced::Size::new(1280.0, 780.0),

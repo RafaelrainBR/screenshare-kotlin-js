@@ -29,10 +29,10 @@ const CAMERA_X: f32 = GROUP + GAP + 1.0 + GAP;
 const MIC_X: f32 = CAMERA_X + GROUP + GAP;
 const OUTPUT_X: f32 = MIC_X + GROUP + GAP;
 const TOOLS: f32 = OUTPUT_X + GROUP;
-/// The room's outer padding, the dock's padding and border, as laid out in room::view.
+/// The dock's side padding and its height under the line, as laid out in room::view (.dock).
 const OUTER: f32 = 12.0;
-const INSET: f32 = OUTER + 10.0 + 1.0;
-const DOCK_HEIGHT: f32 = CONTROL + 2.0 * 10.0 + 2.0;
+const INSET: f32 = OUTER;
+const DOCK_HEIGHT: f32 = 64.0;
 
 #[derive(Clone, Copy)]
 enum Tone {
@@ -51,7 +51,7 @@ pub const MIC: &str = r#"<path d="M9 5a3 3 0 0 1 6 0v6a3 3 0 0 1-6 0V5ZM5 11a7 7
 pub const OUTPUT: &str = r#"<path d="M11 5 6 9H3v6h3l5 4V5ZM15 9a4 4 0 0 1 0 6M18 6a8 8 0 0 1 0 12"/>"#;
 pub const SLASH: &str = r#"<line x1="3" y1="3" x2="21" y2="21"/>"#;
 pub const LEAVE: &str = r#"<path d="M14 4h4a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-4M10 16l-4-4 4-4M6 12h10"/>"#;
-const CHEVRON_DOWN: &str = r#"<path d="m6 9 6 6 6-6"/>"#;
+pub const CHEVRON_DOWN: &str = r#"<path d="m6 9 6 6 6-6"/>"#;
 
 /// The web's global `svg` rule: no fill, a 1.8 round stroke in currentColor.
 pub fn icon(paths: &str, size: f32, color: Color) -> Element<'static, Message> {

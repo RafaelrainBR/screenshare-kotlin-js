@@ -23,6 +23,55 @@ pub const SURFACE_2: Color = color!(0x222b38);
 pub const HOVER: Color = color!(0x2b3546);
 pub const RED_LINE: Color = color!(0xa8525e);
 pub const RADIUS: f32 = 10.0;
+pub const ON_ACCENT: Color = color!(0x0c1022);
+pub const LINE_2: Color = color!(0x4a586c);
+pub const BG: Color = color!(0x101318);
+
+/// .glass-chip: rgba(16,19,24,.92) with a line-2 border.
+pub fn glass(status: button::Status) -> button::Style {
+    let hover = matches!(status, button::Status::Hovered | button::Status::Pressed);
+    button::Style {
+        background: Some(if hover { HOVER } else { Color { a: 0.92, ..BG } }.into()),
+        text_color: TEXT,
+        border: Border { color: LINE_2, width: 1.0, radius: 8.0.into() },
+        ..Default::default()
+    }
+}
+
+/// .room-code and .chat-hide: surface-2 with a line border.
+pub fn chip_button(status: button::Status) -> button::Style {
+    let hover = matches!(status, button::Status::Hovered | button::Status::Pressed);
+    button::Style {
+        background: Some(if hover { HOVER } else { SURFACE_2 }.into()),
+        text_color: TEXT,
+        border: Border { color: LINE, width: 1.0, radius: 7.0.into() },
+        ..Default::default()
+    }
+}
+
+/// button.participant-options on a participant tile.
+pub fn options_button(status: button::Status) -> button::Style {
+    let hover = matches!(status, button::Status::Hovered | button::Status::Pressed);
+    button::Style {
+        background: Some(if hover { HOVER } else { SURFACE }.into()),
+        text_color: TEXT,
+        border: Border { color: LINE, width: 1.0, radius: 6.0.into() },
+        ..Default::default()
+    }
+}
+
+/// .input: page background, line border, accent while focused.
+pub fn input(_: &Theme, status: iced::widget::text_input::Status) -> iced::widget::text_input::Style {
+    let focused = matches!(status, iced::widget::text_input::Status::Focused { .. });
+    iced::widget::text_input::Style {
+        background: BG.into(),
+        border: Border { color: if focused { ACCENT } else { LINE }, width: 1.0, radius: 8.0.into() },
+        icon: DIM,
+        placeholder: FAINT,
+        value: TEXT,
+        selection: Color { a: 0.35, ..ACCENT },
+    }
+}
 
 pub fn theme() -> Theme {
     Theme::custom(
