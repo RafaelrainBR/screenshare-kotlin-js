@@ -20,7 +20,7 @@ use desktop_native::{
     share::{SharePreset, ShareProfile},
 };
 use iced::{
-    Element, Length, Subscription, Task, keyboard,
+    Element, Length, Point, Size, Subscription, Task, keyboard,
     widget::{button, checkbox, column, container, image, operation, text, text_input},
     window,
 };
@@ -72,6 +72,14 @@ pub enum Message {
     Fullscreen(Option<TileKey>),
     /// "Ocultar conversa" / "Mostrar conversa".
     ToggleChat,
+    /// A tray action from the compact panel's buttons.
+    Tray(tray::Action),
+    /// The panel lost focus: it hides, like the Tauri panel.
+    PanelBlur,
+    /// "Mais opções": the full window with the share settings.
+    PanelOptions,
+    /// "Visualizar tela" / "Visualizar câmera": the full window on that video.
+    ViewTile(TileKey),
     CloseRequested(window::Id),
     CopyRoom,
     /// "Iniciar com o sistema e voltar a esta sala" on the join form.
@@ -168,13 +176,20 @@ pub struct App {
     chat_hidden: bool,
     /// "Há uma mensagem não enviada…" is open.
     confirm_leave: bool,
+    /// The window is the tray panel (Tauri's compact mode), not the room.
+    compact: bool,
+    /// Shown, as far as the tray toggle is concerned.
+    visible: bool,
+    panel_shown: Option<Instant>,
+    panel_blurred: Option<Instant>,
 }
 
 const NAME_INPUT: &str = "name-input";
 
 fn boot() -> (App, Task<Message>) {
     let last = startup::last_room();
-    let app = App {
+    let mut app = App {
+        visible: !startup::launched_at_login(),
         name: if last.name.trim().is_empty() { whoami() } else { last.name },
         room: last.room,
         profile: ui::profile::load(),
@@ -189,29 +204,93 @@ fn boot() -> (App, Task<Message>) {
         tasks.push(Task::done(Message::Join));
     } else if startup::launched_at_login() {
         // Nothing to rejoin: a tray icon alone would look like the app failed to start.
-        tasks.push(show_window());
+        tasks.push(show_window(&mut app));
     }
     (app, Task::batch(tasks))
 }
 
-/// Brings the (possibly hidden) window back and focuses it.
-fn show_window() -> Task<Message> {
-    window::oldest().then(|id| match id {
-        Some(id) => window::set_mode(id, window::Mode::Windowed).chain(window::gain_focus(id)),
-        None => Task::none(),
+/// Brings the (possibly hidden) window back as the room window, out of the panel's mode, and focuses it.
+fn show_window(app: &mut App) -> Task<Message> {
+    app.visible = true;
+    let was_compact = std::mem::take(&mut app.compact);
+    // Tauri centers it on its monitor; the cursor is on the one the user just clicked.
+    let (cx, cy) = ui::panel::cursor();
+    let area = was_compact.then(|| ui::panel::work_area(cx, cy)).flatten();
+    with_window(move |id| {
+        let full = if was_compact {
+            let frame = window::toggle_decorations(id).chain(window::set_resizable(id, true)).chain(window::set_level(id, window::Level::Normal));
+            frame.chain(window::scale_factor(id).then(move |scale| {
+                let Some((x, y, width, height)) = area else { return window::resize(id, Size::new(1280.0, 780.0)) };
+                let s = f64::from(scale);
+                let (w, h) = (1280.0_f64.min(width / s), 780.0_f64.min(height / s));
+                window::resize(id, Size::new(w as f32, h as f32))
+                    .chain(window::move_to(id, Point::new(((x + (width - w * s) / 2.0) / s) as f32, ((y + (height - h * s) / 2.0) / s) as f32)))
+            }))
+        } else {
+            Task::none()
+        };
+        full.chain(window::minimize(id, false)).chain(window::set_mode(id, window::Mode::Windowed)).chain(window::gain_focus(id))
     })
+}
+
+/// Runs a window task on the app's only window.
+fn with_window(task: impl Fn(window::Id) -> Task<Message> + Send + 'static) -> Task<Message> {
+    window::oldest().then(move |id| id.map_or_else(Task::none, &task))
+}
+
+/// Tauri's present_window(compact): frameless, fixed, on top, 430×660 by the tray icon.
+/// shortcut: the panel still shows on the taskbar (iced has no skip-taskbar); set WS_EX_TOOLWINDOW if it bothers.
+fn open_panel(app: &mut App, (x, y, w, h): (f64, f64, f64, f64)) -> Task<Message> {
+    let windowed = set_fullscreen(app, None);
+    let framed = !app.compact;
+    app.compact = true;
+    app.visible = true;
+    app.panel_shown = Some(Instant::now());
+    let area = ui::panel::work_area(x + w / 2.0, y + h / 2.0);
+    let (width, height) = ui::panel::SIZE;
+    windowed.chain(with_window(move |id| {
+        let frame = if framed { window::toggle_decorations(id) } else { Task::none() };
+        // shortcut: positions use this window's scale; a tray on a monitor with another DPI lands slightly off.
+        let place = window::scale_factor(id).then(move |scale| {
+            let Some(area) = area else { return Task::none() };
+            let s = f64::from(scale);
+            let (px, py) = ui::panel::position((x, y, w, h), (f64::from(width) * s, f64::from(height) * s), area);
+            window::move_to(id, Point::new((px / s) as f32, (py / s) as f32))
+        });
+        frame
+            .chain(window::set_resizable(id, false))
+            .chain(window::set_level(id, window::Level::AlwaysOnTop))
+            .chain(window::resize(id, Size::new(width, height)))
+            .chain(place)
+            .chain(window::set_mode(id, window::Mode::Windowed))
+            .chain(window::gain_focus(id))
+    }))
+}
+
+fn hide_panel(app: &mut App) -> Task<Message> {
+    app.visible = false;
+    app.panel_blurred = Some(Instant::now());
+    with_window(|id| window::set_mode(id, window::Mode::Hidden))
 }
 
 /// The tray item a menu pick or a shortcut-free click maps to.
 fn tray_action(app: &mut App, action: tray::Action) -> Task<Message> {
     match action {
-        tray::Action::Open => show_window(),
+        tray::Action::Open => show_window(app),
+        // tray_click_action in the Tauri app.
+        tray::Action::Panel(x, y, w, h) => match (app.visible, app.compact) {
+            (true, false) => show_window(app),
+            (true, true) => hide_panel(app),
+            // This click already closed the panel through its blur.
+            _ if app.panel_blurred.is_some_and(|at| at.elapsed() < Duration::from_millis(400)) => Task::none(),
+            _ => open_panel(app, (x, y, w, h)),
+        },
         tray::Action::Mic => update(app, Message::ToggleMic),
         tray::Action::Camera => update(app, Message::ToggleCamera),
         tray::Action::Output => update(app, Message::ToggleOutput),
         tray::Action::Screen if sharing(&app.view) => update(app, Message::StopShare),
         // Forms open in the full window, as in the Tauri app.
-        tray::Action::Screen => show_window().chain(update(app, Message::OpenWizard)),
+        tray::Action::Screen => show_window(app).chain(update(app, Message::OpenWizard)),
         tray::Action::Leave => update(app, Message::Leave),
         tray::Action::Quit => {
             app.running = None;
@@ -271,7 +350,7 @@ fn update(app: &mut App, message: Message) -> Task<Message> {
         Message::Leave if !app.draft.trim().is_empty() && !app.confirm_leave => {
             app.confirm_leave = true;
             // The tray's "Sair da sala" may come with the window hidden; unfocusing keeps Enter off the chat.
-            return set_fullscreen(app, None).chain(show_window()).chain(operation::focus("leave-confirm"));
+            return set_fullscreen(app, None).chain(show_window(app)).chain(operation::focus("leave-confirm"));
         }
         Message::CancelLeave => {
             app.confirm_leave = false;
@@ -286,8 +365,8 @@ fn update(app: &mut App, message: Message) -> Task<Message> {
             }
             // Dropping Running joins the session thread: the engine stops the share and closes peers.
             let windowed = set_fullscreen(app, None);
-            let App { name, mic_device, output_device, camera_device, profile, advanced, has_tray, notice, chat_hidden, .. } = std::mem::take(app);
-            *app = App { name, mic_device, output_device, camera_device, profile, advanced, has_tray, notice, chat_hidden, ..Default::default() };
+            let App { name, mic_device, output_device, camera_device, profile, advanced, has_tray, notice, chat_hidden, compact, visible, .. } = std::mem::take(app);
+            *app = App { name, mic_device, output_device, camera_device, profile, advanced, has_tray, notice, chat_hidden, compact, visible, ..Default::default() };
             tray::update(tray_state(app));
             return windowed.chain(operation::focus(NAME_INPUT));
         }
@@ -298,7 +377,7 @@ fn update(app: &mut App, message: Message) -> Task<Message> {
         Message::TrayPoll => {
             let mut tasks: Vec<_> = tray::actions().into_iter().map(|action| tray_action(app, action)).collect();
             if startup::show_requested() {
-                tasks.push(show_window());
+                tasks.push(show_window(app));
             }
             tray::update(tray_state(app));
             return Task::batch(tasks);
@@ -457,12 +536,29 @@ fn update(app: &mut App, message: Message) -> Task<Message> {
         Message::Focus(key) => app.focused = (app.focused.as_ref() != Some(&key)).then_some(key),
         Message::Fullscreen(key) => return set_fullscreen(app, key),
         Message::ToggleChat => app.chat_hidden = !app.chat_hidden,
+        Message::Tray(action) => return tray_action(app, action),
+        // hide_panel_on_blur: not while it is still opening.
+        Message::PanelBlur if app.compact && app.visible && app.panel_shown.is_some_and(|at| at.elapsed() >= Duration::from_millis(250)) => {
+            return hide_panel(app);
+        }
+        Message::PanelBlur => {}
+        Message::PanelOptions => {
+            let next = if sharing(&app.view) { Message::ShareMenu(Some(ui::profile::Menu::Main)) } else { Message::OpenWizard };
+            return show_window(app).chain(update(app, next));
+        }
+        Message::ViewTile(key) => {
+            app.focused = Some(key);
+            return show_window(app);
+        }
         Message::CopyRoom => {
             app.notice = Some(("Código copiado".into(), Instant::now()));
             return iced::clipboard::write(app.room.clone());
         }
         // Closing keeps the app in the tray, in the room, like the Tauri app; "Encerrar app" quits.
-        Message::CloseRequested(id) if app.has_tray => return window::set_mode(id, window::Mode::Hidden),
+        Message::CloseRequested(id) if app.has_tray => {
+            app.visible = false;
+            return window::set_mode(id, window::Mode::Hidden);
+        }
         Message::CloseRequested(id) => {
             app.running = None;
             return window::close(id).chain(iced::exit());
@@ -665,6 +761,9 @@ fn start(room: String, name: String) -> Running {
 }
 
 fn view(app: &App) -> Element<'_, Message> {
+    if app.compact {
+        return ui::panel::view(app);
+    }
     if app.running.is_some() {
         return room::view(app);
     }
@@ -696,6 +795,9 @@ fn subscription(app: &App) -> Subscription<Message> {
     let mut subscriptions = vec![close, keys];
     // Tray clicks and a second launch's "show" request.
     subscriptions.push(iced::time::every(Duration::from_millis(100)).map(|_| Message::TrayPoll));
+    if app.compact && app.visible {
+        subscriptions.push(window::events().filter_map(|(_, event)| matches!(event, window::Event::Unfocused).then_some(Message::PanelBlur)));
+    }
     if app.running.is_some() {
         subscriptions.push(iced::time::every(Duration::from_millis(16)).map(|_| Message::Tick));
     }
