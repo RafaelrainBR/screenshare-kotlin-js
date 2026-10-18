@@ -29,3 +29,5 @@ windows = { version = "0.62", features = ["Win32_Foundation", "Win32_System_Time
 
 [target.'cfg(target_os = "macos")'.dependencies]
 libc = "0.2"
+# The macOS camera through AVFoundation; it also asks for the camera permission.
+nokhwa = { version = "0.10.11", default-features = false, features = ["input-avfoundation"] }

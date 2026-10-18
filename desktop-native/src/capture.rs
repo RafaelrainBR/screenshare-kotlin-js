@@ -33,8 +33,6 @@ pub enum ShareSource {
 pub enum CaptureEvent {
     Ready(u64),
     Ended(u64, String),
-    // Only the Windows camera reports a first frame until the macOS one exists.
-    #[cfg_attr(target_os = "macos", allow(dead_code))]
     CameraReady(u64),
     CameraEnded(u64, String),
 }
