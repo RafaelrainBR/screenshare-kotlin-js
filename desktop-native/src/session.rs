@@ -150,10 +150,6 @@ pub struct SessionView {
     pub output_device: Option<String>,
     pub audio_pending: usize,
     pub audio_error: Option<String>,
-    pub video_peer: Option<String>,
-    pub video_state: String,
-    pub video_pending: usize,
-    pub video_error: Option<String>,
 }
 
 impl SessionView {
@@ -186,8 +182,6 @@ pub struct UiConnection {
     pub screen: std::sync::mpsc::Receiver<(u64, Option<ScreenOptions>)>,
     pub devices: std::sync::mpsc::Receiver<u64>,
     pub audio: std::sync::mpsc::Receiver<(u64, AudioControl)>,
-    /// (generation, peer to show or None to clear, camera instead of screen)
-    pub video: std::sync::mpsc::Receiver<(u64, Option<String>, bool)>,
     pub view: std::sync::Arc<std::sync::Mutex<SessionView>>,
     pub video_surface: crate::VideoSurface,
 }
@@ -267,21 +261,6 @@ pub struct Session {
 }
 
 impl Session {
-    fn video_command(
-        &self,
-        generation: u64,
-        current: u64,
-        peer: Option<&str>,
-        camera: bool,
-    ) -> Result<Value, String> {
-        if generation != current || self.identity().is_none() {
-            return Err("Sessão mudou ou ainda não está conectada.".into());
-        }
-        if peer.is_some_and(|id| !self.peers.contains(id)) {
-            return Err("Participante não está na sessão atual.".into());
-        }
-        Ok(json!({"command":"showVideo","peerId":peer,"camera":camera}))
-    }
     pub fn new(room: String, username: String) -> Self {
         Self {
             room,
@@ -389,6 +368,7 @@ impl Session {
                 if self.socket_id.is_none() {
                     self.socket_id = Some(sid.clone());
                     self.view.local_socket_id = Some(sid);
+                    self.system(format!("Você entrou na sala {}", self.room));
                     actions.push(Action::Send(
                         json!({"type":"request-media-state","rid":self.room}),
                     ));
@@ -438,6 +418,9 @@ impl Session {
                 if let Some(peer) = packet.sid {
                     if let Some(username) = packet.username {
                         if !self.view.participants.iter().any(|p| p.socket_id == peer) {
+                            if self.socket_id.as_ref() != Some(&peer) {
+                                self.system(format!("{username} entrou na sala"));
+                            }
                             self.view.participants.push(Participant {
                                 socket_id: peer.clone(),
                                 username,
@@ -450,6 +433,10 @@ impl Session {
             }
             "user-disconnected" => {
                 if let Some(peer) = packet.sid {
+                    if let Some(p) = self.view.participants.iter().find(|p| p.socket_id == peer) {
+                        let name = packet.username.clone().unwrap_or_else(|| p.username.clone());
+                        self.system(format!("{name} saiu da sala"));
+                    }
                     self.view.participants.retain(|p| p.socket_id != peer);
                     self.view.screen_sharers.remove(&peer);
                     self.view.camera_sharers.remove(&peer);
@@ -465,15 +452,25 @@ impl Session {
             kind @ ("screen-share-started" | "screen-share-stopped" | "camera-share-started"
             | "camera-share-stopped") => {
                 if let Some(peer) = packet.sid {
+                    let who = self.display_name(&peer);
                     let sharers = if kind.starts_with("screen") {
                         &mut self.view.screen_sharers
                     } else {
                         &mut self.view.camera_sharers
                     };
-                    if kind.ends_with("started") {
-                        sharers.insert(peer);
+                    // Sharers repeat "started" for newcomers; only a real change is announced.
+                    let changed = if kind.ends_with("started") {
+                        sharers.insert(peer)
                     } else {
-                        sharers.remove(&peer);
+                        sharers.remove(&peer)
+                    };
+                    if changed {
+                        self.system(match kind {
+                            "screen-share-started" => format!("{who} começou a compartilhar a tela"),
+                            "screen-share-stopped" => format!("{who} parou de compartilhar a tela"),
+                            "camera-share-started" => format!("{who} ativou a câmera"),
+                            _ => format!("{who} desativou a câmera"),
+                        });
                     }
                 }
             }
@@ -543,15 +540,41 @@ impl Session {
                         self.unconfirmed_chat.remove(id);
                     }
                 }
-                self.view.message_count += 1;
-                self.view.messages.push_back(message);
-                if self.view.messages.len() > 200 {
-                    self.view.messages.pop_front();
-                }
+                self.push_message(message);
             }
             _ => {}
         }
         Ok(actions)
+    }
+    fn push_message(&mut self, message: ChatMessage) {
+        self.view.message_count += 1;
+        self.view.messages.push_back(message);
+        if self.view.messages.len() > 200 {
+            self.view.messages.pop_front();
+        }
+    }
+    /// Local-only notices in the chat, with the same texts as SessionHandler.kt.
+    fn system(&mut self, content: String) {
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_millis() as i64);
+        self.push_message(ChatMessage {
+            username: "Sistema".into(),
+            content,
+            timestamp,
+            sender_socket_id: None,
+            client_message_id: None,
+        });
+    }
+    fn display_name(&self, peer: &str) -> String {
+        if self.socket_id.as_deref() == Some(peer) {
+            return "Você".into();
+        }
+        self.view
+            .participants
+            .iter()
+            .find(|p| p.socket_id == peer)
+            .map_or_else(|| peer.get(peer.len().saturating_sub(6)..).unwrap_or(peer).to_owned(), |p| p.username.clone())
     }
     fn ensure(&mut self, peer: String, initiate: bool, actions: &mut Vec<Action>) {
         let Some(local) = &self.socket_id else {
@@ -688,7 +711,6 @@ async fn run_inner(
             while ui.screen.try_recv().is_ok() {}
             while ui.devices.try_recv().is_ok() {}
             while ui.audio.try_recv().is_ok() {}
-            while ui.video.try_recv().is_ok() {}
             if let Some(tx) = &status {
                 let _ = tx.send(
                     if ui_generation == 1 {
@@ -718,10 +740,11 @@ async fn run_inner(
                 if Instant::now() >= deadline {
                     return Ok(());
                 }
-                if reconnect == 5 {
+                // Like the web client, the app retries forever; headless runs give up after 5.
+                if reconnect == 5 && ui.is_none() {
                     return Err(format!("websocket connect: {error}"));
                 }
-                let delay = [1, 2, 4, 8, 15][reconnect];
+                let delay = [1, 2, 4, 8, 15][reconnect.min(4)];
                 reconnect += 1;
                 tokio::time::sleep(
                     Duration::from_secs(delay)
@@ -743,7 +766,6 @@ async fn run_inner(
         let mut screen_request = None;
         let mut devices_request = None;
         let mut audio_requests = HashSet::new();
-        let mut video_requests = HashSet::new();
         let mut ice_retries: HashMap<String, (u8, Instant)> = HashMap::new();
         while Instant::now() < deadline {
             tokio::select! {
@@ -776,10 +798,6 @@ async fn run_inner(
                                         view.output_device.clone_from(&previous.output_device);
                                         view.audio_pending = previous.audio_pending;
                                         view.audio_error.clone_from(&previous.audio_error);
-                                        view.video_peer.clone_from(&previous.video_peer);
-                                        view.video_state.clone_from(&previous.video_state);
-                                        view.video_pending = previous.video_pending;
-                                        view.video_error.clone_from(&previous.video_error);
                                         drop(previous);
                                         *ui.view.lock().unwrap() = view;
                                     }
@@ -794,20 +812,6 @@ async fn run_inner(
                 _ = tick.tick() => {
                     if session.identity().is_none() && Instant::now() >= joined_by { failed = Some("identity timeout".into()); break; }
                     if let Some(ui) = &ui {
-                        while let Ok((generation, peer, camera)) = ui.video.try_recv() {
-                            let result = if video_requests.len() >= 8 {
-                                Err("Aguarde as operações de vídeo pendentes.".into())
-                            } else {
-                                session.video_command(generation, ui_generation, peer.as_deref(), camera)
-                                    .and_then(|command| engine.submit_tracked(command))
-                            };
-                            let mut view = ui.view.lock().unwrap();
-                            match result {
-                                Ok(id) => { video_requests.insert(id); view.video_error = None; },
-                                Err(error) => view.video_error = Some(error),
-                            }
-                            view.video_pending = video_requests.len();
-                        }
                         while let Ok((generation, control)) = ui.audio.try_recv() {
                             let mut view = ui.view.lock().unwrap();
                             let result = if generation != ui_generation || session.identity().is_none() {
@@ -869,14 +873,6 @@ async fn run_inner(
                         let kind = event.get("event").and_then(Value::as_str).unwrap_or("");
                         if let Some(ui) = &ui {
                             let mut view = ui.view.lock().unwrap();
-                            if kind == "videoState" {
-                                view.video_state = event.get("state").and_then(Value::as_str).unwrap_or("hidden").into();
-                                view.video_peer = event.get("peerId").and_then(Value::as_str).map(str::to_owned);
-                            }
-                            if matches!(kind, "completed" | "error") && event.get("requestId").and_then(Value::as_i64).is_some_and(|id| video_requests.remove(&id)) {
-                                view.video_pending = video_requests.len();
-                                if kind == "error" { view.video_error = Some(event.get("message").and_then(Value::as_str).unwrap_or("Falha na visualização.").into()); }
-                            }
                             if let Some(enabled) = event.get("enabled").and_then(Value::as_bool) {
                                 match kind {
                                     "microphoneState" => { view.microphone_enabled = enabled; view.microphone_device = event.get("deviceId").and_then(Value::as_str).map(str::to_owned); },
@@ -926,7 +922,6 @@ async fn run_inner(
                                 }
                                 None
                             },
-                            "videoState" => { eprintln!("Native video: {event}"); None },
                             "stats" => { eprintln!("Native engine: {event}"); if let Some(tx) = &status { let _ = tx.send("engine stats received".into()); } None },
                             "error" => { eprintln!("engine error: {}", event.get("code").and_then(Value::as_str).unwrap_or("unknown")); None },
                             _ => None,
@@ -961,10 +956,10 @@ async fn run_inner(
         if Instant::now() >= deadline {
             return Ok(());
         }
-        if reconnect == 5 {
+        if reconnect == 5 && ui.is_none() {
             return Err(failed.unwrap_or_else(|| "session ended".into()));
         }
-        let delay = [1, 2, 4, 8, 15][reconnect];
+        let delay = [1, 2, 4, 8, 15][reconnect.min(4)];
         reconnect += 1;
         tokio::time::sleep(
             Duration::from_secs(delay).min(deadline.saturating_duration_since(Instant::now())),
@@ -1117,37 +1112,32 @@ mod tests {
     }
 
     #[test]
-    fn video_selection_requires_current_membership_generation_and_bounded_queue() {
-        let mut session = Session::new("room".into(), "alice".into());
-        assert!(session.video_command(1, 1, None, false).is_err());
-        session.receive(r#"{"type":"room-joined","rid":"room","sid":"a"}"#, 1).unwrap();
-        session.receive(r#"{"type":"user-list","rid":"room","users":[{"socketId":"a","username":"alice","roomId":"room"},{"socketId":"b","username":"bob","roomId":"room"}]}"#, 1).unwrap();
-        assert_eq!(
-            session.video_command(2, 2, None, false).unwrap(),
-            json!({"command":"showVideo","peerId":null,"camera":false})
-        );
-        assert!(session.video_command(1, 2, Some("b"), false).is_err());
-        assert!(session.video_command(2, 2, Some("a"), false).is_err());
-        assert!(session.video_command(2, 2, Some("missing"), false).is_err());
-        assert_eq!(
-            session.video_command(2, 2, Some("b"), false).unwrap()["peerId"],
-            "b"
-        );
-        let (tx, rx) = std::sync::mpsc::sync_channel(8);
-        for _ in 0..8 {
-            tx.try_send((2, Some("b".to_owned()))).unwrap();
+    fn room_events_become_system_messages_like_the_web_chat() {
+        let mut s = Session::new("room".into(), "alice".into());
+        for packet in [
+            r#"{"type":"room-joined","rid":"room","sid":"a"}"#,
+            r#"{"type":"user-connected","rid":"room","sid":"b","username":"bob"}"#,
+            r#"{"type":"screen-share-started","rid":"room","sid":"b"}"#,
+            r#"{"type":"screen-share-started","rid":"room","sid":"b"}"#,
+            r#"{"type":"camera-share-started","rid":"room","sid":"a"}"#,
+            r#"{"type":"screen-share-stopped","rid":"room","sid":"b"}"#,
+            r#"{"type":"user-disconnected","rid":"room","sid":"b"}"#,
+        ] {
+            s.receive(packet, 1).unwrap();
         }
-        assert!(tx.try_send((2, None)).is_err());
-        session
-            .receive(r#"{"type":"user-disconnected","rid":"room","sid":"b"}"#, 1)
-            .unwrap();
-        assert!(
-            session
-                .video_command(2, 2, rx.try_recv().unwrap().1.as_deref(), false)
-                .is_err()
+        let texts: Vec<_> = s.view.messages.iter().map(|m| (m.username.as_str(), m.content.as_str())).collect();
+        assert_eq!(
+            texts,
+            [
+                ("Sistema", "Você entrou na sala room"),
+                ("Sistema", "bob entrou na sala"),
+                ("Sistema", "bob começou a compartilhar a tela"),
+                ("Sistema", "Você ativou a câmera"),
+                ("Sistema", "bob parou de compartilhar a tela"),
+                ("Sistema", "bob saiu da sala"),
+            ]
         );
-        session.invalidate();
-        assert!(session.video_command(2, 2, None, false).is_err());
+        assert!(s.view.messages.iter().all(|m| m.timestamp > 0 && m.sender_socket_id.is_none()));
     }
     #[test]
     fn ui_history_members_and_chat_queue_follow_identity_and_generation() {
@@ -1232,7 +1222,6 @@ mod tests {
         let (screen_tx, screen) = mpsc::sync_channel(8);
         let (devices_tx, devices) = mpsc::sync_channel(8);
         let (audio_tx, audio) = mpsc::sync_channel(8);
-        let (_video_tx, video) = mpsc::sync_channel(8);
         let run_stop = stop.clone();
         let run_view = view.clone();
         let client = tokio::spawn(async move {
@@ -1249,7 +1238,6 @@ mod tests {
                     screen,
                     devices,
                     audio,
-                    video,
                     view: run_view,
                     video_surface: crate::VideoSurface::default(),
                 }),
@@ -1450,7 +1438,6 @@ mod tests {
         let (screen_tx, screen) = mpsc::sync_channel(8);
         let (_devices_tx, devices) = mpsc::sync_channel(8);
         let (audio_tx, audio) = mpsc::sync_channel(8);
-        let (_video_tx, video) = mpsc::sync_channel(8);
         let (run_stop, run_view) = (stop.clone(), view.clone());
         let client = tokio::spawn(async move {
             run_controlled_with_ui(
@@ -1466,7 +1453,6 @@ mod tests {
                     screen,
                     devices,
                     audio,
-                    video,
                     view: run_view,
                     video_surface: crate::VideoSurface::default(),
                 }),
@@ -1555,7 +1541,8 @@ mod tests {
             let snapshot = view.lock().unwrap();
             assert!(snapshot.screen_state.is_empty());
             assert!(!snapshot.microphone_enabled && !snapshot.output_enabled);
-            assert!(snapshot.messages.is_empty());
+            // Only the local "Você entrou na sala" notice; no chat from the old generation.
+            assert!(snapshot.messages.iter().all(|m| m.username == "Sistema" && m.sender_socket_id.is_none()));
         }
         assert!(
             !wire
