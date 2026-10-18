@@ -45,6 +45,25 @@ pub fn stage(_: &Theme) -> container::Style {
     }
 }
 
+/// Chat bubble (.chat-bubble / .chat-bubble-primary).
+pub fn bubble(own: bool) -> impl Fn(&Theme) -> container::Style {
+    move |_| container::Style {
+        background: Some(if own { color!(0x2649cc) } else { color!(0x222b38) }.into()),
+        text_color: own.then_some(Color::WHITE),
+        border: Border { radius: 8.0.into(), ..Default::default() },
+        ..Default::default()
+    }
+}
+
+/// Toast (.notice).
+pub fn notice(_: &Theme) -> container::Style {
+    container::Style {
+        background: Some(color!(0x2a1a21).into()),
+        border: Border { color: RED, width: 1.0, radius: 9.0.into() },
+        ..Default::default()
+    }
+}
+
 /// Selected tile in the share wizard.
 pub fn picked(_: &Theme) -> container::Style {
     container::Style {

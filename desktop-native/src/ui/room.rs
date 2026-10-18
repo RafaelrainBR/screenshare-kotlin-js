@@ -1,4 +1,6 @@
 //! Room screen: participants, stage, chat and the dock, laid out like the UI v4.
+use std::time::Duration;
+
 use desktop_native::session::AudioDevice;
 use iced::{
     Alignment, Element, Length,
@@ -93,10 +95,21 @@ pub fn view(app: &App) -> Element<'_, Message> {
     };
 
     let messages = view.messages.iter().fold(column![].spacing(8), |list, m| {
-        list.push(column![text(&m.username).size(13).font(theme::BOLD).color(theme::DIM), text(&m.content)].spacing(2))
+        let own = m.sender_socket_id.is_some() && m.sender_socket_id.as_deref() == local;
+        let header = row![
+            text(if own { "Você" } else { &m.username }).size(13).font(theme::BOLD).color(theme::DIM),
+            text(local_time(m.timestamp)).size(12).color(theme::FAINT),
+        ]
+        .spacing(8);
+        let side = if own { Alignment::End } else { Alignment::Start };
+        list.push(column![header, container(text(&m.content)).padding([7, 10]).style(theme::bubble(own))].spacing(2).width(Length::Fill).align_x(side))
     });
     let chat = column![
-        text("Conversa").font(theme::BOLD),
+        row![
+            text("Conversa").font(theme::BOLD).width(Length::Fill),
+            button(text(format!("SALA {}", app.room)).size(12)).padding([3, 8]).style(button::secondary).on_press(Message::CopyRoom),
+        ]
+        .align_y(Alignment::Center),
         scrollable(messages).height(Length::Fill).anchor_bottom(),
         text_input("Mensagem", &app.draft).id(CHAT_INPUT).on_input(Message::Draft).on_submit(Message::Send).padding(8),
     ]
@@ -105,7 +118,10 @@ pub fn view(app: &App) -> Element<'_, Message> {
     let mics = devices(&view.audio_inputs);
     let outputs = devices(&view.audio_outputs);
     let sharing = matches!(view.screen_state.as_str(), "active" | "pending" | "picking");
+    // Like the web dock: the status only takes space while something is wrong.
+    let (status, status_color) = status(app);
     let dock = row![
+        text(status).color(status_color),
         toggle(if view.microphone_enabled { "Microfone ligado · F2" } else { "Microfone mudo · F2" }, view.microphone_enabled, Message::ToggleMic),
         pick_list(mics.clone(), chosen(&mics, &app.mic_device), |d| Message::MicDevice(d.0)).width(180),
         toggle(if view.output_enabled { "Som ligado · F3" } else { "Som desligado · F3" }, view.output_enabled, Message::ToggleOutput),
@@ -121,11 +137,6 @@ pub fn view(app: &App) -> Element<'_, Message> {
     ]
     .spacing(8)
     .align_y(Alignment::Center);
-
-    let errors: Vec<&str> = [&view.error, &view.screen_error, &view.audio_error, &view.video_error, &view.devices_error, &app.notice]
-        .into_iter()
-        .filter_map(|e| e.as_deref())
-        .collect();
 
     let body: Element<'_, Message> = match &app.wizard {
         Some(wizard) => container(wizard.view()).style(theme::panel).width(Length::Fill).height(Length::Fill).into(),
@@ -143,19 +154,56 @@ pub fn view(app: &App) -> Element<'_, Message> {
         .into(),
     };
 
-    column![
-        row![
-            text(format!("Sala {}", app.room)).font(theme::BOLD),
-            text(if local.is_some() { "Conectado" } else { "Conectando…" }).color(if local.is_some() { theme::GREEN } else { theme::DIM }),
-        ]
-        .spacing(12),
-        body,
-        text(errors.join(" · ")).size(13).color(theme::RED),
-        container(dock).padding(10).style(theme::panel),
-    ]
-    .spacing(10)
-    .padding(12)
-    .into()
+    let notice = app.notice.as_ref().filter(|(_, since)| since.elapsed() < Duration::from_secs(6));
+    let screen = column![body, container(dock).padding(10).style(theme::panel)].spacing(10).padding(12);
+    match notice {
+        // Floats over the top like the web .notice, without moving the layout.
+        Some((notice, _)) => {
+            let toast = container(text(notice.as_str()).size(12)).padding([12, 15]).max_width(560).style(theme::notice);
+            iced::widget::stack![screen, container(toast).center_x(Length::Fill).padding(12)].into()
+        }
+        None => screen.into(),
+    }
+}
+
+/// Errors worth a toast. While reconnecting, the dock status says it instead of the raw socket error.
+pub fn errors(app: &App) -> Vec<&str> {
+    let view = &app.view;
+    let reconnecting = view.local_socket_id.is_none() && view.generation > 1;
+    [&view.error, &view.screen_error, &view.audio_error, &view.video_error, &view.devices_error]
+        .into_iter()
+        .skip(usize::from(reconnecting))
+        .filter_map(|e| e.as_deref())
+        .collect()
+}
+
+fn status(app: &App) -> (String, iced::Color) {
+    let view = &app.view;
+    let ended = app.running.as_ref().is_some_and(|r| r.thread.as_ref().is_none_or(|t| t.is_finished()));
+    if ended {
+        (format!("Desconectado. {}", view.error.as_deref().unwrap_or("")).trim_end().into(), theme::RED)
+    } else if view.local_socket_id.is_some() {
+        (String::new(), theme::DIM)
+    } else if view.generation > 1 {
+        ("Sem conexão. Tentando reconectar…".into(), theme::RED)
+    } else {
+        ("Conectando à sala…".into(), theme::DIM)
+    }
+}
+
+/// HH:MM in the Windows time zone, like toLocaleTimeString("pt-BR") in the web chat.
+fn local_time(timestamp_ms: i64) -> String {
+    use windows::Win32::{
+        Foundation::{FILETIME, SYSTEMTIME},
+        System::Time::{FileTimeToSystemTime, SystemTimeToTzSpecificLocalTime},
+    };
+    // FILETIME counts 100 ns since 1601.
+    let ticks = (timestamp_ms.max(0) as u64) * 10_000 + 116_444_736_000_000_000;
+    let file = FILETIME { dwLowDateTime: ticks as u32, dwHighDateTime: (ticks >> 32) as u32 };
+    let (mut utc, mut local) = (SYSTEMTIME::default(), SYSTEMTIME::default());
+    // SAFETY: plain out-parameters on the stack.
+    let ok = unsafe { FileTimeToSystemTime(&file, &mut utc).is_ok() && SystemTimeToTzSpecificLocalTime(None, &utc, &mut local).is_ok() };
+    if ok { format!("{:02}:{:02}", local.wHour, local.wMinute) } else { String::new() }
 }
 
 fn toggle(label: &str, on: bool, message: Message) -> Element<'_, Message> {

@@ -389,6 +389,7 @@ impl Session {
                 if self.socket_id.is_none() {
                     self.socket_id = Some(sid.clone());
                     self.view.local_socket_id = Some(sid);
+                    self.system(format!("Você entrou na sala {}", self.room));
                     actions.push(Action::Send(
                         json!({"type":"request-media-state","rid":self.room}),
                     ));
@@ -438,6 +439,9 @@ impl Session {
                 if let Some(peer) = packet.sid {
                     if let Some(username) = packet.username {
                         if !self.view.participants.iter().any(|p| p.socket_id == peer) {
+                            if self.socket_id.as_ref() != Some(&peer) {
+                                self.system(format!("{username} entrou na sala"));
+                            }
                             self.view.participants.push(Participant {
                                 socket_id: peer.clone(),
                                 username,
@@ -450,6 +454,10 @@ impl Session {
             }
             "user-disconnected" => {
                 if let Some(peer) = packet.sid {
+                    if let Some(p) = self.view.participants.iter().find(|p| p.socket_id == peer) {
+                        let name = packet.username.clone().unwrap_or_else(|| p.username.clone());
+                        self.system(format!("{name} saiu da sala"));
+                    }
                     self.view.participants.retain(|p| p.socket_id != peer);
                     self.view.screen_sharers.remove(&peer);
                     self.view.camera_sharers.remove(&peer);
@@ -465,15 +473,25 @@ impl Session {
             kind @ ("screen-share-started" | "screen-share-stopped" | "camera-share-started"
             | "camera-share-stopped") => {
                 if let Some(peer) = packet.sid {
+                    let who = self.display_name(&peer);
                     let sharers = if kind.starts_with("screen") {
                         &mut self.view.screen_sharers
                     } else {
                         &mut self.view.camera_sharers
                     };
-                    if kind.ends_with("started") {
-                        sharers.insert(peer);
+                    // Sharers repeat "started" for newcomers; only a real change is announced.
+                    let changed = if kind.ends_with("started") {
+                        sharers.insert(peer)
                     } else {
-                        sharers.remove(&peer);
+                        sharers.remove(&peer)
+                    };
+                    if changed {
+                        self.system(match kind {
+                            "screen-share-started" => format!("{who} começou a compartilhar a tela"),
+                            "screen-share-stopped" => format!("{who} parou de compartilhar a tela"),
+                            "camera-share-started" => format!("{who} ativou a câmera"),
+                            _ => format!("{who} desativou a câmera"),
+                        });
                     }
                 }
             }
@@ -543,15 +561,41 @@ impl Session {
                         self.unconfirmed_chat.remove(id);
                     }
                 }
-                self.view.message_count += 1;
-                self.view.messages.push_back(message);
-                if self.view.messages.len() > 200 {
-                    self.view.messages.pop_front();
-                }
+                self.push_message(message);
             }
             _ => {}
         }
         Ok(actions)
+    }
+    fn push_message(&mut self, message: ChatMessage) {
+        self.view.message_count += 1;
+        self.view.messages.push_back(message);
+        if self.view.messages.len() > 200 {
+            self.view.messages.pop_front();
+        }
+    }
+    /// Local-only notices in the chat, with the same texts as SessionHandler.kt.
+    fn system(&mut self, content: String) {
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_millis() as i64);
+        self.push_message(ChatMessage {
+            username: "Sistema".into(),
+            content,
+            timestamp,
+            sender_socket_id: None,
+            client_message_id: None,
+        });
+    }
+    fn display_name(&self, peer: &str) -> String {
+        if self.socket_id.as_deref() == Some(peer) {
+            return "Você".into();
+        }
+        self.view
+            .participants
+            .iter()
+            .find(|p| p.socket_id == peer)
+            .map_or_else(|| peer.get(peer.len().saturating_sub(6)..).unwrap_or(peer).to_owned(), |p| p.username.clone())
     }
     fn ensure(&mut self, peer: String, initiate: bool, actions: &mut Vec<Action>) {
         let Some(local) = &self.socket_id else {
@@ -718,10 +762,11 @@ async fn run_inner(
                 if Instant::now() >= deadline {
                     return Ok(());
                 }
-                if reconnect == 5 {
+                // Like the web client, the app retries forever; headless runs give up after 5.
+                if reconnect == 5 && ui.is_none() {
                     return Err(format!("websocket connect: {error}"));
                 }
-                let delay = [1, 2, 4, 8, 15][reconnect];
+                let delay = [1, 2, 4, 8, 15][reconnect.min(4)];
                 reconnect += 1;
                 tokio::time::sleep(
                     Duration::from_secs(delay)
@@ -961,10 +1006,10 @@ async fn run_inner(
         if Instant::now() >= deadline {
             return Ok(());
         }
-        if reconnect == 5 {
+        if reconnect == 5 && ui.is_none() {
             return Err(failed.unwrap_or_else(|| "session ended".into()));
         }
-        let delay = [1, 2, 4, 8, 15][reconnect];
+        let delay = [1, 2, 4, 8, 15][reconnect.min(4)];
         reconnect += 1;
         tokio::time::sleep(
             Duration::from_secs(delay).min(deadline.saturating_duration_since(Instant::now())),
@@ -1148,6 +1193,34 @@ mod tests {
         );
         session.invalidate();
         assert!(session.video_command(2, 2, None, false).is_err());
+    }
+    #[test]
+    fn room_events_become_system_messages_like_the_web_chat() {
+        let mut s = Session::new("room".into(), "alice".into());
+        for packet in [
+            r#"{"type":"room-joined","rid":"room","sid":"a"}"#,
+            r#"{"type":"user-connected","rid":"room","sid":"b","username":"bob"}"#,
+            r#"{"type":"screen-share-started","rid":"room","sid":"b"}"#,
+            r#"{"type":"screen-share-started","rid":"room","sid":"b"}"#,
+            r#"{"type":"camera-share-started","rid":"room","sid":"a"}"#,
+            r#"{"type":"screen-share-stopped","rid":"room","sid":"b"}"#,
+            r#"{"type":"user-disconnected","rid":"room","sid":"b"}"#,
+        ] {
+            s.receive(packet, 1).unwrap();
+        }
+        let texts: Vec<_> = s.view.messages.iter().map(|m| (m.username.as_str(), m.content.as_str())).collect();
+        assert_eq!(
+            texts,
+            [
+                ("Sistema", "Você entrou na sala room"),
+                ("Sistema", "bob entrou na sala"),
+                ("Sistema", "bob começou a compartilhar a tela"),
+                ("Sistema", "Você ativou a câmera"),
+                ("Sistema", "bob parou de compartilhar a tela"),
+                ("Sistema", "bob saiu da sala"),
+            ]
+        );
+        assert!(s.view.messages.iter().all(|m| m.timestamp > 0 && m.sender_socket_id.is_none()));
     }
     #[test]
     fn ui_history_members_and_chat_queue_follow_identity_and_generation() {

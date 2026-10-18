@@ -49,6 +49,7 @@ pub enum Message {
     Tick,
     Allocated(u64, Option<image::Allocation>),
     CloseRequested(window::Id),
+    CopyRoom,
 }
 
 struct Running {
@@ -102,7 +103,10 @@ pub struct App {
     mic_restart: bool,
     output_restart: bool,
     devices_requested: bool,
-    notice: Option<String>,
+    /// Toast like the web ui-notice: the text and when it appeared; it hides after 6 s.
+    notice: Option<(String, Instant)>,
+    /// Errors already toasted, so the same ones do not come back every tick.
+    shown_errors: String,
 }
 
 const NAME_INPUT: &str = "name-input";
@@ -211,6 +215,10 @@ fn update(app: &mut App, message: Message) -> Task<Message> {
                 app.frames += 1;
             }
         }
+        Message::CopyRoom => {
+            app.notice = Some(("Código copiado".into(), Instant::now()));
+            return iced::clipboard::write(app.room.clone());
+        }
         Message::CloseRequested(id) => {
             app.running = None;
             return window::close(id).chain(iced::exit());
@@ -270,6 +278,13 @@ fn watch(app: &mut App, peer: Option<String>, camera: bool) {
 fn tick(app: &mut App) -> Task<Message> {
     let Some(running) = &app.running else { return Task::none() };
     app.view = running.view.lock().unwrap().clone();
+    let errors = room::errors(app).join(" · ");
+    if errors != app.shown_errors {
+        if !errors.is_empty() {
+            app.notice = Some((errors.clone(), Instant::now()));
+        }
+        app.shown_errors = errors;
+    }
     if app.view.local_socket_id.is_some() && !app.devices_requested {
         app.devices_requested = true;
         let _ = running.devices.send(app.view.generation);
