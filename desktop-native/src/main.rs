@@ -66,6 +66,10 @@ pub enum Message {
     Allocated(TileKey, u64, Option<image::Allocation>),
     /// Click on a video: show it alone, or back to the grid.
     Focus(TileKey),
+    /// The tile's "Tela cheia" button: that video alone over the whole monitor, or back.
+    Fullscreen(Option<TileKey>),
+    /// "Ocultar conversa" / "Mostrar conversa".
+    ToggleChat,
     CloseRequested(window::Id),
     CopyRoom,
     /// "Iniciar com o sistema e voltar a esta sala" on the join form.
@@ -158,6 +162,8 @@ pub struct App {
     /// "Silenciar áudio para você" and "Ocultar vídeo para você": this client only, this session only.
     muted_peers: HashSet<String>,
     hidden_videos: HashSet<TileKey>,
+    fullscreen: Option<TileKey>,
+    chat_hidden: bool,
 }
 
 const NAME_INPUT: &str = "name-input";
@@ -252,10 +258,11 @@ fn update(app: &mut App, message: Message) -> Task<Message> {
                 }
             }
             // Dropping Running joins the session thread: the engine stops the share and closes peers.
-            let App { name, mic_device, output_device, camera_device, profile, advanced, has_tray, notice, .. } = std::mem::take(app);
-            *app = App { name, mic_device, output_device, camera_device, profile, advanced, has_tray, notice, ..Default::default() };
+            let windowed = set_fullscreen(app, None);
+            let App { name, mic_device, output_device, camera_device, profile, advanced, has_tray, notice, chat_hidden, .. } = std::mem::take(app);
+            *app = App { name, mic_device, output_device, camera_device, profile, advanced, has_tray, notice, chat_hidden, ..Default::default() };
             tray::update(tray_state(app));
-            return operation::focus(NAME_INPUT);
+            return windowed.chain(operation::focus(NAME_INPUT));
         }
         Message::ToggleAutostart(enabled) => match startup::set_autostart(enabled) {
             Ok(()) => app.autostart = enabled,
@@ -421,6 +428,8 @@ fn update(app: &mut App, message: Message) -> Task<Message> {
         }
         Message::Allocated(..) => {}
         Message::Focus(key) => app.focused = (app.focused.as_ref() != Some(&key)).then_some(key),
+        Message::Fullscreen(key) => return set_fullscreen(app, key),
+        Message::ToggleChat => app.chat_hidden = !app.chat_hidden,
         Message::CopyRoom => {
             app.notice = Some(("Código copiado".into(), Instant::now()));
             return iced::clipboard::write(app.room.clone());
@@ -444,6 +453,7 @@ fn shortcut(app: &mut App, key: keyboard::Key, modifiers: keyboard::Modifiers) -
         (_, _) if app.running.is_none() => return Task::none(),
         (Key::Named(Named::Escape), Some(_)) => Message::CloseWizard,
         (Key::Named(Named::Escape), None) if app.peer_options.is_some() => Message::PeerOptions(None),
+        (Key::Named(Named::Escape), None) if app.fullscreen.is_some() => Message::Fullscreen(None),
         (Key::Named(Named::Escape), None) if app.device_picker.is_some() => Message::DevicePicker(None),
         // Like the web menu: Esc leaves a field's options first, then closes the menu.
         (Key::Named(Named::Escape), None) if app.share_menu.is_some() => {
@@ -545,13 +555,26 @@ fn tick(app: &mut App) -> Task<Message> {
     if app.focused.as_ref().is_some_and(|key| !is_shared(view, key)) {
         app.focused = None;
     }
+    // Like the browser leaving fullscreen when the video element goes away.
+    let windowed = if app.fullscreen.as_ref().is_some_and(|key| !is_shared(view, key)) { set_fullscreen(app, None) } else { Task::none() };
     // iced uploads images asynchronously: each tile swaps once its upload is done, dropping late ones.
-    Task::batch(frames.into_iter().map(|(key, snapshot)| {
+    windowed.chain(Task::batch(frames.into_iter().map(|(key, snapshot)| {
         let snapshot = Arc::try_unwrap(snapshot).unwrap_or_else(|shared| (*shared).clone());
         app.sent += 1;
         let seq = app.sent;
         image::allocate(image::Handle::from_rgba(snapshot.width, snapshot.height, snapshot.rgba)).map(move |r| Message::Allocated(key.clone(), seq, r.ok()))
-    }))
+    })))
+}
+
+/// The window follows `app.fullscreen`; leaving it only touches a window that was fullscreen.
+fn set_fullscreen(app: &mut App, key: Option<TileKey>) -> Task<Message> {
+    let was = app.fullscreen.is_some();
+    let mode = if key.is_some() { window::Mode::Fullscreen } else { window::Mode::Windowed };
+    app.fullscreen = key;
+    if was == app.fullscreen.is_some() {
+        return Task::none();
+    }
+    window::oldest().then(move |id| id.map_or_else(Task::none, |id| window::set_mode(id, mode)))
 }
 
 /// A remote screen or camera that is still on.
