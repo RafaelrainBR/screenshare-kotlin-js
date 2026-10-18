@@ -11,6 +11,11 @@ use super::{dock, theme};
 use crate::{App, Message, TileKey, is_shared};
 
 pub const CHAT_INPUT: &str = "chat-input";
+const CHEVRON_RIGHT: &str = r#"<path d="m9 5 7 7-7 7"/>"#;
+const CHEVRON_LEFT: &str = r#"<path d="m15 5-7 7 7 7"/>"#;
+// The web .screen-tile-controls glyph, and the same corners pointing in to leave.
+const FULLSCREEN: &str = r#"<path d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4"/>"#;
+const EXIT_FULLSCREEN: &str = r#"<path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5"/>"#;
 
 /// pick_list entry; "Padrão" (the system default) is None.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -93,6 +98,7 @@ pub fn view(app: &App) -> Element<'_, Message> {
         row![
             text("Conversa").font(theme::BOLD).width(Length::Fill),
             button(text(format!("SALA {}", app.room)).size(12)).padding([3, 8]).style(button::secondary).on_press(Message::CopyRoom),
+            chat_button(CHEVRON_RIGHT, "Ocultar conversa"),
         ]
         .align_y(Alignment::Center),
         scrollable(messages).height(Length::Fill).anchor_bottom(),
@@ -102,10 +108,20 @@ pub fn view(app: &App) -> Element<'_, Message> {
 
     let dock = dock::view(app);
 
-    let body = row![stage.width(Length::Fill), container(chat).padding(12).width(300).height(Length::Fill).style(theme::panel)].spacing(10);
+    // .workspace.chat-collapsed: the stage takes the width and .chat-restore floats at its top right.
+    let body: Element<'_, Message> = if app.chat_hidden {
+        let restore = chat_button(CHEVRON_LEFT, "Mostrar conversa");
+        stack![stage, container(restore).padding(8).align_right(Length::Fill)].into()
+    } else {
+        row![stage.width(Length::Fill), container(chat).padding(12).width(300).height(Length::Fill).style(theme::panel)].spacing(10).into()
+    };
 
     let notice = app.notice.as_ref().filter(|(_, since)| since.elapsed() < Duration::from_secs(6));
-    let screen = column![body, container(dock).padding(10).style(theme::panel)].spacing(10).padding(12);
+    // Like requestFullscreen on the .screen-tile: only that video, edge to edge; Esc or its button leaves.
+    let screen: Element<'_, Message> = match app.fullscreen.as_ref().filter(|key| videos.contains(key)) {
+        Some(key) => video_tile(app, key, false),
+        None => column![body, container(dock).padding(10).style(theme::panel)].spacing(10).padding(12).into(),
+    };
     let mut layers = iced::widget::stack![screen];
     if let Some(popover) = dock::popover(app) {
         layers = layers.push(popover);
@@ -189,11 +205,22 @@ fn video_tile<'a>(app: &'a App, key: &TileKey, small: bool) -> Element<'a, Messa
         layers = layers.push(container(chip).padding(6).align_bottom(Length::Fill));
     }
     // .screen-tile-controls: the ⋯ options in the corner.
-    layers = layers.push(container(options_button(peer, Some(*camera))).padding(if small { 5 } else { 12 }).align_right(Length::Fill).align_bottom(Length::Fill));
+    let mut controls = row![].spacing(6);
+    if !small {
+        let (paths, label) = if app.fullscreen.as_ref() == Some(key) { (EXIT_FULLSCREEN, "Sair da tela cheia") } else { (FULLSCREEN, "Tela cheia") };
+        let target = (app.fullscreen.as_ref() != Some(key)).then(|| key.clone());
+        controls = controls.push(dock::hint_on(button(dock::icon(paths, 16.0, theme::TEXT)).padding(5).style(button::secondary).on_press(Message::Fullscreen(target)).into(), label.into()));
+    }
+    layers = layers.push(container(controls.push(options_button(peer, Some(*camera)))).padding(if small { 5 } else { 12 }).align_right(Length::Fill).align_bottom(Length::Fill));
     let focused = app.focused.as_ref() == Some(key);
     let speaking = app.view.speaking.contains(peer);
     let tile = button(layers).padding(1).style(move |_, _| theme::video_tile(focused, speaking)).on_press(Message::Focus(key.clone()));
     if small { tile.width(168).height(94).into() } else { tile.width(Length::Fill).height(Length::Fill).into() }
+}
+
+/// .chat-hide and .chat-restore.
+fn chat_button(paths: &str, label: &'static str) -> Element<'static, Message> {
+    dock::hint_on(button(dock::icon(paths, 16.0, theme::TEXT)).padding(7).style(button::secondary).on_press(Message::ToggleChat).into(), label.into())
 }
 
 /// button.participant-options

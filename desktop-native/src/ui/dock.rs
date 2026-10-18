@@ -54,7 +54,7 @@ const LEAVE: &str = r#"<path d="M14 4h4a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-4M10 16l
 const CHEVRON_DOWN: &str = r#"<path d="m6 9 6 6 6-6"/>"#;
 
 /// The web's global `svg` rule: no fill, a 1.8 round stroke in currentColor.
-fn icon(paths: &str, size: f32, color: Color) -> Element<'static, Message> {
+pub fn icon(paths: &str, size: f32, color: Color) -> Element<'static, Message> {
     let source = format!(
         r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">{paths}</svg>"##
     );
@@ -98,7 +98,7 @@ fn tool(paths: String, tone: Tone, hint: String, press: Message, picker: Option<
     group.into()
 }
 
-fn hint_on(content: Element<'static, Message>, hint: String) -> Element<'static, Message> {
+pub fn hint_on(content: Element<'static, Message>, hint: String) -> Element<'static, Message> {
     tooltip(content, container(text(hint).size(12)).padding([4, 8]).style(theme::modal), tooltip::Position::Top).gap(6).into()
 }
 
