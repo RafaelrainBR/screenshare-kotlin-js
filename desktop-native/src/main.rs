@@ -2,7 +2,7 @@
 mod ui;
 
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     sync::{
         Arc, Mutex,
         atomic::{AtomicBool, Ordering},
@@ -49,6 +49,10 @@ pub enum Message {
     /// Opens a page of the dock's transmission menu, or closes it.
     ShareMenu(Option<ui::profile::Menu>),
     ToggleAdvanced,
+    /// The ⋯ menu of a participant (and of the clicked video, if any), or None to close it.
+    PeerOptions(Option<(String, Option<bool>)>),
+    TogglePeerMute(String),
+    ToggleHideVideo(TileKey),
     StartShare,
     StopShare,
     Key(keyboard::Key, keyboard::Modifiers),
@@ -130,6 +134,10 @@ pub struct App {
     share_height: u32,
     /// A new source picked while sharing: started once the old share ends.
     pending_share: Option<ScreenOptions>,
+    peer_options: Option<(String, Option<bool>)>,
+    /// "Silenciar áudio para você" and "Ocultar vídeo para você": this client only, this session only.
+    muted_peers: HashSet<String>,
+    hidden_videos: HashSet<TileKey>,
 }
 
 const NAME_INPUT: &str = "name-input";
@@ -236,6 +244,16 @@ fn update(app: &mut App, message: Message) -> Task<Message> {
         }
         Message::ShareMenu(page) => app.share_menu = page,
         Message::ToggleAdvanced => app.advanced = !app.advanced,
+        Message::PeerOptions(target) => app.peer_options = target,
+        Message::TogglePeerMute(peer) => {
+            let muted = app.muted_peers.insert(peer.clone()) || !app.muted_peers.remove(&peer);
+            audio(app, AudioControl::Peer { peer_id: peer, muted });
+        }
+        Message::ToggleHideVideo(key) => {
+            if !app.hidden_videos.insert(key.clone()) {
+                app.hidden_videos.remove(&key);
+            }
+        }
         Message::StartShare => {
             if let (Some(running), Some(options)) = (&app.running, app.wizard.as_ref().and_then(|w| w.options(app.profile))) {
                 app.share_height = options.height;
@@ -291,6 +309,7 @@ fn shortcut(app: &mut App, key: keyboard::Key, modifiers: keyboard::Modifiers) -
         (Key::Named(Named::Tab), _) => return operation::focus_next(),
         (_, _) if app.running.is_none() => return Task::none(),
         (Key::Named(Named::Escape), Some(_)) => Message::CloseWizard,
+        (Key::Named(Named::Escape), None) if app.peer_options.is_some() => Message::PeerOptions(None),
         // Like the web menu: Esc leaves a field's options first, then closes the menu.
         (Key::Named(Named::Escape), None) if app.share_menu.is_some() => {
             Message::ShareMenu((app.share_menu != Some(ui::profile::Menu::Main)).then_some(ui::profile::Menu::Main))

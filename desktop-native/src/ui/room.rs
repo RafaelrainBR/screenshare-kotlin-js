@@ -78,7 +78,7 @@ pub fn view(app: &App) -> Element<'_, Message> {
         }
     }
     for p in view.participants.iter().filter(|p| !videos.iter().any(|(peer, _)| *peer == p.socket_id)) {
-        rail = rail.push(avatar_tile(p, Some(p.socket_id.as_str()) == local));
+        rail = rail.push(avatar_tile(p, Some(p.socket_id.as_str()) == local, view.speaking.contains(&p.socket_id)));
     }
     // shortcut: the rail does not scroll; add a horizontal scrollable when rooms outgrow one row.
     let stage = column![main, container(rail).center_x(Length::Fill).height(110).center_y(110)].spacing(8);
@@ -145,6 +145,14 @@ pub fn view(app: &App) -> Element<'_, Message> {
             .padding(iced::Padding { right: 92.0, bottom: 70.0, ..iced::Padding::ZERO });
         layers = layers.push(outside).push(menu);
     }
+    if let Some((peer, camera)) = &app.peer_options {
+        // Opens over the stage, above the rail; a click outside or Esc closes it.
+        let outside = mouse_area(container(text("")).width(Length::Fill).height(Length::Fill)).on_press(Message::PeerOptions(None));
+        let menu = container(options_menu(app, peer, *camera))
+            .padding(iced::Padding { left: 24.0, bottom: 200.0, ..iced::Padding::ZERO })
+            .align_bottom(Length::Fill);
+        layers = layers.push(outside).push(menu);
+    }
     if let Some(wizard) = &app.wizard {
         // The web #quality-modal: a dimmed room with the panel on top; opaque keeps clicks off the room.
         let panel = container(wizard.view(app.profile, app.advanced)).padding(24).max_width(540).height(Length::Fill).style(theme::modal);
@@ -208,6 +216,7 @@ fn video_tile<'a>(app: &'a App, key: &TileKey, small: bool) -> Element<'a, Messa
     let (peer, camera) = key;
     let name = app.view.participants.iter().find(|p| &p.socket_id == peer).map_or("…", |p| p.username.as_str());
     let content: Element<'a, Message> = match app.tiles.get(key).and_then(|tile| tile.frame.as_ref()) {
+        _ if app.hidden_videos.contains(key) => container(text("Vídeo oculto").color(theme::DIM)).center(Length::Fill).into(),
         Some(frame) => image(frame.handle().clone()).width(Length::Fill).height(Length::Fill).into(),
         None => container(text(format!("Conectando à {} de {name}…", if *camera { "câmera" } else { "tela" })).size(12).color(theme::DIM))
             .center(Length::Fill)
@@ -218,25 +227,52 @@ fn video_tile<'a>(app: &'a App, key: &TileKey, small: bool) -> Element<'a, Messa
         let chip = container(text(name).size(11)).padding([1, 6]).style(theme::name_chip);
         layers = layers.push(container(chip).padding(6).align_bottom(Length::Fill));
     }
+    // .screen-tile-controls: the ⋯ options in the corner.
+    layers = layers.push(container(options_button(peer, Some(*camera))).padding(if small { 5 } else { 12 }).align_right(Length::Fill).align_bottom(Length::Fill));
     let focused = app.focused.as_ref() == Some(key);
-    let tile = button(layers).padding(1).style(move |_, _| theme::video_tile(focused)).on_press(Message::Focus(key.clone()));
+    let speaking = app.view.speaking.contains(peer);
+    let tile = button(layers).padding(1).style(move |_, _| theme::video_tile(focused, speaking)).on_press(Message::Focus(key.clone()));
     if small { tile.width(168).height(94).into() } else { tile.width(Length::Fill).height(Length::Fill).into() }
 }
 
-/// .participant-tile: initials, the mute badge and the name, for someone without a video.
-fn avatar_tile(p: &Participant, me: bool) -> Element<'_, Message> {
-    let circle = container(text(initials(&p.username)).size(13).font(theme::BOLD)).center(46).style(theme::avatar);
+/// button.participant-options
+fn options_button(peer: &str, camera: Option<bool>) -> Element<'static, Message> {
+    button(text("⋯").size(14)).padding([2, 8]).style(button::secondary).on_press(Message::PeerOptions(Some((peer.to_owned(), camera)))).into()
+}
+
+/// .participant-tile: initials, the speaking ring, the mute badge and the name, for someone without a video.
+fn avatar_tile<'a>(p: &'a Participant, me: bool, speaking: bool) -> Element<'a, Message> {
+    let circle = container(text(initials(&p.username)).size(13).font(theme::BOLD)).center(46).style(move |_: &iced::Theme| theme::avatar(speaking));
     let mut badge = stack![circle];
     if p.is_muted {
         let mute = container(text("×").size(12)).center(18).style(theme::mute_badge);
         badge = badge.push(container(mute).width(51).height(49).align_right(51).align_bottom(49));
     }
     let name = if me { format!("{} (Você)", p.username) } else { p.username.clone() };
-    container(column![badge, text(name).size(11)].spacing(4).align_x(Alignment::Center))
-        .center_x(168)
-        .center_y(94)
-        .style(theme::participant_tile)
-        .into()
+    let tile = container(column![badge, text(name).size(11)].spacing(4).align_x(Alignment::Center)).center_x(168).center_y(94).style(theme::participant_tile);
+    stack![tile, container(options_button(&p.socket_id, None)).padding(5).align_right(168)].into()
+}
+
+/// #participant-context: per-viewer options for one participant, opened by ⋯.
+/// shortcut: no volume slider; libwebrtc's wrapper has no per-track gain, only on/off.
+fn options_menu<'a>(app: &'a App, peer: &'a str, camera: Option<bool>) -> Element<'a, Message> {
+    let name = app.view.participants.iter().find(|p| p.socket_id == peer).map_or("Participante", |p| p.username.as_str());
+    let me = app.view.local_socket_id.as_deref() == Some(peer);
+    let row_button = |label: &'a str, message: Message| button(text(label)).padding(8).width(Length::Fill).style(button::text).on_press(message);
+    let mut menu = column![text(name).font(theme::BOLD)].spacing(4);
+    if me {
+        menu = menu.push(text("Use o microfone no dock para alterar seu áudio.").size(12).color(theme::DIM));
+    } else {
+        let muted = app.muted_peers.contains(peer);
+        menu = menu.push(row_button(if muted { "Reativar áudio para você" } else { "Silenciar áudio para você" }, Message::TogglePeerMute(peer.to_owned())));
+    }
+    if let Some(camera) = camera {
+        let key = (peer.to_owned(), camera);
+        let label = if app.hidden_videos.contains(&key) { "Mostrar vídeo para você" } else { "Ocultar vídeo para você" };
+        menu = menu.push(row_button(label, Message::ToggleHideVideo(key)));
+    }
+    let menu = menu.push(text("Estas opções afetam apenas sua visualização.").size(11).color(theme::DIM));
+    container(menu).padding(12).width(260).style(theme::modal).into()
 }
 
 /// getUsernameInitials in Util.kt: the first letter of up to two words.

@@ -95,11 +95,38 @@ pub enum AudioControl {
         enabled: bool,
         device_id: Option<String>,
     },
+    /// "Silenciar áudio para você": that peer's voice, on this client only.
+    Peer {
+        peer_id: String,
+        muted: bool,
+    },
+}
+
+/// WebRTC `audioLevel` (0..1) above which someone counts as speaking.
+/// shortcut: a fixed level, tuned by ear against the web's analyser; make it relative if rooms
+/// with loud background noise ring all the time.
+const SPEAKING_LEVEL: f64 = 0.05;
+
+/// The `audioLevels` event as the speaking set; the local voice only counts with the microphone on.
+fn speaking(event: &Value, local: Option<&str>, microphone_enabled: bool) -> BTreeSet<String> {
+    let loud = |level: &Value| level.as_f64().is_some_and(|level| level > SPEAKING_LEVEL);
+    let mut speaking: BTreeSet<String> = event["peers"]
+        .as_object()
+        .into_iter()
+        .flatten()
+        .filter(|(_, level)| loud(level))
+        .map(|(peer, _)| peer.clone())
+        .collect();
+    if let (Some(local), true, true) = (local, microphone_enabled, loud(&event["local"])) {
+        speaking.insert(local.to_owned());
+    }
+    speaking
 }
 
 impl AudioControl {
     fn command(&self, view: &SessionView) -> Result<Value, String> {
         let (enabled, device_id, devices, command) = match self {
+            Self::Peer { peer_id, muted } => return Ok(json!({"command":"setPeerMuted","peerId":peer_id,"muted":muted})),
             Self::Microphone { enabled, device_id } => {
                 (*enabled, device_id, &view.audio_inputs, "setMicrophone")
             }
@@ -117,6 +144,7 @@ impl AudioControl {
         let active = match self {
             Self::Microphone { .. } => view.microphone_enabled,
             Self::Output { .. } => view.output_enabled,
+            Self::Peer { .. } => false,
         };
         if enabled && active && device_id.is_some() {
             return Err("Desligue o áudio antes de aplicar outro dispositivo.".into());
@@ -150,6 +178,8 @@ pub struct SessionView {
     pub output_device: Option<String>,
     pub audio_pending: usize,
     pub audio_error: Option<String>,
+    /// Socket ids speaking now, the local one included (web setUserSpeaking).
+    pub speaking: BTreeSet<String>,
 }
 
 impl SessionView {
@@ -766,6 +796,7 @@ async fn run_inner(
         let mut failed = None;
         let mut outgoing = VecDeque::new();
         let mut last_stats = Instant::now();
+        let mut last_levels = Instant::now();
         let mut screen_request = None;
         let mut devices_request = None;
         let mut audio_requests = HashSet::new();
@@ -801,6 +832,7 @@ async fn run_inner(
                                         view.output_device.clone_from(&previous.output_device);
                                         view.audio_pending = previous.audio_pending;
                                         view.audio_error.clone_from(&previous.audio_error);
+                                        view.speaking.clone_from(&previous.speaking);
                                         drop(previous);
                                         *ui.view.lock().unwrap() = view;
                                     }
@@ -868,6 +900,11 @@ async fn run_inner(
                             ui.view.lock().unwrap().error = session.view.error.clone();
                         }
                     }
+                    // The speaking ring follows 4 reads a second, close to the web's per-frame analyser.
+                    if ui.is_some() && session.identity().is_some() && last_levels.elapsed() >= Duration::from_millis(250) {
+                        engine.submit(json!({"command":"getAudioLevels"}))?;
+                        last_levels = Instant::now();
+                    }
                     if session.identity().is_some() && last_stats.elapsed() >= Duration::from_secs(5) {
                         engine.submit(json!({"command":"getStats"}))?;
                         last_stats = Instant::now();
@@ -883,6 +920,9 @@ async fn run_inner(
                         let kind = event.get("event").and_then(Value::as_str).unwrap_or("");
                         if let Some(ui) = &ui {
                             let mut view = ui.view.lock().unwrap();
+                            if kind == "audioLevels" {
+                                view.speaking = speaking(&event, session.identity(), view.microphone_enabled);
+                            }
                             if let Some(enabled) = event.get("enabled").and_then(Value::as_bool) {
                                 match kind {
                                     "microphoneState" => { view.microphone_enabled = enabled; view.microphone_device = event.get("deviceId").and_then(Value::as_str).map(str::to_owned); },
@@ -1121,6 +1161,17 @@ mod tests {
         assert!(crate::parse_command(&json!({"command":"setIceServers","iceServers":servers}).to_string()).is_ok());
     }
 
+    #[test]
+    fn speaking_set_follows_levels_and_the_local_microphone() {
+        let event = json!({"event":"audioLevels","peers":{"b":0.2,"c":0.01},"local":0.3});
+        assert_eq!(speaking(&event, Some("a"), true), BTreeSet::from(["a".to_owned(), "b".to_owned()]));
+        assert_eq!(speaking(&event, Some("a"), false), BTreeSet::from(["b".to_owned()]), "a muted mic never rings");
+        assert!(speaking(&json!({"event":"audioLevels"}), None, true).is_empty());
+        let mute = AudioControl::Peer { peer_id: "b".into(), muted: true }.command(&SessionView::default()).unwrap();
+        assert_eq!(mute, json!({"command":"setPeerMuted","peerId":"b","muted":true}));
+        assert!(crate::parse_command(&mute.to_string()).is_ok());
+        assert!(crate::parse_command(r#"{"command":"getAudioLevels"}"#).is_ok());
+    }
     #[test]
     fn room_events_become_system_messages_like_the_web_chat() {
         let mut s = Session::new("room".into(), "alice".into());
