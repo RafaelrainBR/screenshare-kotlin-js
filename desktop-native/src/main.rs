@@ -31,7 +31,9 @@ pub enum Message {
     Room(String),
     Name(String),
     Join,
+    /// With a draft in the chat it asks first, like the web confirm(); again from the dialog it leaves.
     Leave,
+    CancelLeave,
     Draft(String),
     Send,
     ToggleCamera,
@@ -164,6 +166,8 @@ pub struct App {
     hidden_videos: HashSet<TileKey>,
     fullscreen: Option<TileKey>,
     chat_hidden: bool,
+    /// "Há uma mensagem não enviada…" is open.
+    confirm_leave: bool,
 }
 
 const NAME_INPUT: &str = "name-input";
@@ -231,6 +235,20 @@ fn tray_state(app: &App) -> tray::State {
     }
 }
 
+/// A pasted room link (…/?roomId=abc) joins that room, as the web join form takes ?roomId=.
+fn room_code(input: &str) -> &str {
+    let code = input.split_once("roomId=").map_or(input, |(_, rest)| rest.split(['&', '#']).next().unwrap_or_default());
+    code.trim()
+}
+
+#[test]
+fn a_room_link_joins_its_room() {
+    assert_eq!(room_code(" https://screen-share.fly.dev/?roomId=4f8a2c1e "), "4f8a2c1e");
+    assert_eq!(room_code("http://localhost:8080/?x=1&roomId=ab12&y=2#top"), "ab12");
+    assert_eq!(room_code(" 4f8a2c1e "), "4f8a2c1e");
+    assert_eq!(room_code("https://screen-share.fly.dev/?roomId="), "");
+}
+
 fn whoami() -> String {
     std::env::var("USERNAME").unwrap_or_else(|_| "Nativo".into())
 }
@@ -241,7 +259,7 @@ fn update(app: &mut App, message: Message) -> Task<Message> {
         Message::Name(value) => app.name = value,
         Message::Join if app.running.is_none() && !app.name.trim().is_empty() => {
             // Empty code creates a room, like the web join form.
-            app.room = match app.room.trim() {
+            app.room = match room_code(&app.room) {
                 "" => format!("{:08x}", rand::random::<u32>()),
                 code => code.into(),
             };
@@ -250,6 +268,15 @@ fn update(app: &mut App, message: Message) -> Task<Message> {
             return operation::focus(room::CHAT_INPUT);
         }
         Message::Join => {}
+        Message::Leave if !app.draft.trim().is_empty() && !app.confirm_leave => {
+            app.confirm_leave = true;
+            // The tray's "Sair da sala" may come with the window hidden; unfocusing keeps Enter off the chat.
+            return set_fullscreen(app, None).chain(show_window()).chain(operation::focus("leave-confirm"));
+        }
+        Message::CancelLeave => {
+            app.confirm_leave = false;
+            return operation::focus(room::CHAT_INPUT);
+        }
         Message::Leave => {
             // Leaving turns the rejoin off, as in the web client: the next launch must not return here.
             if app.autostart {
@@ -451,6 +478,8 @@ fn shortcut(app: &mut App, key: keyboard::Key, modifiers: keyboard::Modifiers) -
         (Key::Named(Named::Tab), _) if modifiers.shift() => return operation::focus_previous(),
         (Key::Named(Named::Tab), _) => return operation::focus_next(),
         (_, _) if app.running.is_none() => return Task::none(),
+        (Key::Named(Named::Escape), _) if app.confirm_leave => Message::CancelLeave,
+        (Key::Named(Named::Enter), _) if app.confirm_leave => Message::Leave,
         (Key::Named(Named::Escape), Some(_)) => Message::CloseWizard,
         (Key::Named(Named::Escape), None) if app.peer_options.is_some() => Message::PeerOptions(None),
         (Key::Named(Named::Escape), None) if app.fullscreen.is_some() => Message::Fullscreen(None),
