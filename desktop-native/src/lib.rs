@@ -11,6 +11,8 @@ use std::{
 #[cfg(feature = "synthetic-test")]
 use std::sync::{Mutex, atomic::Ordering};
 
+#[cfg(not(feature = "synthetic-test"))]
+mod camera;
 mod capture;
 pub use capture::{ScreenAudioMode, ShareSource};
 mod render;
@@ -143,6 +145,13 @@ enum Command {
         peer_id: String,
     },
     GetStats,
+    /// The webcam (None: the first one), sent as the "camera" stream after the screen's.
+    StartCamera {
+        device_id: Option<String>,
+    },
+    StopCamera,
+    /// Emits `cameraDevices`.
+    ListCameras,
     /// Emits `audioLevels`: each peer's loudest voice and the local microphone, 0..1.
     GetAudioLevels,
     /// "Silenciar áudio para você": only this client stops playing that peer's voice.
@@ -200,6 +209,44 @@ struct PeerMedia {
     // Kept only to tear down a half-attached share; see detach_screen.
     screen_transceivers: Vec<libwebrtc::rtp_transceiver::RtpTransceiver>,
     microphone: Option<RtpSender>,
+    camera: Option<libwebrtc::rtp_transceiver::RtpTransceiver>,
+}
+
+/// The camera goes after the screen, as the web sender adds it: receivers take the first video
+/// track as the screen and the next as the camera (PeerConnections.onTrack).
+#[cfg(not(feature = "synthetic-test"))]
+fn attach_camera(peer: &PeerConnection, factory: &PeerConnectionFactory, camera: &camera::Camera, media: &mut PeerMedia) -> Result<(), String> {
+    if media.camera.is_none() {
+        let track = factory.create_video_track("camera", camera.source.clone());
+        let init = RtpTransceiverInit { direction: RtpTransceiverDirection::SendRecv, stream_ids: vec!["camera".into()], send_encodings: Vec::new() };
+        let transceiver = peer.add_transceiver(track.into(), init).map_err(|e| e.to_string())?;
+        let codecs = share::preferred_video_codecs(factory.get_rtp_sender_capabilities(libwebrtc::MediaType::Video).codecs);
+        if let Err(error) = transceiver.set_codec_preferences(codecs) {
+            eprintln!("codec preference not applied: {error}");
+        }
+        media.camera = Some(transceiver);
+    }
+    Ok(())
+}
+
+/// stop(), as for the screen: only that frees the send stream and its encoder.
+#[cfg(not(feature = "synthetic-test"))]
+fn detach_camera(
+    runtime: &Runtime,
+    peers: &HashMap<String, PeerConnection>,
+    peer_media: &mut HashMap<String, PeerMedia>,
+    pending_renegotiation: &mut HashSet<String>,
+    output: &EventSink,
+) -> Result<(), String> {
+    for media in peer_media.values_mut() {
+        if let Some(transceiver) = media.camera.take() {
+            let _ = transceiver.stop();
+        }
+    }
+    for peer_id in peers.keys() {
+        negotiate_or_defer(runtime, peers, peer_id, pending_renegotiation, output)?;
+    }
+    Ok(())
 }
 
 /// PeerConnections.applyShareEncoding: bitrate ceiling, fps and degradation, no renegotiation.
@@ -898,6 +945,12 @@ fn run_worker(
     #[cfg(not(feature = "synthetic-test"))]
     let mut pending_capture_request: Option<i64> = None;
     #[cfg(not(feature = "synthetic-test"))]
+    let mut camera: Option<camera::Camera> = None;
+    #[cfg(not(feature = "synthetic-test"))]
+    let mut camera_generation: u64 = 0;
+    #[cfg(not(feature = "synthetic-test"))]
+    let mut pending_camera_request: Option<i64> = None;
+    #[cfg(not(feature = "synthetic-test"))]
     let mut capture_generation: u64 = 0;
     #[cfg(not(feature = "synthetic-test"))]
     let mut share_encoding = (share::SharePreset::Video.profile(), 1080);
@@ -977,6 +1030,29 @@ fn run_worker(
                         result_event(&output, id, Err(reason));
                     }
                 }
+                CaptureEvent::CameraReady(generation) if generation == camera_generation && camera.is_some() => {
+                    let result = peers
+                        .iter()
+                        .try_for_each(|(peer_id, peer)| attach_camera(peer, &factory, camera.as_ref().unwrap(), peer_media.get_mut(peer_id).unwrap()))
+                        .and_then(|()| peers.keys().try_for_each(|peer_id| negotiate_or_defer(&runtime, &peers, peer_id, &mut pending_renegotiation, &output)));
+                    if result.is_ok() {
+                        event(&output, json!({ "event": "cameraState", "state": "active" }));
+                    } else {
+                        camera.take();
+                        let _ = detach_camera(&runtime, &peers, &mut peer_media, &mut pending_renegotiation, &output);
+                    }
+                    if let Some(id) = pending_camera_request.take() {
+                        result_event(&output, id, result);
+                    }
+                }
+                CaptureEvent::CameraEnded(generation, reason) if generation == camera_generation && camera.is_some() => {
+                    camera.take();
+                    let _ = detach_camera(&runtime, &peers, &mut peer_media, &mut pending_renegotiation, &output);
+                    event(&output, json!({ "event": "cameraState", "state": "ended", "reason": reason }));
+                    if let Some(id) = pending_camera_request.take() {
+                        result_event(&output, id, Err(reason));
+                    }
+                }
                 _ => {}
             }
         }
@@ -1028,6 +1104,13 @@ fn run_worker(
                                     if pending_capture_request.is_none() {
                                         if let Some(screen) = screen.as_ref() {
                                             attach_real_screen(&peer, &factory, screen, &mut media, share_encoding)?;
+                                        }
+                                    }
+                                    // After the screen, so a newcomer's receiver sees the camera second.
+                                    #[cfg(not(feature = "synthetic-test"))]
+                                    if pending_camera_request.is_none() {
+                                        if let Some(camera) = camera.as_ref() {
+                                            attach_camera(&peer, &factory, camera, &mut media)?;
                                         }
                                     }
                                     #[cfg(feature = "synthetic-test")]
@@ -1091,7 +1174,7 @@ fn run_worker(
                                     polite_by_peer.insert(peer_id.clone(), polite);
                                     ignore_offer.insert(peer_id.clone(), false);
                                     let has_local_tracks = media.microphone.is_some();
-                                    let has_local_tracks = has_local_tracks || !media.screen.is_empty();
+                                    let has_local_tracks = has_local_tracks || !media.screen.is_empty() || media.camera.is_some();
                                     if !initiate && has_local_tracks {
                                         pending_renegotiation.insert(peer_id.clone());
                                     }
@@ -1255,6 +1338,33 @@ fn run_worker(
                                 .block_on(peer.add_ice_candidate(candidate))
                                 .map_err(|error| error.to_string())
                         }),
+                    #[cfg(not(feature = "synthetic-test"))]
+                    Command::StartCamera { device_id } => {
+                        if camera.is_some() {
+                            Err("RTC_ERROR: camera is already active".into())
+                        } else {
+                            camera_generation = camera_generation.wrapping_add(1);
+                            camera = Some(camera::Camera::start(device_id, camera_generation, &runtime, capture_sender.clone()));
+                            pending_camera_request = Some(request_id);
+                            event(&output, json!({ "event": "cameraState", "state": "pending" }));
+                            continue;
+                        }
+                    }
+                    #[cfg(not(feature = "synthetic-test"))]
+                    Command::StopCamera => {
+                        camera_generation = camera_generation.wrapping_add(1);
+                        camera.take();
+                        if let Some(id) = pending_camera_request.take() {
+                            result_event(&output, id, Err("CAPTURE_CANCELLED: camera stopped".into()));
+                        }
+                        let result = detach_camera(&runtime, &peers, &mut peer_media, &mut pending_renegotiation, &output);
+                        event(&output, json!({ "event": "cameraState", "state": "ended" }));
+                        result
+                    }
+                    #[cfg(not(feature = "synthetic-test"))]
+                    Command::ListCameras => camera::list().map(|devices| event(&output, json!({ "event": "cameraDevices", "devices": devices }))),
+                    #[cfg(feature = "synthetic-test")]
+                    Command::StartCamera { .. } | Command::StopCamera | Command::ListCameras => Err("UNSUPPORTED: camera in synthetic tests".into()),
                     Command::GetAudioLevels => {
                         let voices = voices.lock().unwrap();
                         let mut local = 0.0_f64;

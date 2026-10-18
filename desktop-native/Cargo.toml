@@ -19,4 +19,4 @@ futures-util = "0.3.34"
 rand = "0.9.5"
 iced = { version = "0.14", features = ["image", "tokio"] }
 desktop-capture = { path = "../desktop-capture" }
-windows = { version = "0.62", features = ["Win32_Foundation", "Win32_System_Time"] }
+windows = { version = "0.62", features = ["Win32_Foundation", "Win32_System_Time", "Win32_Media_MediaFoundation", "Win32_System_Com"] }

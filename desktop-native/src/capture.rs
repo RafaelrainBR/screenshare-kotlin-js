@@ -44,6 +44,8 @@ pub enum ShareSource {
 pub enum CaptureEvent {
     Ready(u64),
     Ended(u64, String),
+    CameraReady(u64),
+    CameraEnded(u64, String),
 }
 
 pub struct Capture {
