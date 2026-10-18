@@ -48,7 +48,8 @@ jobs:
           cp "$CARGO_TARGET_DIR/release/desktop-native.exe" "release-assets/Screenshare-native_${version}_x64-portable.exe"
           # Per-user installer (no admin) with a clean uninstall: desktop-native/installer.iss.
           choco install innosetup -y --no-progress > /dev/null
-          "/c/Program Files (x86)/Inno Setup 6/ISCC.exe" /Q "/DAppVersion=$version" \
+          # Git Bash would turn /Q and /D... into paths.
+          MSYS_NO_PATHCONV=1 "/c/Program Files (x86)/Inno Setup 6/ISCC.exe" /Q "/DAppVersion=$version" \
             "/DSourceExe=$(cygpath -w "$CARGO_TARGET_DIR/release/desktop-native.exe")" \
             "/DOutputDir=$(cygpath -w "$PWD/release-assets")" desktop-native/installer.iss
           cd release-assets && sha256sum * > SHA256SUMS
