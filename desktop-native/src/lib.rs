@@ -17,6 +17,9 @@ mod capture;
 pub use capture::{ScreenAudioMode, ShareSource};
 mod render;
 pub use render::{VideoFrameSnapshot, VideoFrames, VideoSurface};
+/// Surface peer ids of this client's own screen and camera, the web's isLocal tiles.
+pub const LOCAL_SCREEN: &str = "local:screen";
+pub const LOCAL_CAMERA: &str = "local:camera";
 pub mod session;
 pub mod share;
 mod voice;
@@ -247,6 +250,16 @@ fn detach_camera(
         negotiate_or_defer(runtime, peers, peer_id, pending_renegotiation, output)?;
     }
     Ok(())
+}
+
+/// Shows a local capture on the surface, replacing the previous one; the UI hides it once the
+/// capture is no longer active. A new id per generation keeps the old task's cleanup off the new one.
+/// shortcut: the last preview's task idles until the next start or the session ends.
+#[cfg(not(feature = "synthetic-test"))]
+fn preview(renderer: &Renderer, factory: &PeerConnectionFactory, runtime: &Runtime, peer: &str, generation: u64, source: &libwebrtc::video_source::native::NativeVideoSource) {
+    renderer.remove(peer);
+    let track = factory.create_video_track(&format!("{peer}-{generation}"), source.clone());
+    renderer.sink().add_track(peer.to_owned(), track.into(), runtime.handle().clone());
 }
 
 /// PeerConnections.applyShareEncoding: bitrate ceiling, fps and degradation, no renegotiation.
@@ -993,6 +1006,7 @@ fn run_worker(
                         })
                     });
                     if result.is_ok() {
+                        preview(&renderer, &factory, &runtime, LOCAL_SCREEN, capture_generation, &screen.as_ref().unwrap().source);
                         event(
                             &output,
                             json!({ "event": "screenState", "state": "active" }),
@@ -1036,6 +1050,7 @@ fn run_worker(
                         .try_for_each(|(peer_id, peer)| attach_camera(peer, &factory, camera.as_ref().unwrap(), peer_media.get_mut(peer_id).unwrap()))
                         .and_then(|()| peers.keys().try_for_each(|peer_id| negotiate_or_defer(&runtime, &peers, peer_id, &mut pending_renegotiation, &output)));
                     if result.is_ok() {
+                        preview(&renderer, &factory, &runtime, LOCAL_CAMERA, camera_generation, &camera.as_ref().unwrap().source);
                         event(&output, json!({ "event": "cameraState", "state": "active" }));
                     } else {
                         camera.take();
@@ -1800,6 +1815,39 @@ mod tests {
         for codec in ["video/VP9", "video/H264", "video/VP8", "video/AV1"] {
             assert!(send.iter().any(|c| c.starts_with(codec)), "{codec} missing from this libwebrtc build");
         }
+    }
+
+    #[cfg(not(feature = "synthetic-test"))]
+    #[test]
+    fn a_new_local_preview_replaces_the_old_one() {
+        use libwebrtc::{
+            peer_connection_factory::PeerConnectionFactory,
+            video_frame::{I420Buffer, VideoFrame, VideoRotation},
+            video_source::{VideoResolution, native::NativeVideoSource},
+        };
+        let runtime = super::Runtime::new().unwrap();
+        let _context = runtime.enter();
+        let factory = PeerConnectionFactory::default();
+        let surface = super::VideoSurface::default();
+        let renderer = super::Renderer::with_surface(surface.clone());
+        let [old, new] = [8, 16].map(|size| NativeVideoSource::new(VideoResolution { width: size, height: size }, true));
+        super::preview(&renderer, &factory, &runtime, super::LOCAL_SCREEN, 1, &old);
+        super::preview(&renderer, &factory, &runtime, super::LOCAL_SCREEN, 2, &new);
+        let frame = |size| VideoFrame { rotation: VideoRotation::VideoRotation0, timestamp_us: 0, frame_metadata: None, buffer: I420Buffer::new_black(size, size) };
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+        while surface.lock().unwrap().latest.is_empty() && std::time::Instant::now() < deadline {
+            old.capture_frame(&frame(8));
+            new.capture_frame(&frame(16));
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        // The old task's cleanup runs after the new one started: it must not take the new frames away.
+        std::thread::sleep(std::time::Duration::from_millis(200));
+        new.capture_frame(&frame(16));
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        let frames = surface.lock().unwrap();
+        assert_eq!(frames.order[super::LOCAL_SCREEN], vec!["local:screen-2".to_owned()]);
+        assert!(frames.latest.values().all(|f| f.width == 16 && f.track_id == "local:screen-2"));
+        assert!(!frames.latest.is_empty());
     }
 
     #[cfg(feature = "synthetic-test")]
