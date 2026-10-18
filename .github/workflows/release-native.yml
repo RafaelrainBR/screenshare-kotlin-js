@@ -1,0 +1,73 @@
+name: Release native (beta)
+
+# Native desktop betas: always a pre-release and never "latest", because the Tauri updater reads
+# releases/latest. Tags native-v* do not match release.yml's v* filter.
+on:
+  push:
+    tags: ['native-v*']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-native-${{ github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+      # A short target path: libwebrtc's abseil includes overflow MAX_PATH under the workspace.
+      # (The runner context is not available in job-level env.)
+      - run: echo "CARGO_TARGET_DIR=$(cygpath -m "$RUNNER_TEMP")/t" >> "$GITHUB_ENV"
+      - name: Check tag
+        run: '[[ "$GITHUB_REF_NAME" =~ ^native-v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z.]+)?$ ]]'
+      - name: Install Rust
+        run: |
+          rustup update stable --no-self-update
+          rustup default stable
+      - name: Test capture
+        run: cargo test --release --locked --manifest-path desktop-capture/Cargo.toml
+      # desktop-native/.cargo/config.toml (crt-static, to match the prebuilt libwebrtc's /MT) is only
+      # read when cargo runs inside that folder, not through --manifest-path.
+      - name: Test
+        working-directory: desktop-native
+        run: cargo test --release --locked
+      - name: Build
+        working-directory: desktop-native
+        # STUN/TURN arrive from the server at runtime (ice-servers); nothing is embedded.
+        run: cargo build --release --locked
+      - name: Package
+        run: |
+          version="${GITHUB_REF_NAME#native-v}"
+          mkdir release-assets
+          cp "$CARGO_TARGET_DIR/release/desktop-native.exe" "release-assets/Screenshare-native_${version}_x64-portable.exe"
+          cd release-assets && sha256sum * > SHA256SUMS
+      - uses: actions/upload-artifact@v7
+        with:
+          name: release-native
+          path: release-assets/*
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: release-native
+          path: release-assets
+      - name: Publish pre-release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" release-assets/* --repo "$GITHUB_REPOSITORY" --verify-tag \
+            --prerelease --latest=false --title "Screenshare nativo ${GITHUB_REF_NAME#native-v} (beta)" \
+            --notes "Beta do app nativo (Rust + iced), só Windows x64. Executável portátil, sem atualização automática; pode rodar junto com o app atual."
+          test "$(gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --json isPrerelease --jq .isPrerelease)" = true
