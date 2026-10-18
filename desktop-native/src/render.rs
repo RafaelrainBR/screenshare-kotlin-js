@@ -3,9 +3,8 @@ use std::{
     sync::{
         Arc, Mutex,
         atomic::{AtomicBool, AtomicU64, Ordering},
-        mpsc::{Receiver, Sender, channel},
     },
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use libwebrtc::{
@@ -16,32 +15,54 @@ use libwebrtc::{
 };
 use tokio_stream::StreamExt;
 
-/// Latest decoded frame of the selected peer, RGBA, ready for the UI to upload.
+/// Latest decoded frame of one remote video track, RGBA, ready for the UI to upload.
 #[derive(Clone)]
 pub struct VideoFrameSnapshot {
     pub width: u32,
     pub height: u32,
     pub rgba: Vec<u8>,
     pub peer_id: String,
+    pub track_id: String,
 }
-pub type VideoSurface = Arc<Mutex<Option<Arc<VideoFrameSnapshot>>>>;
 
+/// Every remote video at once, like the web stage, which plays all screens and cameras.
 #[derive(Default)]
-struct Selection {
-    peer: Option<String>,
-    camera: bool,
-    epoch: u64,
-    ready: bool,
+pub struct VideoFrames {
+    /// Live video track ids per peer in arrival order: the sender adds the screen before the camera.
+    pub order: HashMap<String, Vec<String>>,
+    /// Newest frame per (peer, track) not yet taken by the UI.
+    pub latest: HashMap<(String, String), Arc<VideoFrameSnapshot>>,
+    /// When each track last published a frame.
+    seen: HashMap<(String, String), Instant>,
 }
+
+impl VideoFrames {
+    /// Whether `track` is `peer`'s camera (true) or screen (false), given what the peer shares.
+    /// A browser that stops and shares again sends on a new track while the old receiver never
+    /// ends, so with one kind shared any track is that kind. With both, PeerConnections.onTrack's
+    /// rule applies to the tracks sending lately: screen first, camera after it.
+    pub fn kind(&self, peer: &str, track: &str, screen: bool, camera: bool) -> Option<bool> {
+        match (screen, camera) {
+            (false, false) => None,
+            (true, false) => Some(false),
+            (false, true) => Some(true),
+            (true, true) => {
+                // shortcut: a screen idle for 10 s while the camera sends shows the camera as the screen.
+                let live = self.order.get(peer)?.iter().find(|id| {
+                    self.seen.get(&(peer.to_owned(), (*id).clone())).is_some_and(|at| at.elapsed() < Duration::from_secs(10))
+                });
+                Some(live.is_some_and(|first| first != track))
+            }
+        }
+    }
+}
+
+pub type VideoSurface = Arc<Mutex<VideoFrames>>;
 
 #[derive(Clone)]
 pub struct RenderSink {
-    selection: Arc<Mutex<Selection>>,
     tracks: Arc<Mutex<HashMap<(String, String), Arc<AtomicBool>>>>,
-    // Live video track ids per peer in arrival order: the sender adds the screen before the camera.
-    order: Arc<Mutex<HashMap<String, Vec<String>>>>,
     surface: VideoSurface,
-    events: Sender<serde_json::Value>,
     received: Arc<AtomicU64>,
     presented: Arc<AtomicU64>,
     closed: Arc<AtomicBool>,
@@ -49,45 +70,23 @@ pub struct RenderSink {
 
 pub struct Renderer {
     sink: RenderSink,
-    pub events: Receiver<serde_json::Value>,
-}
-
-fn notify(events: &Sender<serde_json::Value>, state: &str, peer: Option<&str>) {
-    let _ = events.send(serde_json::json!({"event":"videoState","state":state,"peerId":peer}));
 }
 
 impl Renderer {
     pub fn with_surface(surface: VideoSurface) -> Self {
-        let (events_sender, events) = channel();
         Self {
             sink: RenderSink {
-                selection: Arc::default(),
                 tracks: Arc::default(),
-                order: Arc::default(),
                 surface,
-                events: events_sender,
                 received: Arc::default(),
                 presented: Arc::default(),
                 closed: Arc::default(),
             },
-            events,
         }
     }
 
     pub fn sink(&self) -> RenderSink {
         self.sink.clone()
-    }
-
-    /// Shows `peer`'s screen (or camera) on the surface, or clears it with `None`.
-    pub fn show(&self, peer: Option<String>, camera: bool) {
-        let mut selection = self.sink.selection.lock().unwrap();
-        *self.sink.surface.lock().unwrap() = None;
-        selection.epoch += 1;
-        selection.ready = false;
-        selection.peer = peer;
-        selection.camera = camera;
-        let state = if selection.peer.is_some() { "waiting" } else { "hidden" };
-        notify(&self.sink.events, state, selection.peer.as_deref());
     }
 
     pub fn remove(&self, peer: &str) {
@@ -99,13 +98,13 @@ impl Renderer {
                 true
             }
         });
-        self.sink.order.lock().unwrap().remove(peer);
-        if self.sink.selection.lock().unwrap().peer.as_deref() == Some(peer) {
-            self.show(None, false);
-        }
+        let mut surface = self.sink.surface.lock().unwrap();
+        surface.order.remove(peer);
+        surface.latest.retain(|(id, _), _| id != peer);
+        surface.seen.retain(|(id, _), _| id != peer);
     }
 
-    /// (frames decoded for any peer, frames published to the surface)
+    /// (frames decoded, frames published to the surface)
     pub fn counts(&self) -> (u64, u64) {
         (
             self.sink.received.load(Ordering::Relaxed),
@@ -120,7 +119,7 @@ impl Drop for Renderer {
         for (_, stop) in self.sink.tracks.lock().unwrap().drain() {
             stop.store(true, Ordering::Release);
         }
-        *self.sink.surface.lock().unwrap() = None;
+        *self.sink.surface.lock().unwrap() = VideoFrames::default();
     }
 }
 
@@ -140,7 +139,7 @@ impl RenderSink {
                 return;
             }
             tracks.insert(key, stop.clone());
-            self.order.lock().unwrap().entry(peer.clone()).or_default().push(track.id());
+            self.surface.lock().unwrap().order.entry(peer.clone()).or_default().push(track.id());
         }
         let track_id = track.id();
         let sink = self.clone();
@@ -151,6 +150,8 @@ impl RenderSink {
                     queue_size_frames: Some(2),
                 },
             );
+            // shortcut: every received video is converted at full rate, as the web plays every tile;
+            // throttle the rail tiles if several 1080p shares become a CPU problem.
             while !stop.load(Ordering::Acquire) && !sink.closed.load(Ordering::Acquire) {
                 let frame = tokio::select! {
                     frame = stream.next() => frame,
@@ -160,9 +161,6 @@ impl RenderSink {
                     break;
                 };
                 sink.received.fetch_add(1, Ordering::Relaxed);
-                let Some(epoch) = sink.selected(&peer, &track_id) else {
-                    continue;
-                };
                 let i420 = frame.buffer.to_i420();
                 let (width, height) = (i420.width(), i420.height());
                 if width == 0 || height == 0 || width > 8192 || height > 8192 {
@@ -173,40 +171,25 @@ impl RenderSink {
                 let (sy, su, sv) = i420.strides();
                 // libyuv's "ABGR" is R,G,B,A in memory: what iced's RGBA images expect.
                 yuv_helper::i420_to_abgr(y, sy, u, su, v, sv, &mut rgba, width * 4, width as i32, height as i32);
-                sink.publish(VideoFrameSnapshot { width, height, rgba, peer_id: peer.clone() }, epoch);
+                // Checked under the surface lock, so a frame converted while the peer left never lands.
+                let mut surface = sink.surface.lock().unwrap();
+                if stop.load(Ordering::Acquire) {
+                    break;
+                }
+                let snapshot = VideoFrameSnapshot { width, height, rgba, peer_id: peer.clone(), track_id: track_id.clone() };
+                surface.latest.insert((peer.clone(), track_id.clone()), Arc::new(snapshot));
+                surface.seen.insert((peer.clone(), track_id.clone()), Instant::now());
+                sink.presented.fetch_add(1, Ordering::Relaxed);
             }
-            if let Some(ids) = sink.order.lock().unwrap().get_mut(&peer) {
+            let mut surface = sink.surface.lock().unwrap();
+            if let Some(ids) = surface.order.get_mut(&peer) {
                 ids.retain(|id| *id != track_id);
             }
+            surface.latest.remove(&(peer.clone(), track_id.clone()));
+            surface.seen.remove(&(peer.clone(), track_id.clone()));
+            drop(surface);
             sink.tracks.lock().unwrap().remove(&(peer, track_id));
         });
-    }
-
-    /// The selection epoch when `track_id` is what the UI asked to see for `peer`.
-    fn selected(&self, peer: &str, track_id: &str) -> Option<u64> {
-        let selection = self.selection.lock().unwrap();
-        if selection.peer.as_deref() != Some(peer) {
-            return None;
-        }
-        let order = self.order.lock().unwrap();
-        let ids = order.get(peer)?;
-        // Same rule as PeerConnections.onTrack: screen first, camera after it (or alone).
-        let chosen = if selection.camera { ids.last() } else { ids.first() };
-        (chosen.map(String::as_str) == Some(track_id)).then_some(selection.epoch)
-    }
-
-    fn publish(&self, frame: VideoFrameSnapshot, epoch: u64) {
-        let mut selection = self.selection.lock().unwrap();
-        // The selection may have changed while this frame was converting.
-        if selection.epoch != epoch || selection.peer.as_deref() != Some(&frame.peer_id) {
-            return;
-        }
-        *self.surface.lock().unwrap() = Some(Arc::new(frame));
-        self.presented.fetch_add(1, Ordering::Relaxed);
-        if !selection.ready {
-            selection.ready = true;
-            notify(&self.events, "ready", selection.peer.as_deref());
-        }
     }
 }
 
@@ -220,66 +203,55 @@ mod tests {
     };
     use std::{thread, time::Instant};
 
-    fn source() -> NativeVideoSource {
-        NativeVideoSource::new(VideoResolution { width: 16, height: 16 }, true)
+    fn source(size: u32) -> NativeVideoSource {
+        NativeVideoSource::new(VideoResolution { width: size, height: size }, true)
     }
 
-    fn frame() -> VideoFrame<I420Buffer> {
+    fn frame(size: u32) -> VideoFrame<I420Buffer> {
         VideoFrame {
             rotation: VideoRotation::VideoRotation0,
             timestamp_us: 0,
             frame_metadata: None,
-            buffer: I420Buffer::new_black(16, 16),
+            buffer: I420Buffer::new_black(size, size),
         }
     }
 
-    fn state(renderer: &Renderer) -> String {
-        renderer.events.recv_timeout(Duration::from_secs(5)).unwrap()["state"]
-            .as_str()
-            .unwrap()
-            .to_owned()
+    /// Feeds every source until the surface holds `want` frames.
+    fn pump(surface: &VideoSurface, sources: &[(&NativeVideoSource, u32)], want: usize) {
+        let deadline = Instant::now() + Duration::from_secs(3);
+        while surface.lock().unwrap().latest.len() < want && Instant::now() < deadline {
+            for (source, size) in sources {
+                source.capture_frame(&frame(*size));
+            }
+            thread::sleep(Duration::from_millis(20));
+        }
     }
 
     #[test]
-    fn surface_shows_only_the_selected_peer_and_clears_on_departure() {
+    fn every_peer_reaches_the_surface_and_leaves_with_its_peer() {
         let runtime = tokio::runtime::Runtime::new().unwrap();
         let _runtime_context = runtime.enter();
         let factory = PeerConnectionFactory::default();
-        let source = source();
+        let (b, c) = (source(16), source(32));
         let surface = VideoSurface::default();
         let renderer = Renderer::with_surface(surface.clone());
-        let track = factory.create_video_track("b", source.clone());
-        renderer.sink().add_track("b".into(), track.into(), runtime.handle().clone());
+        renderer.sink().add_track("b".into(), factory.create_video_track("b-screen", b.clone()).into(), runtime.handle().clone());
+        renderer.sink().add_track("c".into(), factory.create_video_track("c-screen", c.clone()).into(), runtime.handle().clone());
 
-        let pump_until = |done: &dyn Fn() -> bool| {
-            let deadline = Instant::now() + Duration::from_secs(3);
-            while !done() && Instant::now() < deadline {
-                source.capture_frame(&frame());
-                thread::sleep(Duration::from_millis(20));
-            }
-        };
-
-        renderer.show(Some("c".into()), false);
-        assert_eq!(state(&renderer), "waiting");
-        pump_until(&|| renderer.counts().0 >= 5);
-        assert!(surface.lock().unwrap().is_none(), "unselected peers never reach the surface");
-
-        renderer.show(Some("b".into()), false);
-        assert_eq!(state(&renderer), "waiting");
-        pump_until(&|| surface.lock().unwrap().is_some());
-        assert_eq!(state(&renderer), "ready");
-        let shown = surface.lock().unwrap().clone().unwrap();
-        assert_eq!((shown.width, shown.height, shown.rgba.len()), (16, 16, 16 * 16 * 4));
-        assert_eq!(shown.peer_id, "b");
-        assert_eq!(shown.rgba[3], 255, "alpha is opaque");
+        pump(&surface, &[(&b, 16), (&c, 32)], 2);
+        {
+            let frames = surface.lock().unwrap();
+            let width = |peer: &str| frames.latest[&(peer.to_owned(), format!("{peer}-screen"))].width;
+            assert_eq!((width("b"), width("c")), (16, 32), "two sharers at once");
+            assert_eq!(frames.latest[&("b".into(), "b-screen".into())].rgba[3], 255, "alpha is opaque");
+        }
 
         renderer.remove("b");
-        assert_eq!(state(&renderer), "hidden");
-        assert!(surface.lock().unwrap().is_none());
-        let presented = renderer.counts().1;
-        source.capture_frame(&frame());
-        thread::sleep(Duration::from_millis(100));
-        assert_eq!(renderer.counts().1, presented);
+        b.capture_frame(&frame(16));
+        thread::sleep(Duration::from_millis(150));
+        let frames = surface.lock().unwrap();
+        assert!(!frames.order.contains_key("b"));
+        assert!(frames.latest.keys().all(|(peer, _)| peer != "b"), "a removed peer never publishes again");
     }
 
     #[test]
@@ -287,39 +259,19 @@ mod tests {
         let runtime = tokio::runtime::Runtime::new().unwrap();
         let _runtime_context = runtime.enter();
         let factory = PeerConnectionFactory::default();
-        let screen = source();
-        let camera = NativeVideoSource::new(VideoResolution { width: 32, height: 32 }, false);
+        let (screen, camera) = (source(16), source(32));
         let surface = VideoSurface::default();
         let renderer = Renderer::with_surface(surface.clone());
         let sink = renderer.sink();
         sink.add_track("b".into(), factory.create_video_track("screen", screen.clone()).into(), runtime.handle().clone());
         sink.add_track("b".into(), factory.create_video_track("camera", camera.clone()).into(), runtime.handle().clone());
-        let camera_frame = VideoFrame {
-            rotation: VideoRotation::VideoRotation0,
-            timestamp_us: 0,
-            frame_metadata: None,
-            buffer: I420Buffer::new_black(32, 32),
-        };
-        let shown_width = |want_camera: bool| {
-            renderer.show(Some("b".into()), want_camera);
-            let deadline = Instant::now() + Duration::from_secs(3);
-            while surface.lock().unwrap().is_none() && Instant::now() < deadline {
-                screen.capture_frame(&frame());
-                camera.capture_frame(&camera_frame);
-                thread::sleep(Duration::from_millis(20));
-            }
-            let width = surface.lock().unwrap().as_ref().map(|f| f.width);
-            // A few more frames from both tracks must not flip the surface to the other one.
-            for _ in 0..5 {
-                screen.capture_frame(&frame());
-                camera.capture_frame(&camera_frame);
-                thread::sleep(Duration::from_millis(20));
-            }
-            assert_eq!(surface.lock().unwrap().as_ref().map(|f| f.width), width);
-            width
-        };
-        assert_eq!(shown_width(false), Some(16));
-        assert_eq!(shown_width(true), Some(32));
+        pump(&surface, &[(&screen, 16), (&camera, 32)], 2);
+        let frames = surface.lock().unwrap();
+        assert_eq!((frames.kind("b", "screen", true, true), frames.kind("b", "camera", true, true)), (Some(false), Some(true)));
+        // Sharing one kind, any track is that kind: a new track after stop and share again included.
+        assert_eq!((frames.kind("b", "camera", true, false), frames.kind("b", "screen", false, true)), (Some(false), Some(true)));
+        assert_eq!(frames.kind("b", "screen", false, false), None);
+        assert_eq!(frames.latest[&("b".into(), "camera".into())].width, 32);
     }
 
     #[test]
@@ -327,7 +279,7 @@ mod tests {
         let runtime = tokio::runtime::Runtime::new().unwrap();
         let _runtime_context = runtime.enter();
         let factory = PeerConnectionFactory::default();
-        let source = source();
+        let source = source(16);
         let renderer = Renderer::with_surface(VideoSurface::default());
         let sink = renderer.sink();
         let track = factory.create_video_track("active", source.clone());
@@ -335,17 +287,13 @@ mod tests {
         let receive_after = |previous| {
             let deadline = Instant::now() + Duration::from_secs(2);
             while renderer.counts().0 <= previous && Instant::now() < deadline {
-                source.capture_frame(&frame());
+                source.capture_frame(&frame(16));
                 thread::sleep(Duration::from_millis(20));
             }
             assert!(renderer.counts().0 > previous, "active sink stalled after idle receiver arrived");
         };
         receive_after(0);
-        sink.add_track(
-            "b".into(),
-            factory.create_video_track("idle", self::source()).into(),
-            runtime.handle().clone(),
-        );
+        sink.add_track("b".into(), factory.create_video_track("idle", self::source(16)).into(), runtime.handle().clone());
         thread::sleep(Duration::from_millis(150));
         receive_after(renderer.counts().0);
         sink.add_track("b".into(), track.into(), runtime.handle().clone());
@@ -353,7 +301,7 @@ mod tests {
         renderer.remove("b");
         thread::sleep(Duration::from_millis(150));
         let stopped = renderer.counts().0;
-        source.capture_frame(&frame());
+        source.capture_frame(&frame(16));
         thread::sleep(Duration::from_millis(100));
         assert_eq!(renderer.counts().0, stopped);
     }

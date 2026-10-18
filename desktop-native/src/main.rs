@@ -2,6 +2,7 @@
 mod ui;
 
 use std::{
+    collections::HashMap,
     sync::{
         Arc, Mutex,
         atomic::{AtomicBool, Ordering},
@@ -31,7 +32,6 @@ pub enum Message {
     Leave,
     Draft(String),
     Send,
-    Watch(String, bool),
     ToggleMic,
     ToggleOutput,
     MicDevice(Option<String>),
@@ -49,7 +49,9 @@ pub enum Message {
     StopShare,
     Key(keyboard::Key, keyboard::Modifiers),
     Tick,
-    Allocated(u64, Option<image::Allocation>),
+    Allocated(TileKey, u64, Option<image::Allocation>),
+    /// Click on a video: show it alone, or back to the grid.
+    Focus(TileKey),
     CloseRequested(window::Id),
     CopyRoom,
 }
@@ -61,7 +63,6 @@ struct Running {
     screen: Sender<(u64, Option<ScreenOptions>)>,
     devices: Sender<u64>,
     audio: Sender<(u64, AudioControl)>,
-    video: Sender<(u64, Option<String>, bool)>,
     view: Arc<Mutex<SessionView>>,
     surface: VideoSurface,
 }
@@ -81,6 +82,15 @@ impl Drop for Running {
     }
 }
 
+/// (peer, camera): one remote screen or camera.
+pub type TileKey = (String, bool);
+
+#[derive(Default)]
+pub struct Tile {
+    pub frame: Option<image::Allocation>,
+    shown: u64,
+}
+
 #[derive(Default)]
 pub struct App {
     room: String,
@@ -89,16 +99,11 @@ pub struct App {
     running: Option<Running>,
     view: SessionView,
     wizard: Option<Wizard>,
-    frame: Option<image::Allocation>,
+    /// Newest uploaded frame per remote video, like the web screen tiles.
+    tiles: HashMap<TileKey, Tile>,
+    /// The video shown alone (web focus mode); the others go to the rail.
+    focused: Option<TileKey>,
     sent: u64,
-    shown: u64,
-    frame_size: (u32, u32),
-    frames: u64,
-    fps: f64,
-    fps_window: Option<(Instant, u64)>,
-    watching_camera: bool,
-    /// Last screen sharer shown automatically, so a manual choice is not overridden every tick.
-    auto_watched: Option<String>,
     mic_device: Option<String>,
     output_device: Option<String>,
     /// A device picked while that audio was on: turn it off, then back on with the new device.
@@ -150,7 +155,6 @@ fn update(app: &mut App, message: Message) -> Task<Message> {
                 }
             }
         }
-        Message::Watch(peer, camera) => watch(app, Some(peer), camera),
         Message::ToggleMic => audio(app, AudioControl::Microphone { enabled: !app.view.microphone_enabled, device_id: app.mic_device.clone() }),
         Message::ToggleOutput => audio(app, AudioControl::Output { enabled: !app.view.output_enabled, device_id: app.output_device.clone() }),
         Message::MicDevice(id) => {
@@ -227,13 +231,18 @@ fn update(app: &mut App, message: Message) -> Task<Message> {
         }
         Message::Key(key, modifiers) => return shortcut(app, key, modifiers),
         Message::Tick => return tick(app),
-        Message::Allocated(seq, allocation) => {
-            if seq > app.shown && allocation.is_some() {
-                app.shown = seq;
-                app.frame = allocation;
-                app.frames += 1;
+        Message::Allocated(key, seq, Some(allocation)) => {
+            if is_shared(&app.view, &key) {
+                let tile = app.tiles.entry(key).or_default();
+                // Uploads finish out of order; keep the newest.
+                if seq > tile.shown {
+                    tile.shown = seq;
+                    tile.frame = Some(allocation);
+                }
             }
         }
+        Message::Allocated(..) => {}
+        Message::Focus(key) => app.focused = (app.focused.as_ref() != Some(&key)).then_some(key),
         Message::CopyRoom => {
             app.notice = Some(("Código copiado".into(), Instant::now()));
             return iced::clipboard::write(app.room.clone());
@@ -283,14 +292,6 @@ fn audio(app: &mut App, control: AudioControl) {
     }
 }
 
-fn watch(app: &mut App, peer: Option<String>, camera: bool) {
-    if let Some(running) = &app.running {
-        app.watching_camera = camera;
-        app.frame = None;
-        let _ = running.video.send((app.view.generation, peer, camera));
-    }
-}
-
 fn tick(app: &mut App) -> Task<Message> {
     let Some(running) = &app.running else { return Task::none() };
     app.view = running.view.lock().unwrap().clone();
@@ -316,51 +317,37 @@ fn tick(app: &mut App) -> Task<Message> {
             audio(app, AudioControl::Output { enabled: true, device_id: app.output_device.clone() });
         }
     }
-    auto_watch(app);
-    if app.view.video_peer.is_none() {
-        app.frame = None;
-    }
     let Some(running) = &app.running else { return Task::none() };
-    // Take ownership of the newest frame so its pixels move into the image handle without a copy.
-    // iced uploads images asynchronously: swap the shown frame once its GPU allocation is done,
-    // letting uploads overlap and dropping any that finish after a newer one.
-    let snapshot = running.surface.lock().unwrap().take();
-    fps_update(app);
-    let Some(snapshot) = snapshot else { return Task::none() };
-    let snapshot = Arc::try_unwrap(snapshot).unwrap_or_else(|shared| (*shared).clone());
-    app.frame_size = (snapshot.width, snapshot.height);
-    app.sent += 1;
-    let seq = app.sent;
-    image::allocate(image::Handle::from_rgba(snapshot.width, snapshot.height, snapshot.rgba)).map(move |r| Message::Allocated(seq, r.ok()))
+    let view = &app.view;
+    // Take ownership of the newest frames so their pixels move into the image handles without a copy.
+    let frames: Vec<_> = {
+        let mut surface = running.surface.lock().unwrap();
+        let latest = std::mem::take(&mut surface.latest);
+        latest
+            .into_iter()
+            .filter_map(|((peer, track), snapshot)| {
+                let camera = surface.kind(&peer, &track, view.screen_sharers.contains(&peer), view.camera_sharers.contains(&peer))?;
+                Some(((peer, camera), snapshot))
+            })
+            .collect()
+    };
+    app.tiles.retain(|key, _| is_shared(view, key));
+    if app.focused.as_ref().is_some_and(|key| !is_shared(view, key)) {
+        app.focused = None;
+    }
+    // iced uploads images asynchronously: each tile swaps once its upload is done, dropping late ones.
+    Task::batch(frames.into_iter().map(|(key, snapshot)| {
+        let snapshot = Arc::try_unwrap(snapshot).unwrap_or_else(|shared| (*shared).clone());
+        app.sent += 1;
+        let seq = app.sent;
+        image::allocate(image::Handle::from_rgba(snapshot.width, snapshot.height, snapshot.rgba)).map(move |r| Message::Allocated(key.clone(), seq, r.ok()))
+    }))
 }
 
-/// Like the web client: show a remote screen as soon as someone shares, and fall back when it ends.
-fn auto_watch(app: &mut App) {
-    let local = app.view.local_socket_id.clone();
-    let watched_gone = app.view.video_peer.as_ref().is_some_and(|peer| {
-        if app.watching_camera { !app.view.camera_sharers.contains(peer) } else { !app.view.screen_sharers.contains(peer) }
-    });
-    if watched_gone {
-        watch(app, None, false);
-        app.auto_watched = None;
-    }
-    if app.view.video_peer.is_some() || app.view.video_pending > 0 {
-        return;
-    }
-    let sharer = app.view.screen_sharers.iter().find(|id| Some(*id) != local.as_ref()).cloned();
-    if sharer.is_some() && sharer != app.auto_watched {
-        app.auto_watched = sharer.clone();
-        watch(app, sharer, false);
-    }
-}
-
-fn fps_update(app: &mut App) {
-    let (since, frames) = *app.fps_window.get_or_insert((Instant::now(), app.frames));
-    let elapsed = since.elapsed();
-    if elapsed >= Duration::from_secs(1) {
-        app.fps = (app.frames - frames) as f64 / elapsed.as_secs_f64();
-        app.fps_window = Some((Instant::now(), app.frames));
-    }
+/// A remote screen or camera that is still on.
+pub fn is_shared(view: &SessionView, (peer, camera): &TileKey) -> bool {
+    Some(peer.as_str()) != view.local_socket_id.as_deref()
+        && if *camera { view.camera_sharers.contains(peer) } else { view.screen_sharers.contains(peer) }
 }
 
 fn start(room: String, name: String) -> Running {
@@ -375,7 +362,6 @@ fn start(room: String, name: String) -> Running {
     let view = Arc::new(Mutex::new(SessionView::default()));
     let surface = VideoSurface::default();
     let (chat, chat_rx) = channel();
-    let (video, video_rx) = channel();
     let (screen, screen_rx) = channel();
     let (devices, devices_rx) = channel();
     let (audio, audio_rx) = channel();
@@ -384,7 +370,6 @@ fn start(room: String, name: String) -> Running {
         screen: screen_rx,
         devices: devices_rx,
         audio: audio_rx,
-        video: video_rx,
         view: view.clone(),
         video_surface: surface.clone(),
     };
@@ -396,7 +381,7 @@ fn start(room: String, name: String) -> Running {
         ));
         eprintln!("session ended: {result:?}");
     });
-    Running { stop, thread: Some(thread), chat, screen, devices, audio, video, view, surface }
+    Running { stop, thread: Some(thread), chat, screen, devices, audio, view, surface }
 }
 
 fn view(app: &App) -> Element<'_, Message> {

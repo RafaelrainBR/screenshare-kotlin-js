@@ -14,7 +14,7 @@ use std::sync::{Mutex, atomic::Ordering};
 mod capture;
 pub use capture::{ScreenAudioMode, ShareSource};
 mod render;
-pub use render::{VideoFrameSnapshot, VideoSurface};
+pub use render::{VideoFrameSnapshot, VideoFrames, VideoSurface};
 pub mod session;
 pub mod share;
 use share::{ShareProfile, share_bitrate};
@@ -137,11 +137,6 @@ enum Command {
         volume: f64,
         #[serde(default = "enabled_by_default")]
         enabled: bool,
-    },
-    ShowVideo {
-        peer_id: Option<String>,
-        #[serde(default)]
-        camera: bool,
     },
     RestartIce {
         peer_id: String,
@@ -411,10 +406,6 @@ fn validate_command(command: &Command) -> Result<(), String> {
         Command::EnsurePeer { peer_id, .. }
         | Command::RemovePeer { peer_id }
         | Command::RestartIce { peer_id } => validate_peer_id(peer_id),
-        Command::ShowVideo {
-            peer_id: Some(peer_id),
-            ..
-        } => validate_peer_id(peer_id),
         Command::StartScreen { profile, .. } | Command::SetShareProfile { profile, .. }
             if !(1..=60).contains(&profile.fps) =>
         {
@@ -911,10 +902,6 @@ fn run_worker(
     let remote_audio = Arc::new(Mutex::new(HashMap::<String, Vec<RtcAudioTrack>>::new()));
     let mut microphone_enabled = false;
     loop {
-        #[cfg(not(feature = "synthetic-test"))]
-        while let Ok(state) = renderer.events.try_recv() {
-            event(&output, state);
-        }
         #[cfg(not(feature = "synthetic-test"))]
         while let Ok(capture_event) = capture_receiver.try_recv() {
             match capture_event {
@@ -1629,17 +1616,6 @@ fn run_worker(
                                 Err("DEVICE_LOST: playout device unavailable".into())
                             }
                         }
-                    }
-                    Command::ShowVideo { peer_id, camera } => {
-                        if peer_id.as_ref().is_some_and(|id| !peers.contains_key(id)) {
-                            result_event(&output, request_id, Err("INVALID_ARGUMENT: unknown video peer".into()));
-                            continue;
-                        }
-                        #[cfg(not(feature = "synthetic-test"))]
-                        let result = { renderer.show(peer_id, camera); Ok(()) };
-                        #[cfg(feature = "synthetic-test")]
-                        let result = { let _ = (peer_id, camera); Ok(()) };
-                        result
                     }
                 };
                 result_event(&output, request_id, result);

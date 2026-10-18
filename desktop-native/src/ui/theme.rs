@@ -99,6 +99,53 @@ pub fn switch<'a, M: 'a>(on: bool) -> Element<'a, M> {
         .into()
 }
 
+/// .screen-tile: video background, accent border while focused.
+pub fn video_tile(focused: bool) -> button::Style {
+    button::Style {
+        background: Some(VIDEO.into()),
+        text_color: color!(0xeef2fa),
+        border: Border { color: if focused { color!(0x8eb4fa) } else { LINE }, width: 1.0, radius: RADIUS.into() },
+        ..Default::default()
+    }
+}
+
+/// .screens-rail .tile-name
+pub fn name_chip(_: &Theme) -> container::Style {
+    container::Style {
+        background: Some(Color { a: 0.85, ..color!(0x101318) }.into()),
+        border: Border { radius: 6.0.into(), ..Default::default() },
+        ..Default::default()
+    }
+}
+
+/// .participant-tile
+pub fn participant_tile(_: &Theme) -> container::Style {
+    container::Style {
+        background: Some(color!(0x222b38).into()),
+        border: Border { color: LINE, width: 1.0, radius: RADIUS.into() },
+        ..Default::default()
+    }
+}
+
+/// .avatar-circle
+pub fn avatar(_: &Theme) -> container::Style {
+    container::Style {
+        background: Some(LINE.into()),
+        border: Border { radius: 23.0.into(), ..Default::default() },
+        ..Default::default()
+    }
+}
+
+/// .mute-overlay: red-strong dot ringed by the tile colour.
+pub fn mute_badge(_: &Theme) -> container::Style {
+    container::Style {
+        background: Some(color!(0x9b3845).into()),
+        text_color: Some(Color::WHITE),
+        border: Border { color: color!(0x222b38), width: 2.0, radius: 9.0.into() },
+        ..Default::default()
+    }
+}
+
 /// .modal-backdrop
 pub fn backdrop(_: &Theme) -> container::Style {
     container::Style { background: Some(Color { a: 0.68, ..Color::BLACK }.into()), ..Default::default() }
