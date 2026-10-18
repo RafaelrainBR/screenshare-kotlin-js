@@ -356,10 +356,22 @@ fn avatar_tile<'a>(p: &'a Participant, me: bool, speaking: bool) -> Element<'a, 
 fn options_menu<'a>(app: &'a App, peer: &'a str, camera: Option<bool>) -> Element<'a, Message> {
     let name = app.view.participants.iter().find(|p| p.socket_id == peer).map_or("Participante", |p| p.username.as_str());
     let me = app.view.local_socket_id.as_deref() == Some(peer);
-    let row_button = |label: &'a str, message: Message| button(text(label)).padding(8).width(Length::Fill).style(button::text).on_press(message);
-    let mut menu = column![text(name).font(theme::BOLD)].spacing(4);
+    // .context-menu button: 12 px rows that light up on hover.
+    let row_button = |label: &'a str, message: Message| {
+        button(text(label).size(12))
+            .padding(8)
+            .width(Length::Fill)
+            .style(|_, status| button::Style {
+                background: matches!(status, button::Status::Hovered | button::Status::Pressed).then(|| theme::HOVER.into()),
+                text_color: theme::TEXT,
+                border: iced::Border { radius: 6.0.into(), ..Default::default() },
+                ..Default::default()
+            })
+            .on_press(message)
+    };
+    let mut menu = column![container(text(name).size(12).font(theme::BOLD)).padding([5, 8])].spacing(2);
     if me {
-        menu = menu.push(text("Use o microfone no dock para alterar seu áudio.").size(12).color(theme::DIM));
+        menu = menu.push(container(text("Use o microfone no dock para alterar seu áudio.").size(12).color(theme::DIM)).padding([4, 8]));
     } else {
         let muted = app.muted_peers.contains(peer);
         menu = menu.push(row_button(if muted { "Reativar áudio para você" } else { "Silenciar áudio para você" }, Message::TogglePeerMute(peer.to_owned())));
@@ -369,8 +381,17 @@ fn options_menu<'a>(app: &'a App, peer: &'a str, camera: Option<bool>) -> Elemen
         let label = if app.hidden_videos.contains(&key) { "Mostrar vídeo para você" } else { "Ocultar vídeo para você" };
         menu = menu.push(row_button(label, Message::ToggleHideVideo(key)));
     }
-    let menu = menu.push(text("Estas opções afetam apenas sua visualização.").size(11).color(theme::DIM));
-    container(menu).padding(12).width(260).style(theme::modal).into()
+    // .context-note: under a line, 10 px and faint.
+    let menu = menu.push(rule()).push(container(text("Estas opções afetam apenas sua visualização.").size(10).color(theme::FAINT)).padding(iced::Padding { top: 6.0, right: 8.0, bottom: 2.0, left: 8.0 }));
+    container(menu)
+        .padding(7)
+        .width(248)
+        .style(|_| container::Style {
+            background: Some(theme::SURFACE_2.into()),
+            border: iced::Border { color: theme::LINE_2, width: 1.0, radius: 11.0.into() },
+            ..Default::default()
+        })
+        .into()
 }
 
 /// getUsernameInitials in Util.kt: the first letter of up to two words.
