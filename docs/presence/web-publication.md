@@ -68,3 +68,14 @@ Depois, confira `/`, `/about`, `/about/en.html`, os arquivos sociais e os vídeo
 ## Observação após divulgação
 
 A [linha de base](baseline-2026-10-18.md), os [textos por canal](outreach-drafts.md) e o [protocolo com cinco pessoas](usability-test.md) registram o que falta. A janela D+7/D+14 começa na divulgação real, não na geração dos arquivos. Este procedimento não cria nem agenda publicações.
+
+### Responsive screenshot
+
+Keep `presentation/assets/room.png` as the original. After replacing it, regenerate the two lossless WebP sizes with an existing Sharp installation (the desktop tooling bundle includes it). This is media tooling, not an app dependency:
+
+```powershell
+$env:NODE_PATH = $env:PLAYWRIGHT_MODULE_DIR
+node -e "const sharp=require('sharp'); const p='server/src/jvmMain/resources/presentation/assets/'; Promise.all([720,1440].map(w=>sharp(p+'room.png').resize(w).webp({lossless:true}).toFile(p+'room-'+w+'.webp'))).catch(e=>{console.error(e);process.exitCode=1})"
+```
+
+The template selects the appropriate size with `srcset`; verify image loading in `qa-presentation.mjs` after regeneration. The retained PNG remains available at its original URL.
