@@ -4,10 +4,10 @@ use std::time::Duration;
 use desktop_native::session::{AudioDevice, Participant};
 use iced::{
     Alignment, Element, Length,
-    widget::{button, column, container, image, opaque, pick_list, row, scrollable, stack, text, text_input},
+    widget::{button, column, container, image, mouse_area, opaque, pick_list, row, scrollable, stack, text, text_input},
 };
 
-use super::theme;
+use super::{profile, theme};
 use crate::{App, Message, TileKey, is_shared};
 
 pub const CHAT_INPUT: &str = "chat-input";
@@ -106,14 +106,14 @@ pub fn view(app: &App) -> Element<'_, Message> {
 
     let mics = devices(&view.audio_inputs);
     let outputs = devices(&view.audio_outputs);
-    let sharing = matches!(view.screen_state.as_str(), "active" | "pending" | "picking");
+    let sharing = crate::sharing(view);
     // Like the web dock: the status only takes space while something is wrong.
     let (status, status_color) = status(app);
     let dock = row![
         toggle(if view.microphone_enabled { "Microfone ligado · F2" } else { "Microfone mudo · F2" }, view.microphone_enabled, Message::ToggleMic),
-        pick_list(mics.clone(), chosen(&mics, &app.mic_device), |d| Message::MicDevice(d.0)).width(180),
+        pick_list(mics.clone(), chosen(&mics, &app.mic_device), |d| Message::MicDevice(d.0)).width(160),
         toggle(if view.output_enabled { "Som ligado · F3" } else { "Som desligado · F3" }, view.output_enabled, Message::ToggleOutput),
-        pick_list(outputs.clone(), chosen(&outputs, &app.output_device), |d| Message::OutputDevice(d.0)).width(180),
+        pick_list(outputs.clone(), chosen(&outputs, &app.output_device), |d| Message::OutputDevice(d.0)).width(160),
         // Fills the free space, so a long status wraps instead of squeezing the buttons.
         text(status).color(status_color).width(Length::Fill),
         if sharing {
@@ -121,8 +121,12 @@ pub fn view(app: &App) -> Element<'_, Message> {
         } else {
             button(text("Compartilhar tela · F4")).style(button::primary).on_press(Message::OpenWizard)
         },
+        // The web #share-picker chevron: the transmission menu, live while sharing.
+        button(text(if app.share_menu.is_some() { "▾ F5" } else { "▴ F5" }))
+            .style(button::secondary)
+            .on_press(Message::ShareMenu(app.share_menu.is_none().then_some(profile::Menu::Main))),
         // Leave keeps the old arrow icon, as in the v4 dock.
-        button(text("⇤ Sair")).style(button::danger).on_press(Message::Leave),
+        button(text("⇤ Sair").wrapping(iced::widget::text::Wrapping::None)).style(button::danger).on_press(Message::Leave),
     ]
     .spacing(8)
     .align_y(Alignment::Center);
@@ -132,9 +136,18 @@ pub fn view(app: &App) -> Element<'_, Message> {
     let notice = app.notice.as_ref().filter(|(_, since)| since.elapsed() < Duration::from_secs(6));
     let screen = column![body, container(dock).padding(10).style(theme::panel)].spacing(10).padding(12);
     let mut layers = iced::widget::stack![screen];
+    if let Some(page) = app.share_menu {
+        // A click outside closes the menu, like the web <details> pickers; it sits above the dock's share button.
+        let outside = mouse_area(container(text("")).width(Length::Fill).height(Length::Fill)).on_press(Message::ShareMenu(None));
+        let menu = container(profile::menu(page, app.profile, view.screen_state == "active"))
+            .align_right(Length::Fill)
+            .align_bottom(Length::Fill)
+            .padding(iced::Padding { right: 92.0, bottom: 70.0, ..iced::Padding::ZERO });
+        layers = layers.push(outside).push(menu);
+    }
     if let Some(wizard) = &app.wizard {
         // The web #quality-modal: a dimmed room with the panel on top; opaque keeps clicks off the room.
-        let panel = container(wizard.view()).padding(24).max_width(540).height(Length::Fill).style(theme::modal);
+        let panel = container(wizard.view(app.profile, app.advanced)).padding(24).max_width(540).height(Length::Fill).style(theme::modal);
         layers = layers.push(opaque(container(panel).center_x(Length::Fill).padding(18).style(theme::backdrop)));
     }
     // Floats over the top like the web .notice, without moving the layout.

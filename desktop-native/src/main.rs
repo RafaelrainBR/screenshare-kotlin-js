@@ -15,7 +15,7 @@ use std::{
 use desktop_native::{
     VideoSurface,
     session::{AudioControl, ScreenOptions, SessionView, UiConnection, run_controlled_with_ui},
-    share::SharePreset,
+    share::{SharePreset, ShareProfile},
 };
 use iced::{
     Element, Length, Subscription, Task, keyboard,
@@ -44,7 +44,11 @@ pub enum Message {
     ToggleShareAudio,
     /// The 2 s refresh (false) or the "Atualizar" button (true, which also retakes the thumbnails).
     RefreshSources(bool),
-    Preset(SharePreset),
+    /// A preset or one field from the wizard or the dock menu; reaches a running share live.
+    SetProfile(ShareProfile),
+    /// Opens a page of the dock's transmission menu, or closes it.
+    ShareMenu(Option<ui::profile::Menu>),
+    ToggleAdvanced,
     StartShare,
     StopShare,
     Key(keyboard::Key, keyboard::Modifiers),
@@ -63,6 +67,7 @@ struct Running {
     screen: Sender<(u64, Option<ScreenOptions>)>,
     devices: Sender<u64>,
     audio: Sender<(u64, AudioControl)>,
+    share_profile: Sender<(u64, ShareProfile, u32)>,
     view: Arc<Mutex<SessionView>>,
     surface: VideoSurface,
 }
@@ -116,12 +121,21 @@ pub struct App {
     shown_errors: String,
     /// Joined at least once: losing the socket id after that means reconnecting.
     joined: bool,
+    /// Kept across rooms and runs (share-profile.json), like the web localStorage.
+    profile: ShareProfile,
+    share_menu: Option<ui::profile::Menu>,
+    /// The wizard's "Ajustes avançados" is open.
+    advanced: bool,
+    /// Height of the running share, for live bitrate changes.
+    share_height: u32,
+    /// A new source picked while sharing: started once the old share ends.
+    pending_share: Option<ScreenOptions>,
 }
 
 const NAME_INPUT: &str = "name-input";
 
 fn boot() -> (App, Task<Message>) {
-    (App { name: whoami(), ..Default::default() }, operation::focus(NAME_INPUT))
+    (App { name: whoami(), profile: ui::profile::load(), ..Default::default() }, operation::focus(NAME_INPUT))
 }
 
 fn whoami() -> String {
@@ -144,8 +158,8 @@ fn update(app: &mut App, message: Message) -> Task<Message> {
         Message::Join => {}
         Message::Leave => {
             // Dropping Running joins the session thread: the engine stops the share and closes peers.
-            let App { room, name, mic_device, output_device, .. } = std::mem::take(app);
-            *app = App { room, name, mic_device, output_device, ..Default::default() };
+            let App { room, name, mic_device, output_device, profile, advanced, .. } = std::mem::take(app);
+            *app = App { room, name, mic_device, output_device, profile, advanced, ..Default::default() };
         }
         Message::Draft(value) => app.draft = value,
         Message::Send => {
@@ -172,6 +186,7 @@ fn update(app: &mut App, message: Message) -> Task<Message> {
             }
         }
         Message::OpenWizard => {
+            app.share_menu = None;
             app.wizard = Some(Wizard::open());
             // Focusing an id nobody has unfocuses the chat behind the modal, so A, P and Enter reach the wizard.
             return Task::batch([ui::wizard::load_sources(), operation::focus("share-wizard")]);
@@ -212,14 +227,27 @@ fn update(app: &mut App, message: Message) -> Task<Message> {
                 wizard.audio = !wizard.audio;
             }
         }
-        Message::Preset(preset) => {
-            if let Some(wizard) = &mut app.wizard {
-                wizard.set_preset(preset);
+        Message::SetProfile(profile) => {
+            app.profile = profile;
+            ui::profile::save(profile);
+            if let (Some(running), "active") = (&app.running, app.view.screen_state.as_str()) {
+                let _ = running.share_profile.send((app.view.generation, profile, app.share_height));
             }
         }
+        Message::ShareMenu(page) => app.share_menu = page,
+        Message::ToggleAdvanced => app.advanced = !app.advanced,
         Message::StartShare => {
-            if let (Some(running), Some(options)) = (&app.running, app.wizard.as_ref().and_then(Wizard::options)) {
-                let _ = running.screen.send((app.view.generation, Some(options)));
+            if let (Some(running), Some(options)) = (&app.running, app.wizard.as_ref().and_then(|w| w.options(app.profile))) {
+                app.share_height = options.height;
+                if sharing(&app.view) {
+                    // "Trocar tela ou janela": the engine takes one share at a time, so stop first
+                    // and start the new source once it has ended (tick).
+                    // shortcut: viewers see the share stop and start; swap the track in place if that bothers.
+                    let _ = running.screen.send((app.view.generation, None));
+                    app.pending_share = Some(options);
+                } else {
+                    let _ = running.screen.send((app.view.generation, Some(options)));
+                }
                 app.wizard = None;
                 return operation::focus(room::CHAT_INPUT);
             }
@@ -263,6 +291,10 @@ fn shortcut(app: &mut App, key: keyboard::Key, modifiers: keyboard::Modifiers) -
         (Key::Named(Named::Tab), _) => return operation::focus_next(),
         (_, _) if app.running.is_none() => return Task::none(),
         (Key::Named(Named::Escape), Some(_)) => Message::CloseWizard,
+        // Like the web menu: Esc leaves a field's options first, then closes the menu.
+        (Key::Named(Named::Escape), None) if app.share_menu.is_some() => {
+            Message::ShareMenu((app.share_menu != Some(ui::profile::Menu::Main)).then_some(ui::profile::Menu::Main))
+        }
         (Key::Named(Named::ArrowRight | Named::ArrowDown), Some(wizard)) => {
             wizard.step(1);
             return Task::none();
@@ -272,18 +304,24 @@ fn shortcut(app: &mut App, key: keyboard::Key, modifiers: keyboard::Modifiers) -
             return Task::none();
         }
         (Key::Character("a"), Some(_)) => Message::ToggleShareAudio,
-        (Key::Character("p"), Some(wizard)) => {
-            wizard.cycle_preset();
-            return Task::none();
+        (Key::Character("p"), Some(_)) => {
+            let next = ui::profile::matching(app.profile).and_then(|p| SharePreset::ALL.iter().position(|q| *q == p)).map_or(0, |i| i + 1);
+            Message::SetProfile(SharePreset::ALL[next % SharePreset::ALL.len()].profile())
         }
         (Key::Named(Named::Enter), Some(_)) => Message::StartShare,
         (Key::Named(Named::F2), _) => Message::ToggleMic,
         (Key::Named(Named::F3), _) => Message::ToggleOutput,
-        (Key::Named(Named::F4), None) if matches!(app.view.screen_state.as_str(), "active" | "pending" | "picking") => Message::StopShare,
+        (Key::Named(Named::F4), None) if sharing(&app.view) => Message::StopShare,
         (Key::Named(Named::F4), None) => Message::OpenWizard,
+        (Key::Named(Named::F5), None) => Message::ShareMenu(app.share_menu.is_none().then_some(ui::profile::Menu::Main)),
         _ => return Task::none(),
     };
     update(app, message)
+}
+
+/// The local share is on or starting.
+pub fn sharing(view: &SessionView) -> bool {
+    matches!(view.screen_state.as_str(), "active" | "pending" | "picking")
 }
 
 fn audio(app: &mut App, control: AudioControl) {
@@ -306,6 +344,11 @@ fn tick(app: &mut App) -> Task<Message> {
     if app.view.local_socket_id.is_some() && !app.devices_requested {
         app.devices_requested = true;
         let _ = running.devices.send(app.view.generation);
+    }
+    if !sharing(&app.view) {
+        if let Some(options) = app.pending_share.take() {
+            let _ = running.screen.send((app.view.generation, Some(options)));
+        }
     }
     if app.view.audio_pending == 0 {
         if app.mic_restart && !app.view.microphone_enabled {
@@ -365,11 +408,13 @@ fn start(room: String, name: String) -> Running {
     let (screen, screen_rx) = channel();
     let (devices, devices_rx) = channel();
     let (audio, audio_rx) = channel();
+    let (share_profile, share_profile_rx) = channel();
     let ui = UiConnection {
         chat: chat_rx,
         screen: screen_rx,
         devices: devices_rx,
         audio: audio_rx,
+        share_profile: share_profile_rx,
         view: view.clone(),
         video_surface: surface.clone(),
     };
@@ -381,7 +426,7 @@ fn start(room: String, name: String) -> Running {
         ));
         eprintln!("session ended: {result:?}");
     });
-    Running { stop, thread: Some(thread), chat, screen, devices, audio, view, surface }
+    Running { stop, thread: Some(thread), chat, screen, devices, audio, share_profile, view, surface }
 }
 
 fn view(app: &App) -> Element<'_, Message> {

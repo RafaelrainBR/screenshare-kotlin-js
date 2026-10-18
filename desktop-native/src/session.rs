@@ -182,6 +182,8 @@ pub struct UiConnection {
     pub screen: std::sync::mpsc::Receiver<(u64, Option<ScreenOptions>)>,
     pub devices: std::sync::mpsc::Receiver<u64>,
     pub audio: std::sync::mpsc::Receiver<(u64, AudioControl)>,
+    /// (generation, profile, share height): the running share follows it live.
+    pub share_profile: std::sync::mpsc::Receiver<(u64, ShareProfile, u32)>,
     pub view: std::sync::Arc<std::sync::Mutex<SessionView>>,
     pub video_surface: crate::VideoSurface,
 }
@@ -711,6 +713,7 @@ async fn run_inner(
             while ui.screen.try_recv().is_ok() {}
             while ui.devices.try_recv().is_ok() {}
             while ui.audio.try_recv().is_ok() {}
+            while ui.share_profile.try_recv().is_ok() {}
             if let Some(tx) = &status {
                 let _ = tx.send(
                     if ui_generation == 1 {
@@ -812,6 +815,13 @@ async fn run_inner(
                 _ = tick.tick() => {
                     if session.identity().is_none() && Instant::now() >= joined_by { failed = Some("identity timeout".into()); break; }
                     if let Some(ui) = &ui {
+                        while let Ok((generation, profile, height)) = ui.share_profile.try_recv() {
+                            if generation == ui_generation {
+                                if let Err(error) = engine.submit(json!({"command":"setShareProfile","profile":profile,"height":height})) {
+                                    ui.view.lock().unwrap().screen_error = Some(error);
+                                }
+                            }
+                        }
                         while let Ok((generation, control)) = ui.audio.try_recv() {
                             let mut view = ui.view.lock().unwrap();
                             let result = if generation != ui_generation || session.identity().is_none() {
@@ -1222,6 +1232,7 @@ mod tests {
         let (screen_tx, screen) = mpsc::sync_channel(8);
         let (devices_tx, devices) = mpsc::sync_channel(8);
         let (audio_tx, audio) = mpsc::sync_channel(8);
+        let (_profile_tx, share_profile) = mpsc::sync_channel(8);
         let run_stop = stop.clone();
         let run_view = view.clone();
         let client = tokio::spawn(async move {
@@ -1238,6 +1249,7 @@ mod tests {
                     screen,
                     devices,
                     audio,
+                    share_profile,
                     view: run_view,
                     video_surface: crate::VideoSurface::default(),
                 }),
@@ -1438,6 +1450,7 @@ mod tests {
         let (screen_tx, screen) = mpsc::sync_channel(8);
         let (_devices_tx, devices) = mpsc::sync_channel(8);
         let (audio_tx, audio) = mpsc::sync_channel(8);
+        let (_profile_tx, share_profile) = mpsc::sync_channel(8);
         let (run_stop, run_view) = (stop.clone(), view.clone());
         let client = tokio::spawn(async move {
             run_controlled_with_ui(
@@ -1453,6 +1466,7 @@ mod tests {
                     screen,
                     devices,
                     audio,
+                    share_profile,
                     view: run_view,
                     video_surface: crate::VideoSurface::default(),
                 }),

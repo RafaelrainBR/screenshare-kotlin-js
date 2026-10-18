@@ -17,6 +17,8 @@ pub const DIM: Color = color!(0xaab6c8);
 pub const FAINT: Color = color!(0x8592a6);
 pub const GREEN: Color = color!(0x60c99b);
 pub const RED: Color = color!(0xef8791);
+pub const ACCENT: Color = color!(0x8eb4fa);
+pub const TEXT: Color = color!(0xeef2fa);
 pub const RADIUS: f32 = 10.0;
 
 pub fn theme() -> Theme {
@@ -142,6 +144,16 @@ pub fn mute_badge(_: &Theme) -> container::Style {
         background: Some(color!(0x9b3845).into()),
         text_color: Some(Color::WHITE),
         border: Border { color: color!(0x222b38), width: 2.0, radius: 9.0.into() },
+        ..Default::default()
+    }
+}
+
+/// .share-menu-state: accent while the share is live.
+pub fn chip(live: bool) -> container::Style {
+    container::Style {
+        background: Some(if live { ACCENT } else { color!(0x222b38) }.into()),
+        text_color: Some(if live { color!(0x0c1022) } else { DIM }),
+        border: Border { radius: 999.0.into(), ..Default::default() },
         ..Default::default()
     }
 }

@@ -40,6 +40,13 @@ pub struct ShareProfile {
     pub max_bitrate: Option<u64>,
 }
 
+/// The web default, SharePreset.VIDEO.
+impl Default for ShareProfile {
+    fn default() -> Self {
+        SharePreset::Video.profile()
+    }
+}
+
 /// Starting points; the advanced settings edit the profile they fill in.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SharePreset {
