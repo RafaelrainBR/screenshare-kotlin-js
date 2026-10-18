@@ -6,6 +6,8 @@ import io.ktor.server.application.install
 import io.ktor.server.http.content.staticResources
 import io.ktor.server.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.server.plugins.origin
+import io.ktor.server.plugins.partialcontent.PartialContent
+import io.ktor.server.routing.route
 import io.ktor.server.routing.routing
 import io.ktor.server.websocket.WebSockets
 import io.ktor.server.websocket.pingPeriod
@@ -111,6 +113,12 @@ fun Application.module() {
             disconnectUser()
         }
 
+        route("/about") {
+            install(PartialContent)
+            staticResources("", "presentation") {
+                enableAutoHeadResponse()
+            }
+        }
         staticResources("/", "static")
     }
 }

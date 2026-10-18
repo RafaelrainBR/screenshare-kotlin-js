@@ -25,6 +25,7 @@ ktor-server-cio = { group = "io.ktor", name = "ktor-server-cio", version.ref = "
 ktor-server-contentNegotiation = { group = "io.ktor", name = "ktor-server-content-negotiation", version.ref = "ktor" }
 ktor-serialization-kotlinx-json = { group = "io.ktor", name = "ktor-serialization-kotlinx-json", version.ref = "ktor" }
 ktor-server-websockets = { group = "io.ktor", name = "ktor-server-websockets", version.ref = "ktor" }
+ktor-server-partialContent = { group = "io.ktor", name = "ktor-server-partial-content", version.ref = "ktor" }
 logback-classic = { group = "ch.qos.logback", name = "logback-classic", version.ref = "logback" }
 
 ktor-client-core = { group = "io.ktor", name = "ktor-client-core", version.ref = "ktor" }

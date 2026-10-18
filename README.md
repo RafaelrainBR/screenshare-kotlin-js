@@ -15,9 +15,9 @@ Peer-to-peer screen sharing, voice, camera and chat in your browser — with nat
 [![Download desktop](https://img.shields.io/github/v/release/RafaelrainBR/screenshare-kotlin-js?label=Desktop&style=flat-square)](https://github.com/RafaelrainBR/screenshare-kotlin-js/releases/latest)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue?style=flat-square)](LICENSE)
 
-[Português](README.pt-BR.md) · [Features](#what-you-can-do) · [Screenshots](#see-it-in-action) · [Run locally](#run-locally) · [Documentation](docs/README.md)
+[Português](README.pt-BR.md) · [Website](https://screen-share.fly.dev/about/en.html) · [Features](#what-you-can-do) · [Run locally](#run-locally) · [Documentation](docs/README.md)
 
-<img src="docs/images/room_sharing.png" alt="Current Screenshare interface: Kotlin source shared between two connected participants, with room chat and media controls" width="1000" />
+<a href="https://screen-share.fly.dev/about/en.html#demo"><img src="server/src/jvmMain/resources/presentation/assets/demo-poster.jpg" alt="Watch the real two-peer demo: shared Kotlin code, room chat and media controls" width="1000" /></a>
 
 </div>
 
@@ -54,6 +54,8 @@ Resolution, frame rate and audio availability depend on the source, browser, ope
 Desktop builds use the same Kotlin/JS client and rooms as the browser. Windows builds are unsigned; macOS builds use ad hoc signing without notarization. See [installation, permissions and platform limits](docs/usage.md).
 
 ## See it in action
+
+**[Watch the short demo](https://screen-share.fly.dev/about/en.html#demo)** or [download the English-captioned MP4](https://screen-share.fly.dev/about/assets/demo-en.mp4). The recording shows a real local browser session; it does not demonstrate native audio or measure streaming performance.
 
 Screenshots show the current browser client in a local demo room, with a real WebRTC screen stream and sample conversation. The shared content is this repository's Kotlin protocol source.
 

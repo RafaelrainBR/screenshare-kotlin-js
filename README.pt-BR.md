@@ -11,13 +11,15 @@
 
 Compartilhamento de tela, voz, câmera e chat pelo navegador ou pelo aplicativo para Windows e macOS.
 
-**[Abrir no navegador](https://screen-share.fly.dev/)** · **[Baixar o desktop](https://github.com/RafaelrainBR/screenshare-kotlin-js/releases/latest)** · [English](README.md)
+**[Abrir no navegador](https://screen-share.fly.dev/)** · **[Baixar o desktop](https://github.com/RafaelrainBR/screenshare-kotlin-js/releases/latest)** · [Site e demonstração](https://screen-share.fly.dev/about) · [English](README.md)
 
-<img src="docs/images/room_sharing.png" alt="Interface atual com duas pessoas, uma tela transmitindo código Kotlin, conversa e controles de mídia" width="1000" />
+<a href="https://screen-share.fly.dev/about#demo"><img src="server/src/jvmMain/resources/presentation/assets/demo-poster.jpg" alt="Assistir à demonstração real: duas pessoas, código Kotlin compartilhado e conversa" width="1000" /></a>
 
 </div>
 
 ## Experimente
+
+Veja a **[demonstração curta](https://screen-share.fly.dev/about#demo)** ou [baixe o MP4 legendado](https://screen-share.fly.dev/about/assets/demo-pt.mp4). É uma sessão local real no navegador; não demonstra áudio nativo nem mede desempenho da transmissão.
 
 1. Abra o [aplicativo web](https://screen-share.fly.dev/) ou instale a [versão desktop](https://github.com/RafaelrainBR/screenshare-kotlin-js/releases/latest).
 2. Digite seu nome. Deixe o código em branco para criar uma sala ou cole o código de uma sala existente.

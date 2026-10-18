@@ -18,6 +18,7 @@ kotlin {
             implementation(libs.ktor.server.contentNegotiation)
             implementation(libs.ktor.serialization.kotlinx.json)
             implementation(libs.ktor.server.websockets)
+            implementation(libs.ktor.server.partialContent)
         }
 
         jvmMain {

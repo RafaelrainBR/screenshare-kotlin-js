@@ -1,0 +1,25 @@
+WEBVTT
+
+00:00:00.001 --> 00:00:03.508
+Screenshare: tela e conversa na mesma sala.
+
+00:00:03.508 --> 00:00:07.940
+Digite seu nome. Deixe o código vazio para criar uma sala.
+
+00:00:07.940 --> 00:00:11.636
+Copie o código para outra pessoa entrar na mesma sala.
+
+00:00:11.636 --> 00:00:15.598
+A conversa acontece junto da transmissão.
+
+00:00:15.598 --> 00:00:21.044
+Uma aba real, transmitida ao outro participante por WebRTC.
+
+00:00:21.044 --> 00:00:24.087
+Foque a transmissão e mantenha as prévias por perto.
+
+00:00:24.087 --> 00:00:27.699
+Escolha o perfil da sua próxima tela: jogo, vídeo ou código.
+
+00:00:27.699 --> 00:00:31.199
+Experimente em screen-share.fly.dev/about. Navegador, Windows e macOS.
