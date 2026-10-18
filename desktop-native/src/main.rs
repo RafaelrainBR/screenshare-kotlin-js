@@ -1,4 +1,6 @@
 // Screenshare native desktop: iced UI over the session and libwebrtc engine.
+mod startup;
+mod tray;
 mod ui;
 
 use std::{
@@ -19,7 +21,7 @@ use desktop_native::{
 };
 use iced::{
     Element, Length, Subscription, Task, keyboard,
-    widget::{button, column, container, image, operation, text, text_input},
+    widget::{button, checkbox, column, container, image, operation, text, text_input},
     window,
 };
 use ui::{room, theme, wizard::Wizard};
@@ -64,6 +66,10 @@ pub enum Message {
     Focus(TileKey),
     CloseRequested(window::Id),
     CopyRoom,
+    /// "Iniciar com o sistema e voltar a esta sala" on the join form.
+    ToggleAutostart(bool),
+    /// Reads the tray clicks and refreshes its menu.
+    TrayPoll,
 }
 
 struct Running {
@@ -137,6 +143,9 @@ pub struct App {
     share_height: u32,
     /// A new source picked while sharing: started once the old share ends.
     pending_share: Option<ScreenOptions>,
+    autostart: bool,
+    /// Without a tray (Explorer not running) closing the window quits.
+    has_tray: bool,
     camera_device: Option<String>,
     /// A camera picked while on: started again once the old one has ended.
     camera_restart: bool,
@@ -151,7 +160,66 @@ pub struct App {
 const NAME_INPUT: &str = "name-input";
 
 fn boot() -> (App, Task<Message>) {
-    (App { name: whoami(), profile: ui::profile::load(), ..Default::default() }, operation::focus(NAME_INPUT))
+    let last = startup::last_room();
+    let app = App {
+        name: if last.name.trim().is_empty() { whoami() } else { last.name },
+        room: last.room,
+        profile: ui::profile::load(),
+        autostart: startup::autostart_enabled(),
+        has_tray: tray::install(),
+        ..Default::default()
+    };
+    // Like the desktop web client: with autostart on and a saved room, every launch rejoins it.
+    let rejoin = app.autostart && !app.room.trim().is_empty();
+    let mut tasks = vec![operation::focus(NAME_INPUT)];
+    if rejoin {
+        tasks.push(Task::done(Message::Join));
+    } else if startup::launched_at_login() {
+        // Nothing to rejoin: a tray icon alone would look like the app failed to start.
+        tasks.push(show_window());
+    }
+    (app, Task::batch(tasks))
+}
+
+/// Brings the (possibly hidden) window back and focuses it.
+fn show_window() -> Task<Message> {
+    window::oldest().then(|id| match id {
+        Some(id) => window::set_mode(id, window::Mode::Windowed).chain(window::gain_focus(id)),
+        None => Task::none(),
+    })
+}
+
+/// The tray item a menu pick or a shortcut-free click maps to.
+fn tray_action(app: &mut App, action: tray::Action) -> Task<Message> {
+    match action {
+        tray::Action::Open => show_window(),
+        tray::Action::Mic => update(app, Message::ToggleMic),
+        tray::Action::Camera => update(app, Message::ToggleCamera),
+        tray::Action::Output => update(app, Message::ToggleOutput),
+        tray::Action::Screen if sharing(&app.view) => update(app, Message::StopShare),
+        // Forms open in the full window, as in the Tauri app.
+        tray::Action::Screen => show_window().chain(update(app, Message::OpenWizard)),
+        tray::Action::Leave => update(app, Message::Leave),
+        tray::Action::Quit => {
+            app.running = None;
+            iced::exit()
+        }
+    }
+}
+
+fn tray_state(app: &App) -> tray::State {
+    let view = &app.view;
+    let local = view.local_socket_id.as_deref();
+    tray::State {
+        in_room: app.running.is_some(),
+        connected: local.is_some(),
+        mic: view.microphone_enabled,
+        camera: camera_on(view),
+        output_muted: !view.output_enabled,
+        sharing: sharing(view),
+        participants: view.participants.len(),
+        remote_sharing: view.screen_sharers.iter().chain(&view.camera_sharers).any(|id| Some(id.as_str()) != local),
+    }
 }
 
 fn whoami() -> String {
@@ -168,14 +236,35 @@ fn update(app: &mut App, message: Message) -> Task<Message> {
                 "" => format!("{:08x}", rand::random::<u32>()),
                 code => code.into(),
             };
+            startup::save_last_room(app.name.trim(), &app.room);
             app.running = Some(start(app.room.clone(), app.name.trim().into()));
             return operation::focus(room::CHAT_INPUT);
         }
         Message::Join => {}
         Message::Leave => {
+            // Leaving turns the rejoin off, as in the web client: the next launch must not return here.
+            if app.autostart {
+                if let Err(error) = startup::set_autostart(false) {
+                    app.notice = Some((error, Instant::now()));
+                }
+            }
             // Dropping Running joins the session thread: the engine stops the share and closes peers.
-            let App { room, name, mic_device, output_device, camera_device, profile, advanced, .. } = std::mem::take(app);
-            *app = App { room, name, mic_device, output_device, camera_device, profile, advanced, ..Default::default() };
+            let App { name, mic_device, output_device, camera_device, profile, advanced, has_tray, notice, .. } = std::mem::take(app);
+            *app = App { name, mic_device, output_device, camera_device, profile, advanced, has_tray, notice, ..Default::default() };
+            tray::update(tray_state(app));
+            return operation::focus(NAME_INPUT);
+        }
+        Message::ToggleAutostart(enabled) => match startup::set_autostart(enabled) {
+            Ok(()) => app.autostart = enabled,
+            Err(error) => app.notice = Some((error, Instant::now())),
+        },
+        Message::TrayPoll => {
+            let mut tasks: Vec<_> = tray::actions().into_iter().map(|action| tray_action(app, action)).collect();
+            if startup::show_requested() {
+                tasks.push(show_window());
+            }
+            tray::update(tray_state(app));
+            return Task::batch(tasks);
         }
         Message::Draft(value) => app.draft = value,
         Message::Send => {
@@ -322,6 +411,8 @@ fn update(app: &mut App, message: Message) -> Task<Message> {
             app.notice = Some(("Código copiado".into(), Instant::now()));
             return iced::clipboard::write(app.room.clone());
         }
+        // Closing keeps the app in the tray, in the room, like the Tauri app; "Encerrar app" quits.
+        Message::CloseRequested(id) if app.has_tray => return window::set_mode(id, window::Mode::Hidden),
         Message::CloseRequested(id) => {
             app.running = None;
             return window::close(id).chain(iced::exit());
@@ -505,6 +596,7 @@ fn view(app: &App) -> Element<'_, Message> {
             text("Código da sala").color(theme::DIM),
             text("Use um código recebido ou deixe vazio para criar uma sala.").size(12).color(theme::FAINT),
             text_input("ex: 4f8a2c1e", &app.room).on_input(Message::Room).on_submit(Message::Join).padding(8),
+            checkbox(app.autostart).label("Iniciar com o sistema e voltar a esta sala").on_toggle(Message::ToggleAutostart).text_size(13),
             if app.name.trim().is_empty() { join } else { join.on_press(Message::Join) },
         ]
         .spacing(10)
@@ -521,6 +613,8 @@ fn subscription(app: &App) -> Subscription<Message> {
         _ => None,
     });
     let mut subscriptions = vec![close, keys];
+    // Tray clicks and a second launch's "show" request.
+    subscriptions.push(iced::time::every(Duration::from_millis(100)).map(|_| Message::TrayPoll));
     if app.running.is_some() {
         subscriptions.push(iced::time::every(Duration::from_millis(16)).map(|_| Message::Tick));
     }
@@ -532,6 +626,9 @@ fn subscription(app: &App) -> Subscription<Message> {
 }
 
 fn main() -> iced::Result {
+    if !startup::first_instance() {
+        return Ok(());
+    }
     iced::application(boot, update, view)
         .title("Screenshare")
         .theme(|_: &App| theme::theme())
@@ -539,7 +636,13 @@ fn main() -> iced::Result {
         .font(theme::BARLOW_BOLD)
         .default_font(theme::FONT)
         .subscription(subscription)
-        .exit_on_close_request(false)
-        .window_size((1280.0, 780.0))
+        .window(window::Settings {
+            size: iced::Size::new(1280.0, 780.0),
+            // A login launch starts in the tray; boot shows the window when there is nothing to rejoin.
+            visible: !startup::launched_at_login(),
+            icon: tray::icon_rgba().and_then(|(rgba, width, height)| window::icon::from_rgba(rgba, width, height).ok()),
+            exit_on_close_request: false,
+            ..Default::default()
+        })
         .run()
 }
