@@ -37,3 +37,9 @@ Deployment replaces the web server and can interrupt in-memory rooms. No desktop
 - Local mobile Lighthouse: performance 94, accessibility 100, best practices 100, SEO 100. Performance was 84 before responsive media and font preload; simulated mobile LCP improved from 4.2s to 3.0s. These are lab measurements, not production field data.
 - Screenshot delivered as lossless WebP: 720px / 74,760 bytes and 1440px / 199,988 bytes, compared with the retained 272,126-byte PNG. No artwork was generated or changed.
 - Screenshots and JSON reports: `artifacts/qa/presence/` (local, ignored).
+
+## Editorial correction
+
+The first revision retained too much landing-page copy. The follow-up removes the eyebrow, two-part slogan, screenshot caption, demo introduction, entire capabilities section, generic platform descriptions and the FAQ about internal release variants. The remaining copy identifies the product, offers the browser/download actions and explains installation, room access, audio limits and chat retention. PT body text drops from 489 to 254 whitespace-delimited words, including collapsed content. English and social preview images follow the same edit. Recording transcripts retain the words in the existing video; only their headings and descriptions change.
+
+The deployment smoke check compares the generated HTML instead of depending on an old slogan. Generator tests, production build and all existing browser QA checks pass after this edit.
