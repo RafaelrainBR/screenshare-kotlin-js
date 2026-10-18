@@ -149,6 +149,10 @@ pub struct App {
     /// A device picked while that audio was on: turn it off, then back on with the new device.
     mic_restart: bool,
     output_restart: bool,
+    /// The room sound was muted (saved like the web screenshare.outputMuted).
+    output_muted: bool,
+    /// The session generation the saved sound preference was applied to.
+    output_generation: u64,
     devices_requested: bool,
     /// Toast like the web ui-notice: the text and when it appeared; it hides after 6 s.
     notice: Option<(String, Instant)>,
@@ -202,6 +206,7 @@ pub const NAME_INPUT: &str = "name-input";
 
 fn boot() -> (App, Task<Message>) {
     let last = startup::last_room();
+    let prefs = startup::audio_prefs();
     let mut app = App {
         visible: !startup::launched_at_login(),
         name: if last.name.trim().is_empty() { whoami() } else { last.name },
@@ -209,6 +214,8 @@ fn boot() -> (App, Task<Message>) {
         profile: ui::profile::load(),
         autostart: startup::autostart_enabled(),
         has_tray: tray::install(),
+        output_muted: prefs.output_muted,
+        output_device: prefs.output_device,
         ..Default::default()
     };
     // Like the desktop web client: with autostart on and a saved room, every launch rejoins it.
@@ -390,8 +397,8 @@ fn update(app: &mut App, message: Message) -> Task<Message> {
             }
             // Dropping Running joins the session thread: the engine stops the share and closes peers.
             let windowed = set_fullscreen(app, None);
-            let App { name, mic_device, output_device, camera_device, profile, advanced, has_tray, notice, chat_hidden, rail_hidden, compact, visible, .. } = std::mem::take(app);
-            *app = App { name, mic_device, output_device, camera_device, profile, advanced, has_tray, notice, chat_hidden, rail_hidden, compact, visible, ..Default::default() };
+            let App { name, mic_device, output_device, output_muted, camera_device, profile, advanced, has_tray, notice, chat_hidden, rail_hidden, compact, visible, .. } = std::mem::take(app);
+            *app = App { name, mic_device, output_device, output_muted, camera_device, profile, advanced, has_tray, notice, chat_hidden, rail_hidden, compact, visible, ..Default::default() };
             tray::update(tray_state(app));
             return windowed.chain(operation::focus(NAME_INPUT));
         }
@@ -431,7 +438,11 @@ fn update(app: &mut App, message: Message) -> Task<Message> {
             }
         }
         Message::ToggleMic => audio(app, AudioControl::Microphone { enabled: !app.view.microphone_enabled, device_id: app.mic_device.clone() }),
-        Message::ToggleOutput => audio(app, AudioControl::Output { enabled: !app.view.output_enabled, device_id: app.output_device.clone() }),
+        Message::ToggleOutput => {
+            app.output_muted = app.view.output_enabled;
+            save_audio(app);
+            audio(app, AudioControl::Output { enabled: !app.view.output_enabled, device_id: app.output_device.clone() });
+        }
         Message::MicDevice(id) => {
             app.device_picker = None;
             app.mic_device = id;
@@ -443,6 +454,7 @@ fn update(app: &mut App, message: Message) -> Task<Message> {
         Message::OutputDevice(id) => {
             app.device_picker = None;
             app.output_device = id;
+            save_audio(app);
             if app.view.output_enabled {
                 app.output_restart = true;
                 audio(app, AudioControl::Output { enabled: false, device_id: None });
@@ -647,6 +659,10 @@ pub fn sharing(view: &SessionView) -> bool {
     matches!(view.screen_state.as_str(), "active" | "pending" | "picking")
 }
 
+fn save_audio(app: &App) {
+    startup::save_audio_prefs(&startup::AudioPrefs { output_muted: app.output_muted, output_device: app.output_device.clone() });
+}
+
 fn audio(app: &mut App, control: AudioControl) {
     app.mic_attempt = matches!(control, AudioControl::Microphone { enabled: true, .. });
     if let Some(running) = &app.running {
@@ -699,6 +715,13 @@ fn tick(app: &mut App) -> Task<Message> {
         app.camera_after_share = false;
         app.camera_restart = false;
         let _ = running.camera.send((app.view.generation, Some(app.camera_device.clone())));
+    }
+    // The web plays the room sound unless it was muted last time; again after each reconnection.
+    if app.view.local_socket_id.is_some() && app.output_generation != app.view.generation {
+        app.output_generation = app.view.generation;
+        if !app.output_muted && !app.view.output_enabled {
+            audio(app, AudioControl::Output { enabled: true, device_id: app.output_device.clone() });
+        }
     }
     if app.view.audio_pending == 0 {
         if app.mic_restart && !app.view.microphone_enabled {

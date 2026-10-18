@@ -52,20 +52,43 @@ pub struct LastRoom {
     pub room: String,
 }
 
-fn path() -> Option<PathBuf> {
-    Some(PathBuf::from(std::env::var_os("APPDATA")?).join("Screenshare-native").join("last-room.json"))
+/// screenshare.outputMuted and screenshare.outputDeviceId in the web's localStorage: the room's
+/// sound plays unless it was muted last time, on the output picked last time.
+#[derive(Default, serde::Deserialize, serde::Serialize)]
+pub struct AudioPrefs {
+    pub output_muted: bool,
+    pub output_device: Option<String>,
 }
 
-pub fn last_room() -> LastRoom {
-    path().and_then(|path| std::fs::read_to_string(path).ok()).and_then(|json| serde_json::from_str(&json).ok()).unwrap_or_default()
+fn path(file: &str) -> Option<PathBuf> {
+    Some(PathBuf::from(std::env::var_os("APPDATA")?).join("Screenshare-native").join(file))
 }
 
-pub fn save_last_room(name: &str, room: &str) {
-    let last = LastRoom { name: name.into(), room: room.into() };
-    if let (Some(path), Ok(json)) = (path(), serde_json::to_string(&last)) {
+fn read<T: serde::de::DeserializeOwned + Default>(file: &str) -> T {
+    path(file).and_then(|path| std::fs::read_to_string(path).ok()).and_then(|json| serde_json::from_str(&json).ok()).unwrap_or_default()
+}
+
+fn write(file: &str, value: &impl serde::Serialize) {
+    if let (Some(path), Ok(json)) = (path(file), serde_json::to_string(value)) {
         let _ = path.parent().map(std::fs::create_dir_all);
         let _ = std::fs::write(path, json);
     }
+}
+
+pub fn last_room() -> LastRoom {
+    read("last-room.json")
+}
+
+pub fn save_last_room(name: &str, room: &str) {
+    write("last-room.json", &LastRoom { name: name.into(), room: room.into() });
+}
+
+pub fn audio_prefs() -> AudioPrefs {
+    read("audio.json")
+}
+
+pub fn save_audio_prefs(prefs: &AudioPrefs) {
+    write("audio.json", prefs);
 }
 
 fn run_key(access: windows::Win32::System::Registry::REG_SAM_FLAGS) -> Option<HKEY> {
