@@ -494,9 +494,13 @@ private fun refreshSources(
                 updateSourceState()
             }.onFailure { error ->
                 if (generation == sourceRefreshGeneration) {
+                    val permissionError =
+                        (error as? DesktopCaptureException)?.takeIf { it.code == "screen-recording-denied" }
                     Elements.shareSourceState.textContent =
-                        (error as? DesktopCaptureException)?.takeIf { it.code == "screen-recording-denied" }?.message
+                        permissionError?.message
                             ?: "Não foi possível atualizar as telas e janelas. Tente novamente."
+                    // Polling ScreenCaptureKit without permission opens another system prompt on every tick.
+                    if (permissionError != null) stopSourceRefresh()
                 }
             }
         if (generation == sourceRefreshGeneration) sourceRefreshInFlight = false
