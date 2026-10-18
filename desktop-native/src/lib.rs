@@ -1802,6 +1802,12 @@ fn run_worker(
 #[cfg(test)]
 mod tests {
     #[test]
+    fn wss_has_a_rustls_crypto_provider() {
+        // Panics like the 0.1.0 and 0.1.1 betas did on their first wss:// connect when no provider is built in.
+        let _ = rustls::ClientConfig::builder();
+    }
+
+    #[test]
     fn this_build_offers_the_codecs_the_master_prefers() {
         use libwebrtc::{MediaType, peer_connection_factory::PeerConnectionFactory};
         let factory = PeerConnectionFactory::default();
