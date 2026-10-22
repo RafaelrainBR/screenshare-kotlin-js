@@ -133,6 +133,9 @@ pub type TileKey = (String, bool);
 pub struct Tile {
     pub frame: Option<image::Allocation>,
     shown: u64,
+    /// An upload is in flight: iced only finishes (and frees) uploads when it draws, so one upload
+    /// per decoded frame piled up gigabytes whenever drawing fell behind.
+    uploading: bool,
 }
 
 #[derive(Default)]
@@ -630,17 +633,16 @@ fn update(app: &mut App, message: Message) -> Task<Message> {
         }
         Message::Key(key, modifiers) => return shortcut(app, key, modifiers),
         Message::Tick => return tick(app),
-        Message::Allocated(key, seq, Some(allocation)) => {
-            if is_shared(&app.view, &key) {
-                let tile = app.tiles.entry(key).or_default();
+        Message::Allocated(key, seq, allocation) => {
+            if let Some(tile) = app.tiles.get_mut(&key) {
+                tile.uploading = false;
                 // Uploads finish out of order; keep the newest.
-                if seq > tile.shown {
+                if let Some(allocation) = allocation.filter(|_| seq > tile.shown) {
                     tile.shown = seq;
                     tile.frame = Some(allocation);
                 }
             }
         }
-        Message::Allocated(..) => {}
         Message::Focus(key) => app.focused = (app.focused.as_ref() != Some(&key)).then_some(key),
         Message::Fullscreen(key) => return set_fullscreen(app, key),
         Message::ToggleChat => app.chat_hidden = !app.chat_hidden,
@@ -870,7 +872,9 @@ fn tick(app: &mut App) -> Task<Message> {
     let windowed = if app.fullscreen.as_ref().is_some_and(|key| !is_shared(view, key)) { set_fullscreen(app, None) } else { Task::none() };
     let windowed = unfocus.chain(windowed);
     // iced uploads images asynchronously: each tile swaps once its upload is done, dropping late ones.
-    windowed.chain(Task::batch(frames.into_iter().map(|(key, snapshot)| {
+    // One upload per tile at a time; frames arriving meanwhile are dropped, the next one is newer anyway.
+    let frames = frames.into_iter().filter(|(key, _)| !std::mem::replace(&mut app.tiles.entry(key.clone()).or_default().uploading, true));
+    windowed.chain(Task::batch(frames.map(|(key, snapshot)| {
         let snapshot = Arc::try_unwrap(snapshot).unwrap_or_else(|shared| (*shared).clone());
         app.sent += 1;
         let seq = app.sent;
