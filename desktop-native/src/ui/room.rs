@@ -49,9 +49,15 @@ pub fn view(app: &App) -> Element<'_, Message> {
         .collect();
     let focused = app.focused.as_ref().filter(|key| videos.contains(key));
     // A tile in or out, or one focused: the tiles that stay slide to their new place (motion::flip).
+    // Videos are keyed (peer, Some(camera)), the rail's avatars (peer, None).
+    let staged: Vec<(String, Option<bool>)> = videos
+        .iter()
+        .map(|(peer, camera)| (peer.clone(), Some(*camera)))
+        .chain(view.participants.iter().filter(|p| !videos.iter().any(|(peer, _)| *peer == p.socket_id)).map(|p| (p.socket_id.clone(), None)))
+        .collect();
     let mut arrangement = std::hash::DefaultHasher::new();
-    std::hash::Hash::hash(&(&videos, focused), &mut arrangement);
-    app.flips.arrange(&videos, std::hash::Hasher::finish(&arrangement));
+    std::hash::Hash::hash(&(&staged, focused), &mut arrangement);
+    app.flips.arrange(&staged, std::hash::Hasher::finish(&arrangement));
     let main: Element<'_, Message> = match (videos.len(), focused) {
         (0, _) => container(
             column![
@@ -91,7 +97,8 @@ pub fn view(app: &App) -> Element<'_, Message> {
             }
         }
         for p in view.participants.iter().filter(|p| !videos.iter().any(|(peer, _)| *peer == p.socket_id)) {
-            rail = rail.push(avatar_tile(p, Some(p.socket_id.as_str()) == local, crate::speaking(app, &p.socket_id)));
+            let tile = avatar_tile(p, Some(p.socket_id.as_str()) == local, crate::speaking(app, &p.socket_id));
+            rail = rail.push(motion::flip(tile, &app.flips, (p.socket_id.clone(), None)));
         }
         rail
     };
@@ -368,7 +375,7 @@ fn video_tile<'a>(app: &'a App, key: &TileKey, small: bool) -> Element<'a, Messa
     let tile = if small { tile.width(168).height(94) } else { tile.width(Length::Fill).height(Length::Fill) };
     // A right click opens the same menu as the corner button, like the web contextmenu on .screen-tile.
     let tile = mouse_area(tile).on_right_press(Message::PeerOptions(Some((peer.clone(), Some(*camera)))));
-    motion::flip(tile, &app.flips, key.clone())
+    motion::flip(tile, &app.flips, (peer.clone(), Some(*camera)))
 }
 
 /// .chat-hide (27 px, in the header) and .chat-restore (32 px glass, over the stage).
