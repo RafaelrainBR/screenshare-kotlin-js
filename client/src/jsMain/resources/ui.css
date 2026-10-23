@@ -153,9 +153,13 @@ body.compact-tray .tray-panel { display: flex; flex-direction: column; height: 1
 .workspace {
   position: relative; display: grid; grid-template-columns: minmax(0, 1fr) 300px;
   flex: 1; min-height: 0;
+  transition: grid-template-columns .2s cubic-bezier(.2, 0, 0, 1);
 }
-.workspace.chat-collapsed { grid-template-columns: minmax(0, 1fr); }
-.workspace.chat-collapsed .sidebar { display: none; }
+/* The chat column slides shut; its content keeps a width instead of squeezing on the way. */
+.workspace.chat-collapsed { grid-template-columns: minmax(0, 1fr) 0px; }
+.workspace .sidebar { min-width: 0; overflow: hidden; transition: opacity .15s; }
+.workspace .sidebar > * { min-width: 245px; }
+.workspace.chat-collapsed .sidebar { opacity: 0; visibility: hidden; transition: opacity .12s, visibility 0s .2s; }
 .stage { min-width: 0; min-height: 0; display: flex; flex-direction: column; }
 .screen-stage { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 8px; padding: 10px; }
 .screens-main { flex: 1; min-height: 0; display: grid; gap: 8px; grid-template-columns: repeat(auto-fit, minmax(min(240px, 100%), 1fr)); grid-auto-rows: 1fr; }
@@ -169,20 +173,28 @@ body.compact-tray .tray-panel { display: flex; flex-direction: column; height: 1
   flex: 0 0 110px; min-height: 0; display: flex; align-items: center; gap: 8px;
   padding-right: 46px; overflow-x: auto; overflow-y: hidden;
   justify-content: safe center; scrollbar-width: none;
+  transition: flex-basis .2s cubic-bezier(.2, 0, 0, 1), opacity .15s;
 }
 .screens-rail::-webkit-scrollbar { display: none; }
 .screens-rail .screen-tile, .participant-tile { flex: none; width: 168px; height: 94.5px; aspect-ratio: 16 / 9; }
 .screens-rail .screen-tile { order: 0; }
 .screens-rail .screen-tile.speaking { border-color: var(--green); }
 .participant-tile { order: 1; }
-.screen-stage.rail-collapsed .screens-rail { display: none; }
+/* Folds down to the strip the toggle sits on, so the stage grows instead of jumping. */
+.screen-stage.rail-collapsed .screens-rail {
+  flex-basis: 34px; opacity: 0; visibility: hidden;
+  transition: flex-basis .2s cubic-bezier(.2, 0, 0, 1), opacity .12s, visibility 0s .2s;
+}
 .screen-tile {
   position: relative; min-width: 0; min-height: 0; overflow: hidden;
   border: 1px solid var(--line); border-radius: 10px;
   background: var(--video); cursor: pointer;
+  transition: border-color .15s;
 }
 .screen-tile.focused { border-color: var(--accent); }
-.screen-tile video { display: block; width: 100%; height: 100%; object-fit: contain; }
+/* The first frame fades in over the tile instead of popping. */
+.screen-tile video { display: block; width: 100%; height: 100%; object-fit: contain; opacity: 0; transition: opacity .2s ease-out; }
+.screen-tile video.ready { opacity: 1; }
 .screen-tile-controls {
   position: absolute; right: 12px; bottom: 12px; z-index: 2;
   display: flex; align-items: center; gap: 6px;
@@ -229,6 +241,7 @@ button.participant-options { position: absolute; top: 5px; right: 5px; width: 28
   position: relative; display: grid; place-items: center; width: 46px; height: 46px;
   border: 2px solid transparent; border-radius: 50%; background: var(--line);
   font-size: 13px; font-weight: 700;
+  transition: border-color .15s, box-shadow .15s;
 }
 .avatar-circle.speaking { border-color: var(--green); box-shadow: 0 0 0 3px var(--surface-2); }
 .avatar-circle .mute-overlay {
@@ -243,12 +256,11 @@ button.participant-options { position: absolute; top: 5px; right: 5px; width: 28
   background: rgba(16,19,24,.92); color: var(--text);
 }
 .strip-toggle svg, .chat-restore svg, .chat-hide svg { width: 16px; height: 16px; }
-.strip-toggle { position: absolute; right: 16px; bottom: 50px; z-index: 5; }
+.strip-toggle { position: absolute; right: 16px; bottom: 50px; z-index: 5; transition: bottom .2s cubic-bezier(.2, 0, 0, 1); }
 /* Keep the toggle on the right without covering the focused tile's controls. */
-.screen-stage.rail-collapsed { padding-bottom: 52px; }
 .screen-stage.rail-collapsed .strip-toggle { bottom: 12px; }
 .chat-restore { position: absolute; right: 16px; top: 16px; z-index: 8; display: none; }
-.workspace.chat-collapsed .chat-restore { display: grid; }
+.workspace.chat-collapsed .chat-restore { display: grid; animation: fade-in .2s ease-out; }
 
 .dock {
   --control-size: 42px; --glyph-size: 20px;
@@ -376,6 +388,8 @@ button.participant-options { position: absolute; top: 5px; right: 5px; width: 28
 .context-menu button:hover { background: var(--hover); }
 .context-note { padding: 8px 8px 2px; border-top: 1px solid var(--line); color: var(--faint); font-size: 10px; }
 .notice { position: fixed; top: 12px; left: 50%; transform: translateX(-50%); z-index: 90; max-width: min(560px, calc(100% - 32px)); padding: 12px 15px; border: 1px solid var(--red); border-radius: 9px; background: var(--red-bg); color: var(--text); font-size: 12px; }
+.notice:not(.hidden) { animation: drop-in .18s cubic-bezier(.2, 0, 0, 1); }
+.notice.leaving { animation: drop-out .15s ease-in forwards; }
 .permission-recovery { position: fixed; z-index: 100; inset: 50% auto auto 50%; transform: translate(-50%, -50%); width: min(420px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); overflow-y: auto; padding: 24px; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); box-shadow: 0 0 0 100vmax #0009, 0 18px 60px #0009; }
 .permission-recovery h2 { margin: 0 0 12px; }
 .startup-option { display: flex; align-items: center; gap: 9px; margin: 8px 0; font-size: 13px; }
@@ -387,6 +401,20 @@ button.participant-options { position: absolute; top: 5px; right: 5px; width: 28
   padding: 24px; border: 1px solid var(--line-2); border-radius: 13px;
   background: var(--surface); box-shadow: 0 22px 65px #0009;
 }
+#quality-modal:not(.hidden) .modal-backdrop { animation: fade-in .15s ease-out; }
+#quality-modal:not(.hidden) .modal-panel, .permission-recovery:not(.hidden) { animation: grow-in .18s cubic-bezier(.2, 0, 0, 1); }
+.device-picker[open] > .picker-panel, .context-menu:not(.hidden) { animation: rise-in .12s ease-out; }
+.connecting::before {
+  content: ""; display: inline-block; width: 6px; height: 6px; margin-right: 6px; border-radius: 50%;
+  background: currentColor; vertical-align: 1px; animation: pulse 1.2s ease-in-out infinite;
+}
+/* `translate` and `scale` stack on the `transform` some of these already use for placing. */
+@keyframes fade-in { from { opacity: 0; } }
+@keyframes rise-in { from { opacity: 0; translate: 0 4px; } }
+@keyframes grow-in { from { opacity: 0; scale: .97; } }
+@keyframes drop-in { from { opacity: 0; translate: 0 -8px; } }
+@keyframes drop-out { to { opacity: 0; translate: 0 -8px; } }
+@keyframes pulse { 50% { opacity: .25; } }
 .modal-title { margin: 0 0 6px; font: 700 20px var(--display); }
 .modal-desc { margin: 0 0 15px; color: var(--dim); }
 .modal-section { margin-top: 18px; }
@@ -451,6 +479,7 @@ button.participant-options { position: absolute; top: 5px; right: 5px; width: 28
   .screens-rail { padding-right: 43px; }
   .strip-toggle { right: 12px; }
   .sidebar { flex: 0 0 40%; min-height: 132px; }
+  .workspace.chat-collapsed .sidebar { display: none; }
   .workspace.chat-collapsed .stage { flex: 1; }
   .conversation-header .room-code { font-size: 9px; }
   .modal-panel { padding: 16px; }
@@ -464,7 +493,8 @@ button.participant-options { position: absolute; top: 5px; right: 5px; width: 28
   .tray-footer .btn { font-size: 11px; }
 }
 @media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
+  /* One iteration too: a looping pulse at .01ms would flicker instead of stopping. */
+  *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
 }
 .update-banner { position: fixed; right: 16px; bottom: 16px; z-index: 50; display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-radius: 10px; background: var(--surface); border: 1px solid var(--line); box-shadow: 0 6px 24px rgba(0,0,0,.35); font-size: 13px; }
 .update-banner progress { width: 120px; }
