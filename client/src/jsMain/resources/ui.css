@@ -143,6 +143,7 @@ body.compact-tray .tray-panel { display: flex; flex-direction: column; height: 1
 .btn-lg { height: 43px; font-size: 14px; }
 
 #app-screen { height: 100vh; height: 100dvh; overflow: hidden; display: flex; flex-direction: column; }
+#app-screen:not(.hidden) { animation: fade-in .2s ease-out; }
 .dock-status, .connection-status { color: var(--dim); font-size: 11px; margin: 0; }
 .connection-alert { color: var(--red); font-size: 12px; }
 .dock-tools { grid-column: 2; }
@@ -287,6 +288,11 @@ button.participant-options { position: absolute; top: 5px; right: 5px; width: 28
 .toolgroup .btn svg { width: var(--glyph-size); height: var(--glyph-size); }
 .toolgroup .btn-primary { background: var(--accent); color: var(--on-accent); }
 .toolgroup .btn-error { color: var(--red); }
+.toolgroup .btn, .device-picker summary { transition: background-color .15s, border-color .15s, color .15s, scale .09s; }
+.toolgroup .btn:active, .device-picker summary:active { scale: .94; }
+/* Shown again after display: none, so a toggle's counterpart replays this on each swap. */
+.toolgroup .btn:not(.hidden) > svg { animation: icon-in .14s cubic-bezier(.2, 0, 0, 1); }
+#micSlash:not(.hidden) { animation: fade-in .14s ease-out; }
 .device-picker { position: relative; }
 .device-picker summary { width: 24px; border-left: 0; border-radius: 0 10px 10px 0; cursor: pointer; list-style: none; }
 .device-picker summary::-webkit-details-marker { display: none; }
@@ -415,6 +421,7 @@ button.participant-options { position: absolute; top: 5px; right: 5px; width: 28
 @keyframes drop-in { from { opacity: 0; translate: 0 -8px; } }
 @keyframes drop-out { to { opacity: 0; translate: 0 -8px; } }
 @keyframes pulse { 50% { opacity: .25; } }
+@keyframes icon-in { from { opacity: 0; scale: .85; } }
 .modal-title { margin: 0 0 6px; font: 700 20px var(--display); }
 .modal-desc { margin: 0 0 15px; color: var(--dim); }
 .modal-section { margin-top: 18px; }
@@ -425,6 +432,9 @@ button.participant-options { position: absolute; top: 5px; right: 5px; width: 28
 .audio-mode-card strong { display: block; font-weight: 700; }
 .audio-mode-card span { display: block; margin-top: 3px; color: var(--dim); font-size: 11px; }
 .audio-mode-card.selected, .audio-source-tile.selected { border-color: var(--accent); }
+.audio-mode-card, .audio-source-tile { transition: border-color .12s, background-color .12s, scale .09s; }
+.audio-mode-card:hover:not(.selected), .audio-source-tile:hover:not(.selected) { border-color: var(--line-2); background: var(--hover); }
+.audio-mode-card:active, .audio-source-tile:active { scale: .98; }
 .audio-source-toolbar { display: flex; align-items: center; justify-content: space-between; }
 .audio-source-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
 .audio-source-tile { min-width: 0; padding: 8px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface-2); color: var(--text); text-align: left; }
