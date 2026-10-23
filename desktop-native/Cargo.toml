@@ -20,7 +20,7 @@ tokio-tungstenite = { version = "0.28.0", features = ["rustls-tls-native-roots"]
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 futures-util = "0.3.34"
 rand = "0.9.5"
-iced = { version = "0.14", features = ["image", "svg", "tokio"] }
+iced = { version = "0.14", features = ["advanced", "image", "svg", "tokio"] }
 desktop-capture = { path = "../desktop-capture" }
 tray-icon = "0.21"
 image = { version = "0.25", default-features = false, features = ["png"] }

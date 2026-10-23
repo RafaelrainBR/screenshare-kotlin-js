@@ -13,7 +13,7 @@ use iced::{
     widget::{Column, button, column, container, image, pick_list, row, scrollable, space, text},
 };
 
-use super::{profile, theme};
+use super::{motion, profile, theme};
 use crate::Message;
 
 pub struct Wizard {
@@ -21,6 +21,8 @@ pub struct Wizard {
     pub sources: Option<Vec<Source>>,
     /// None: the capture failed (usually a minimized window).
     pub thumbs: HashMap<String, Option<image::Handle>>,
+    /// When each thumbnail arrived: it fades in instead of popping in.
+    pub thumbs_at: HashMap<String, std::time::Instant>,
     pub selected: Option<Source>,
     pub audio: bool,
     /// A listing is in flight, so the 2 s refresh does not stack them.
@@ -29,7 +31,16 @@ pub struct Wizard {
 
 impl Wizard {
     pub fn open() -> Self {
-        Self { sources: None, thumbs: HashMap::new(), selected: None, audio: false, loading: true }
+        Self { sources: None, thumbs: HashMap::new(), thumbs_at: HashMap::new(), selected: None, audio: false, loading: true }
+    }
+
+    pub fn set_thumbnail(&mut self, id: String, handle: Option<image::Handle>) {
+        self.thumbs_at.entry(id.clone()).or_insert_with(std::time::Instant::now);
+        self.thumbs.insert(id, handle);
+    }
+
+    pub fn animating(&self) -> bool {
+        self.thumbs_at.values().any(|at| motion::running(Some(*at), motion::ENTER))
     }
 }
 
@@ -161,17 +172,20 @@ impl Wizard {
 
     fn tile<'a>(&'a self, source: &'a Source) -> Element<'a, Message> {
         let preview: Element<'_, Message> = match self.thumbs.get(&source.id) {
-            Some(Some(handle)) => image(handle.clone()).width(Length::Fill).height(124).into(),
+            Some(Some(handle)) => {
+                let shown = self.thumbs_at.get(&source.id).map_or(1.0, |at| motion::progress(*at, motion::ENTER));
+                image(handle.clone()).width(Length::Fill).height(124).opacity(shown).into()
+            }
             Some(None) => container(text("Sem preview (janela minimizada?)").size(11).color(theme::DIM)).center_x(Length::Fill).center_y(124).into(),
             None => container(text("Carregando preview…").size(11).color(theme::DIM)).center_x(Length::Fill).center_y(124).into(),
         };
         let picked = self.selected.as_ref().is_some_and(|s| same(s, source));
-        button(column![preview, text(&source.title).size(13)].spacing(7))
+        let tile = button(column![preview, text(&source.title).size(13)].spacing(7))
             .padding(8)
             .width(240)
             .style(move |t, status| theme::tile(picked, t, status))
-            .on_press(Message::Pick(source.id.clone()))
-            .into()
+            .on_press(Message::Pick(source.id.clone()));
+        motion::press(tile, 0.98)
     }
 
     /// `advanced`: the "Ajustes avançados" section is open.

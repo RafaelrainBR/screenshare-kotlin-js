@@ -160,6 +160,12 @@ pub struct App {
     /// When the chat or the rail was last hidden or shown, for their slide.
     chat_toggled: Option<Instant>,
     rail_toggled: Option<Instant>,
+    /// When the room screen appeared, for its fade in.
+    entered: Option<Instant>,
+    /// Sharing, camera and microphone as the dock last showed them, and when each changed: the new icon pops in.
+    dock_icons: [(bool, Option<Instant>); 3],
+    /// Where each video tile was drawn, for the slide when the grid changes.
+    flips: ui::motion::Flips<TileKey>,
     /// The video shown alone (web focus mode); the others go to the rail.
     focused: Option<TileKey>,
     sent: u64,
@@ -431,6 +437,7 @@ fn update(app: &mut App, message: Message) -> Task<Message> {
             };
             startup::save_last_room(app.name.trim(), &app.room);
             app.running = Some(start(app.room.clone(), app.name.trim().into()));
+            app.entered = Some(Instant::now());
             return operation::focus(room::CHAT_INPUT);
         }
         Message::Join => {}
@@ -557,7 +564,7 @@ fn update(app: &mut App, message: Message) -> Task<Message> {
         }
         Message::Thumbnail(id, handle) => {
             if let Some(wizard) = &mut app.wizard {
-                wizard.thumbs.insert(id, handle);
+                wizard.set_thumbnail(id, handle);
             }
         }
         Message::Pick(id) => {
@@ -805,6 +812,13 @@ fn tick(app: &mut App) -> Task<Message> {
             app.speaking_since.insert(p.socket_id.clone(), (talking, now));
         }
     }
+    let icons = [sharing(&app.view), camera_on(&app.view), app.view.microphone_enabled];
+    for ((was, at), on) in app.dock_icons.iter_mut().zip(icons) {
+        if *was != on {
+            *was = on;
+            *at = Some(now);
+        }
+    }
     let errors = room::errors(app).join(" · ");
     if errors != app.shown_errors {
         if !errors.is_empty() {
@@ -958,7 +972,11 @@ pub fn speaking(app: &App, peer: &str) -> f32 {
 
 /// Something is still moving, so the window redraws at 60 Hz (ui::motion).
 fn animating(app: &App) -> bool {
-    use ui::motion::{ENTER, LEAVE, POP, SLIDE, running};
+    use ui::motion::{ENTER, ICON, LEAVE, POP, ROOM, SLIDE, running};
+    let moving = app.flips.running() || running(app.entered, ROOM) || app.dock_icons.iter().any(|(_, at)| running(*at, ICON)) || app.wizard.as_ref().is_some_and(Wizard::animating);
+    if moving {
+        return true;
+    }
     let tiles = app.tiles.values().any(|tile| running(tile.shown_at, ENTER) || tile.leaving_since.is_some());
     let speaking = app.speaking_since.values().any(|(_, at)| running(Some(*at), POP));
     // The notice slides in, then fades out at the end of its 6 s.
@@ -1020,7 +1038,9 @@ fn view(app: &App) -> Element<'_, Message> {
         return ui::panel::view(app);
     }
     if app.running.is_some() {
-        return room::view(app);
+        // Like the web #app-screen fade-in: the room comes up from the window's background.
+        let veil = 1.0 - app.entered.map_or(1.0, |at| ui::motion::progress(at, ui::motion::ROOM));
+        return ui::motion::veil(room::view(app), ui::theme::BG, veil, 0.0);
     }
     ui::join::view(app)
 }
