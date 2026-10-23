@@ -40,6 +40,8 @@ object InterfaceMutations {
                 // Connected stays announced via role=status without taking space; problems stay visible.
                 classList.toggle("sr-only", connected)
                 classList.toggle("connection-alert", alert)
+                // A pulsing dot while it is still trying ("…"), not on a final error.
+                classList.toggle("connecting", !connected && status.endsWith("…"))
             }
         }
         Elements.sendMessageButton.disabled = !connected
@@ -156,8 +158,12 @@ object InterfaceMutations {
         val notice = document.getElementById("ui-notice") as HTMLElement
         noticeTimeout?.let { window.clearTimeout(it) }
         notice.textContent = message
-        notice.classList.remove("hidden")
-        noticeTimeout = window.setTimeout({ notice.classList.add("hidden") }, 6_000)
+        notice.classList.remove("hidden", "leaving")
+        noticeTimeout =
+            window.setTimeout({
+                notice.classList.add("leaving")
+                noticeTimeout = window.setTimeout({ notice.classList.add("hidden") }, 150)
+            }, 6_000)
     }
 
     fun navigateToRoomScreen(
@@ -245,6 +251,7 @@ object InterfaceMutations {
         } else {
             val tile = createScreenTile(tileId, stream, username, isLocal)
             Elements.screensMain.appendChild(tile)
+            Motion.enter(tile)
         }
         reflowScreens()
     }
@@ -271,6 +278,7 @@ object InterfaceMutations {
         video.autoplay = true
         video.muted = isLocal || outputMuted
         video.setAttribute("playsinline", "")
+        Motion.revealOnFirstFrame(video)
         video.srcObject = stream
         // Removing a tile also fires pause; only resume attached videos and ignore aborted play().
         video.addEventListener("pause", { if (video.isConnected) video.play().catch { } })
@@ -392,14 +400,25 @@ object InterfaceMutations {
     }
 
     fun removeScreenTile(tileId: String) {
-        val tile = document.getElementById("screen-tile-$tileId")
-        if (tile != null) {
-            tile.parentElement?.removeChild(tile)
-        }
         screenVolumes.remove(tileId)
         screenLastAudibleVolumes.remove(tileId)
         if (focusedTileId == tileId) focusedTileId = null
-        reflowScreens()
+        val tile = document.getElementById("screen-tile-$tileId") as? HTMLElement
+        if (tile != null) leaveTile(tile) else reflowScreens()
+    }
+
+    /**
+     * Fades the tile out where it is and lays the stage out once it is gone. Meanwhile it has no
+     * ids and the layout skips it, so a share that comes right back gets a tile of its own.
+     */
+    private fun leaveTile(tile: HTMLElement) {
+        tile.id = ""
+        tile.querySelector("video")?.id = ""
+        tile.classList.add("leaving")
+        Motion.leave(tile) {
+            tile.parentElement?.removeChild(tile)
+            reflowScreens()
+        }
     }
 
     fun setFocusedTile(tileId: String) {
@@ -413,7 +432,7 @@ object InterfaceMutations {
     }
 
     private fun findTile(tileId: String): HTMLElement? {
-        val tiles = Elements.screensStage.querySelectorAll(".screen-tile")
+        val tiles = Elements.screensStage.querySelectorAll(".screen-tile:not(.leaving)")
         for (index in 0 until tiles.length) {
             val tile = tiles.item(index) as? HTMLElement ?: continue
             if (tile.getAttribute("data-tile-id") == tileId) return tile
@@ -422,7 +441,7 @@ object InterfaceMutations {
     }
 
     fun reflowScreens() {
-        val tiles = Elements.screensStage.querySelectorAll(".screen-tile")
+        val tiles = Elements.screensStage.querySelectorAll(".screen-tile:not(.leaving)")
         val tileCount = tiles.length
 
         if (tileCount == 0) {
@@ -594,6 +613,7 @@ object InterfaceMutations {
         } else {
             val tile = createCameraTile(tileId, stream, username, isLocal)
             Elements.screensMain.appendChild(tile)
+            Motion.enter(tile)
         }
         reflowScreens()
     }
@@ -620,6 +640,7 @@ object InterfaceMutations {
         video.autoplay = true
         video.muted = isLocal || outputMuted
         video.setAttribute("playsinline", "")
+        Motion.revealOnFirstFrame(video)
         video.srcObject = stream
         // Removing a tile also fires pause; only resume attached videos and ignore aborted play().
         video.addEventListener("pause", { if (video.isConnected) video.play().catch { } })
@@ -680,12 +701,9 @@ object InterfaceMutations {
     }
 
     fun removeCameraTile(tileId: String) {
-        val tile = document.getElementById("camera-tile-$tileId")
-        if (tile != null) {
-            tile.parentElement?.removeChild(tile)
-        }
         if (focusedTileId == tileId) focusedTileId = null
-        reflowScreens()
+        val tile = document.getElementById("camera-tile-$tileId") as? HTMLElement
+        if (tile != null) leaveTile(tile) else reflowScreens()
     }
 
     fun addAudioElementForUser(
