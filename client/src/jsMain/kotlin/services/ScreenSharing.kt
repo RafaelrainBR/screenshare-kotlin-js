@@ -29,6 +29,9 @@ class ScreenSharing(
     var lastShareWidth: Int = 1920
     var lastShareHeight: Int = 1080
     var lastShareProfile: ShareProfile = SharePreset.VIDEO.profile
+
+    /** Native capture always sends the source size; the encoder scales it to the chosen height. */
+    var lastShareScaleDown: Double = 1.0
     private var nativeAudioTrack: MediaStreamTrack? = null
     private var nativeVideoTrack: MediaStreamTrack? = null
 
@@ -53,6 +56,11 @@ class ScreenSharing(
         lastShareWidth = width
         lastShareHeight = height
         lastShareProfile = profile
+        lastShareScaleDown =
+            nativeSource
+                ?.rect
+                ?.takeIf { it.size == 4 && !useSourceResolution }
+                ?.let { (_, top, _, bottom) -> shareScaleDown(bottom - top, height) } ?: 1.0
         val frameRate = profile.fps
 
         val displayStream =

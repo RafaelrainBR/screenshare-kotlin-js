@@ -83,6 +83,7 @@ class PeerConnections(
             maxBitrate = shareBitrate(profile, screenSharing.lastShareHeight),
             maxFramerate = profile.fps,
             degradationPreference = profile.priority.degradationPreference,
+            scaleResolutionDownBy = screenSharing.lastShareScaleDown,
         )
     }
 
@@ -94,8 +95,11 @@ class PeerConnections(
                 peerConnection.addTrack(track, screenSharing.localScreenStream!!)
 
                 if (track.kind == "video") {
-                    // Prefere codec (VP9) e controla bitrate/fps ANTES de createOffer.
-                    peerConnection.preferVideoCodecs()
+                    // Prefere codec e controla bitrate/fps ANTES de createOffer. Fora do
+                    // modo nitidez, o encoder da GPU poupa a CPU do jogo compartilhado.
+                    peerConnection.preferVideoCodecs(
+                        preferHardware = screenSharing.lastShareProfile.priority != SharePriority.SHARPNESS,
+                    )
                     applyShareEncoding(peerConnection, track)
                 }
             }

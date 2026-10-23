@@ -1,5 +1,6 @@
 package decorators
 
+import kotlinx.browser.window
 import org.w3c.dom.mediacapture.MediaStream
 import org.w3c.dom.mediacapture.MediaStreamTrack
 import screenshare.common.IceServer
@@ -105,12 +106,14 @@ class RTCPeerConnectionDecorator(
         maxBitrate: Int,
         maxFramerate: Int,
         degradationPreference: String,
+        scaleResolutionDownBy: Double = 1.0,
     ): Promise<Boolean> {
         val limits =
             json(
                 "maxBitrate" to maxBitrate,
                 "maxFramerate" to maxFramerate,
                 "degradationPreference" to degradationPreference,
+                "scaleResolutionDownBy" to scaleResolutionDownBy,
             )
         videoEncodings[trackId] = limits
         return applyVideoEncoding(trackId, limits)
@@ -128,6 +131,7 @@ class RTCPeerConnectionDecorator(
         for (enc in encodings) {
             enc.maxBitrate = limits["maxBitrate"]
             enc.maxFramerate = limits["maxFramerate"]
+            enc.scaleResolutionDownBy = limits["scaleResolutionDownBy"]
         }
         params.degradationPreference = limits["degradationPreference"]
         val applied = runCatching { sender.setParameters(params) as Promise<dynamic> }.getOrElse { Promise.reject(it) }
@@ -145,8 +149,9 @@ class RTCPeerConnectionDecorator(
      * Deve ser chamado DEPOIS de adicionar o track e ANTES de createOffer().
      * VP9 oferece a melhor qualidade a menor bitrate para conteúdo de tela/filme
      * no Chrome moderno; H264 fica como fallback de compatibilidade/hardware.
+     * [preferHardware] põe na frente os codecs que a GPU codifica (ver [probeHardwareEncoders]).
      */
-    fun preferVideoCodecs() {
+    fun preferVideoCodecs(preferHardware: Boolean = false) {
         // Mira o sender de VÍDEO (não o primeiro sender): se o mic fosse
         // adicionado antes da tela, firstOrNull() cairia num sender de áudio
         // e a preferência de codec não teria efeito no vídeo.
@@ -157,7 +162,7 @@ class RTCPeerConnectionDecorator(
         // getCapabilities belongs to RTCRtpSender, not RTCPeerConnection.
         val capabilities: dynamic = js("RTCRtpSender.getCapabilities('video')") ?: return
         val allCodecs: Array<dynamic> = capabilities.codecs as Array<dynamic>
-        val order = listOf("vp9", "h264", "vp8", "av1")
+        val order = if (preferHardware) codecOrder(hardwareEncoders) else CODEC_ORDER
         val primary =
             order.flatMap { id ->
                 allCodecs.filter { codec ->
@@ -297,6 +302,31 @@ class RTCPeerConnectionDecorator(
             return RTCPeerConnectionDecorator(instantiate(servers))
         }
 
+        // Software VP9 at 1080p60 takes several cores from the game being shared; the GPU encoder doesn't.
+        private val hardwareEncoders = mutableSetOf<String>()
+
+        /** Asks the browser once which codecs it encodes in hardware; until it answers, none is preferred. */
+        fun probeHardwareEncoders() {
+            val capabilities = window.navigator.asDynamic().mediaCapabilities ?: return
+            CODEC_ORDER.forEach { id ->
+                val video =
+                    json(
+                        "contentType" to "video/${id.uppercase()}",
+                        "width" to 1920,
+                        "height" to 1080,
+                        "bitrate" to 9_000_000,
+                        "framerate" to 60,
+                    )
+                runCatching {
+                    capabilities
+                        .encodingInfo(json("type" to "webrtc", "video" to video))
+                        .then { info: dynamic ->
+                            if (info.supported == true && info.powerEfficient == true) hardwareEncoders.add(id)
+                        }.catch { _: dynamic -> }
+                }
+            }
+        }
+
         private fun instantiate(iceServers: Array<Json>): dynamic =
             js(
                 """
@@ -314,3 +344,8 @@ fun createRTCIceCandidate(
     js(
         "new RTCIceCandidate({candidate: candidate, sdpMid: sdpMid, sdpMLineIndex: sdpMLineIndex})",
     ).unsafeCast<Json>()
+
+private val CODEC_ORDER = listOf("vp9", "h264", "vp8", "av1")
+
+/** [CODEC_ORDER] with the hardware-encoded codecs first, each group keeping its order. */
+internal fun codecOrder(hardware: Set<String>): List<String> = CODEC_ORDER.sortedBy { it !in hardware }

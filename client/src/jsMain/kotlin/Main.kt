@@ -1,3 +1,4 @@
+import decorators.RTCPeerConnectionDecorator
 import kotlinx.browser.window
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -38,6 +39,8 @@ fun main() {
                 },
             )
         }
+
+    RTCPeerConnectionDecorator.probeHardwareEncoders()
 
     val websocketCoroutineScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
     websocketCoroutineScope.launch {
