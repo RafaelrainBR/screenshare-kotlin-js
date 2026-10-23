@@ -113,11 +113,12 @@ pub fn bubble(own: bool) -> impl Fn(&Theme) -> container::Style {
     }
 }
 
-/// Toast (.notice).
-pub fn notice(_: &Theme) -> container::Style {
-    container::Style {
-        background: Some(color!(0x2a1a21).into()),
-        border: Border { color: RED, width: 1.0, radius: 9.0.into() },
+/// Toast (.notice), at `alpha` while it fades in or out.
+pub fn notice(alpha: f32) -> impl Fn(&Theme) -> container::Style {
+    move |_| container::Style {
+        background: Some(Color { a: alpha, ..color!(0x2a1a21) }.into()),
+        text_color: Some(Color { a: alpha, ..TEXT }),
+        border: Border { color: Color { a: alpha, ..RED }, width: 1.0, radius: 9.0.into() },
         ..Default::default()
     }
 }
@@ -154,12 +155,13 @@ pub fn switch<'a, M: 'a>(on: bool) -> Element<'a, M> {
 }
 
 /// .screen-tile: video background, accent border while focused.
-pub fn video_tile(focused: bool, speaking: bool) -> button::Style {
+/// `speaking`, 0 to 1, eases the border to green while its owner talks (.screen-tile.speaking).
+pub fn video_tile(focused: bool, speaking: f32) -> button::Style {
+    let base = if focused { color!(0x8eb4fa) } else { LINE };
     button::Style {
         background: Some(VIDEO.into()),
         text_color: color!(0xeef2fa),
-        // .screen-tile.speaking: green while its owner talks.
-        border: Border { color: if speaking { GREEN } else if focused { color!(0x8eb4fa) } else { LINE }, width: 1.0, radius: RADIUS.into() },
+        border: Border { color: super::motion::mix(base, GREEN, speaking), width: 1.0, radius: RADIUS.into() },
         ..Default::default()
     }
 }
@@ -182,12 +184,11 @@ pub fn participant_tile(_: &Theme) -> container::Style {
     }
 }
 
-/// .avatar-circle
-pub fn avatar(speaking: bool) -> container::Style {
+/// .avatar-circle; `speaking`, 0 to 1, eases in its green 2 px ring (.avatar-circle.speaking).
+pub fn avatar(speaking: f32) -> container::Style {
     container::Style {
         background: Some(LINE.into()),
-        // .avatar-circle.speaking: a green 2 px ring.
-        border: Border { color: if speaking { GREEN } else { Color::TRANSPARENT }, width: 2.0, radius: 23.0.into() },
+        border: Border { color: Color { a: speaking.clamp(0.0, 1.0), ..GREEN }, width: 2.0, radius: 23.0.into() },
         ..Default::default()
     }
 }
@@ -212,9 +213,9 @@ pub fn chip(live: bool) -> container::Style {
     }
 }
 
-/// .modal-backdrop
-pub fn backdrop(_: &Theme) -> container::Style {
-    container::Style { background: Some(Color { a: 0.68, ..Color::BLACK }.into()), ..Default::default() }
+/// .modal-backdrop fading in: `shown`, 0 to 1, of its 68% black.
+pub fn backdrop_at(shown: f32) -> impl Fn(&Theme) -> container::Style {
+    move |_| container::Style { background: Some(Color { a: 0.68 * shown, ..Color::BLACK }.into()), ..Default::default() }
 }
 
 /// .modal-panel

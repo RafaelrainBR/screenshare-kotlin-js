@@ -147,8 +147,17 @@ pub fn view(app: &App) -> Element<'_, Message> {
     let leave = tool(LEAVE.into(), Tone::Danger, "Sair ou trocar de sala".into(), Message::Leave, None);
     // .dock-status: only while something is wrong, ellipsized on the left.
     let (status, status_color) = super::room::status(app);
+    // A dot pulses while it is still trying ("…"), not beside a final error, like the web .connecting.
+    let trying = status.ends_with('…');
+    let label = text(status).size(11).color(status_color).wrapping(text::Wrapping::None);
+    let status: Element<'_, Message> = if trying {
+        let dot = text("●").size(8).color(iced::Color { a: super::motion::pulse(), ..status_color });
+        row![dot, label].spacing(6).align_y(Alignment::Center).into()
+    } else {
+        label.into()
+    };
     row![
-        container(text(status).size(11).color(status_color).wrapping(text::Wrapping::None)).width(Length::Fill).clip(true),
+        container(status).width(Length::Fill).clip(true),
         tools,
         container(leave).width(Length::Fill).align_right(Length::Fill),
     ]
@@ -167,15 +176,19 @@ pub fn popover(app: &App) -> Option<Element<'_, Message>> {
         (None, Some(Picker::Output)) => (OUTPUT_X, 260.0, Message::DevicePicker(None)),
         (None, None) => return None,
     };
+    // Rises 4 px into place while its content fades in, like the web .picker-panel.
+    let shown = app.popover_at.map_or(1.0, |at| super::motion::progress(at, super::motion::POP));
     let placed = responsive(move |size| {
         let panel = match (app.share_menu, app.device_picker) {
             (Some(page), _) => profile::menu(page, app.profile, app.view.screen_state == "active"),
             (None, Some(picker)) => device_panel(app, picker),
             (None, None) => space().into(),
         };
+        let panel = super::motion::veil(panel, theme::SURFACE, 1.0 - shown, 13.0);
         let tools_x = INSET + (size.width - 2.0 * INSET - TOOLS) / 2.0;
         let x = (tools_x + group_x).clamp(OUTER, (size.width - width - OUTER).max(OUTER));
-        column![space::vertical(), row![space().width(x), panel]].padding(Padding { bottom: OUTER + DOCK_HEIGHT + 8.0, ..Padding::ZERO }).into()
+        let bottom = OUTER + DOCK_HEIGHT + 8.0 - 4.0 * (1.0 - shown);
+        column![space::vertical(), row![space().width(x), panel]].padding(Padding { bottom, ..Padding::ZERO }).into()
     });
     // A click outside closes it, like the web <details> pickers.
     let outside = iced::widget::mouse_area(container(space()).width(Length::Fill).height(Length::Fill)).on_press(close);

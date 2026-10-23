@@ -1,5 +1,6 @@
 pub mod dock;
 pub mod join;
+pub mod motion;
 pub mod panel;
 pub mod permission;
 pub mod profile;
