@@ -248,12 +248,12 @@ object InterfaceMutations {
             existingTile.setAttribute("aria-label", "Tela de $username")
             existingTile.querySelector(".tile-name")?.textContent = username
             (existingTile as? HTMLElement)?.title = "Tela de $username"
+            reflowScreens()
         } else {
             val tile = createScreenTile(tileId, stream, username, isLocal)
-            Elements.screensMain.appendChild(tile)
+            reflowScreens { Elements.screensMain.appendChild(tile) }
             Motion.enter(tile)
         }
-        reflowScreens()
     }
 
     private fun createScreenTile(
@@ -416,8 +416,7 @@ object InterfaceMutations {
         tile.querySelector("video")?.id = ""
         tile.classList.add("leaving")
         Motion.leave(tile) {
-            tile.parentElement?.removeChild(tile)
-            reflowScreens()
+            reflowScreens { tile.parentElement?.removeChild(tile) }
         }
     }
 
@@ -440,7 +439,16 @@ object InterfaceMutations {
         return null
     }
 
-    fun reflowScreens() {
+    /** Runs [change] and lays the stage out, sliding the tiles already there to their new places. */
+    fun reflowScreens(change: () -> Unit = {}) {
+        val placed = Elements.screensStage.querySelectorAll(".screen-tile:not(.leaving), .participant-tile")
+        Motion.flip(List(placed.length) { placed.item(it) as HTMLElement }) {
+            change()
+            layoutScreens()
+        }
+    }
+
+    private fun layoutScreens() {
         val tiles = Elements.screensStage.querySelectorAll(".screen-tile:not(.leaving)")
         val tileCount = tiles.length
 
@@ -610,12 +618,12 @@ object InterfaceMutations {
             existingTile.setAttribute("aria-label", "Câmera de $username")
             existingTile.querySelector(".tile-name")?.textContent = username
             (existingTile as? HTMLElement)?.title = "Câmera de $username"
+            reflowScreens()
         } else {
             val tile = createCameraTile(tileId, stream, username, isLocal)
-            Elements.screensMain.appendChild(tile)
+            reflowScreens { Elements.screensMain.appendChild(tile) }
             Motion.enter(tile)
         }
-        reflowScreens()
     }
 
     private fun createCameraTile(
