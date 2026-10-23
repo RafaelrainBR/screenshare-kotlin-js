@@ -73,7 +73,6 @@ pub enum Message {
     StopShare,
     Key(keyboard::Key, keyboard::Modifiers),
     Tick,
-    Allocated(TileKey, u64, Option<image::Allocation>),
     /// Click on a video: show it alone, or back to the grid.
     Focus(TileKey),
     /// The tile's "Tela cheia" button: that video alone over the whole monitor, or back.
@@ -129,13 +128,11 @@ impl Drop for Running {
 /// (peer, camera): one remote screen or camera.
 pub type TileKey = (String, bool);
 
+/// The newest frame of one video; the window uploads it when it draws (ui::video).
 #[derive(Default)]
 pub struct Tile {
-    pub frame: Option<image::Allocation>,
-    shown: u64,
-    /// An upload is in flight: iced only finishes (and frees) uploads when it draws, so one upload
-    /// per decoded frame piled up gigabytes whenever drawing fell behind.
-    uploading: bool,
+    pub frame: Option<Arc<desktop_native::VideoFrameSnapshot>>,
+    pub version: u64,
 }
 
 #[derive(Default)]
@@ -146,7 +143,7 @@ pub struct App {
     running: Option<Running>,
     view: SessionView,
     wizard: Option<Wizard>,
-    /// Newest uploaded frame per remote video, like the web screen tiles.
+    /// Newest frame per video, ours included, like the web screen tiles.
     tiles: HashMap<TileKey, Tile>,
     /// The video shown alone (web focus mode); the others go to the rail.
     focused: Option<TileKey>,
@@ -633,16 +630,6 @@ fn update(app: &mut App, message: Message) -> Task<Message> {
         }
         Message::Key(key, modifiers) => return shortcut(app, key, modifiers),
         Message::Tick => return tick(app),
-        Message::Allocated(key, seq, allocation) => {
-            if let Some(tile) = app.tiles.get_mut(&key) {
-                tile.uploading = false;
-                // Uploads finish out of order; keep the newest.
-                if let Some(allocation) = allocation.filter(|_| seq > tile.shown) {
-                    tile.shown = seq;
-                    tile.frame = Some(allocation);
-                }
-            }
-        }
         Message::Focus(key) => app.focused = (app.focused.as_ref() != Some(&key)).then_some(key),
         Message::Fullscreen(key) => return set_fullscreen(app, key),
         Message::ToggleChat => app.chat_hidden = !app.chat_hidden,
@@ -843,7 +830,7 @@ fn tick(app: &mut App) -> Task<Message> {
     }
     let Some(running) = &app.running else { return Task::none() };
     let view = &app.view;
-    // Take ownership of the newest frames so their pixels move into the image handles without a copy.
+    // Take the newest frames off the surface; the tiles keep them until a newer one arrives.
     let frames: Vec<_> = {
         let mut surface = running.surface.lock().unwrap();
         let latest = std::mem::take(&mut surface.latest);
@@ -870,16 +857,12 @@ fn tick(app: &mut App) -> Task<Message> {
     }
     // Like the browser leaving fullscreen when the video element goes away.
     let windowed = if app.fullscreen.as_ref().is_some_and(|key| !is_shared(view, key)) { set_fullscreen(app, None) } else { Task::none() };
-    let windowed = unfocus.chain(windowed);
-    // iced uploads images asynchronously: each tile swaps once its upload is done, dropping late ones.
-    // One upload per tile at a time; frames arriving meanwhile are dropped, the next one is newer anyway.
-    let frames = frames.into_iter().filter(|(key, _)| !std::mem::replace(&mut app.tiles.entry(key.clone()).or_default().uploading, true));
-    windowed.chain(Task::batch(frames.map(|(key, snapshot)| {
-        let snapshot = Arc::try_unwrap(snapshot).unwrap_or_else(|shared| (*shared).clone());
+    // Only the newest frame per tile is kept; the window uploads it when it draws.
+    for (key, snapshot) in frames {
         app.sent += 1;
-        let seq = app.sent;
-        image::allocate(image::Handle::from_rgba(snapshot.width, snapshot.height, snapshot.rgba)).map(move |r| Message::Allocated(key.clone(), seq, r.ok()))
-    })))
+        *app.tiles.entry(key).or_default() = Tile { frame: Some(snapshot), version: app.sent };
+    }
+    unfocus.chain(windowed)
 }
 
 /// The window follows `app.fullscreen`; leaving it only touches a window that was fullscreen.

@@ -4,7 +4,7 @@ use std::time::Duration;
 use desktop_native::session::{AudioDevice, Participant};
 use iced::{
     Alignment, Element, Length,
-    widget::{button, column, container, image, mouse_area, opaque, row, scrollable, stack, text, text_input},
+    widget::{button, column, container, mouse_area, opaque, row, scrollable, stack, text, text_input},
 };
 
 use super::{dock, theme};
@@ -300,9 +300,9 @@ fn local_time(timestamp_ms: i64) -> String {
 fn video_tile<'a>(app: &'a App, key: &TileKey, small: bool) -> Element<'a, Message> {
     let (peer, camera) = key;
     let name = app.view.participants.iter().find(|p| &p.socket_id == peer).map_or("…", |p| p.username.as_str());
-    let content: Element<'a, Message> = match app.tiles.get(key).and_then(|tile| tile.frame.as_ref()) {
+    let content: Element<'a, Message> = match app.tiles.get(key).and_then(|tile| Some((tile.frame.clone()?, tile.version))) {
         _ if app.hidden_videos.contains(key) => container(text("Vídeo oculto").color(theme::DIM)).center(Length::Fill).into(),
-        Some(frame) => image(frame.handle().clone()).width(Length::Fill).height(Length::Fill).into(),
+        Some((frame, version)) => iced::widget::Shader::new(super::video::Video { key: key.clone(), frame, version }).width(Length::Fill).height(Length::Fill).into(),
         None => container(text(format!("Conectando à {} de {name}…", if *camera { "câmera" } else { "tela" })).size(12).color(theme::DIM))
             .center(Length::Fill)
             .into(),
