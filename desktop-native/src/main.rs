@@ -279,7 +279,6 @@ fn with_window(task: impl Fn(window::Id) -> Task<Message> + Send + 'static) -> T
 }
 
 /// Tauri's present_window(compact): frameless, fixed, on top, 430×660 by the tray icon.
-/// shortcut: the panel still shows on the taskbar (iced has no skip-taskbar); set WS_EX_TOOLWINDOW if it bothers.
 fn open_panel(app: &mut App, (x, y, w, h): (f64, f64, f64, f64)) -> Task<Message> {
     let windowed = set_fullscreen(app, None);
     let framed = !app.compact;
@@ -954,7 +953,9 @@ fn subscription(app: &App) -> Subscription<Message> {
         subscriptions.push(window::events().filter_map(|(_, event)| matches!(event, window::Event::Unfocused).then_some(Message::PanelBlur)));
     }
     if app.running.is_some() {
-        subscriptions.push(iced::time::every(Duration::from_millis(16)).map(|_| Message::Tick));
+        // Every update redraws the window: 60 a second only while a video plays in a shown room.
+        let video = !app.tiles.is_empty() && app.visible && !app.compact;
+        subscriptions.push(iced::time::every(Duration::from_millis(if video { 16 } else { 100 })).map(|_| Message::Tick));
     }
     if app.wizard.is_some() {
         // Like the web wizard: windows that open or close show up while it is open.

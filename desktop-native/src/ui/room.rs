@@ -390,7 +390,6 @@ fn avatar_tile<'a>(p: &'a Participant, me: bool, speaking: bool) -> Element<'a, 
 }
 
 /// #participant-context: per-viewer options for one participant, opened by ⋯.
-/// shortcut: no volume slider; libwebrtc's wrapper has no per-track gain, only on/off.
 fn options_menu<'a>(app: &'a App, peer: &'a str, camera: Option<bool>) -> Element<'a, Message> {
     let name = app.view.participants.iter().find(|p| p.socket_id == peer).map_or("Participante", |p| p.username.as_str());
     let me = app.view.local_socket_id.as_deref() == Some(peer);
