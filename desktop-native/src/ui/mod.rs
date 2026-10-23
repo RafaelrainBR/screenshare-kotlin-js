@@ -5,4 +5,5 @@ pub mod permission;
 pub mod profile;
 pub mod room;
 pub mod theme;
+pub mod video;
 pub mod wizard;
