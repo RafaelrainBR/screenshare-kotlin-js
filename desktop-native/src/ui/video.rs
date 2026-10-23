@@ -1,9 +1,10 @@
-//! A video tile drawn from one GPU texture per tile, written only while the window draws.
+//! A video tile drawn from GPU textures of its own, written only while the window draws.
 //!
 //! iced's image cache finishes an upload when a layout measures the image, but frees replaced
 //! uploads only when the window draws. A minimized, hidden or covered window kept laying out every
 //! new frame, so each one stayed in memory (gigabytes in seconds). Here a frame reaches the GPU in
-//! `prepare`, which runs only inside a draw, and replaces the tile's texture in place.
+//! `prepare`, which runs only inside a draw, and replaces the tile's textures in place. The frame
+//! goes up as its I420 planes and the shader turns it into RGB, so the CPU never converts it.
 use std::{
     collections::{HashMap, HashSet},
     sync::{Arc, Mutex},
@@ -52,14 +53,14 @@ pub struct Pipeline {
     pipeline: wgpu::RenderPipeline,
     layout: wgpu::BindGroupLayout,
     sampler: wgpu::Sampler,
-    texture_format: wgpu::TextureFormat,
-    textures: HashMap<TileKey, Texture>,
-    /// Tiles drawn since the last trim; the others give their texture back.
+    textures: HashMap<TileKey, Planes>,
+    /// Tiles drawn since the last trim; the others give their textures back.
     used: HashSet<TileKey>,
 }
 
-struct Texture {
-    texture: wgpu::Texture,
+/// Y, U and V of one tile.
+struct Planes {
+    planes: [wgpu::Texture; 3],
     bind_group: wgpu::BindGroup,
     size: (u32, u32),
     version: u64,
@@ -74,35 +75,43 @@ var<private> CORNERS: array<vec2<f32>, 6> = array(
     let corner = CORNERS[index];
     return Out(vec4(corner.x * 2.0 - 1.0, 1.0 - corner.y * 2.0, 0.0, 1.0), corner);
 }
-@group(0) @binding(0) var frame: texture_2d<f32>;
-@group(0) @binding(1) var linear: sampler;
+@group(0) @binding(0) var luma: texture_2d<f32>;
+@group(0) @binding(1) var blue: texture_2d<f32>;
+@group(0) @binding(2) var red: texture_2d<f32>;
+@group(0) @binding(3) var linear: sampler;
 @fragment fn fs(input: Out) -> @location(0) vec4<f32> {
-    return textureSample(frame, linear, input.uv);
+    // BT.601 limited range, as libyuv's I420ToABGR did on the CPU before.
+    let y = 1.164 * (textureSample(luma, linear, input.uv).r - 0.0625);
+    let u = textureSample(blue, linear, input.uv).r - 0.5;
+    let v = textureSample(red, linear, input.uv).r - 0.5;
+    let rgb = clamp(vec3(y + 1.596 * v, y - 0.392 * u - 0.813 * v, y + 2.017 * u), vec3(0.0), vec3(1.0));
+    return vec4(OUTPUT, 1.0);
 }
 ";
 
 impl shader::Pipeline for Pipeline {
     fn new(device: &wgpu::Device, _queue: &wgpu::Queue, format: wgpu::TextureFormat) -> Self {
-        let module = device.create_shader_module(wgpu::ShaderModuleDescriptor { label: Some("video"), source: wgpu::ShaderSource::Wgsl(SHADER.into()) });
+        // An sRGB target encodes what it is given, so the already encoded colour goes in linear.
+        let output = if format.is_srgb() { "select(pow((rgb + 0.055) / 1.055, vec3(2.4)), rgb / 12.92, rgb <= vec3(0.04045))" } else { "rgb" };
+        let source = SHADER.replace("OUTPUT", output);
+        let module = device.create_shader_module(wgpu::ShaderModuleDescriptor { label: Some("video"), source: wgpu::ShaderSource::Wgsl(source.into()) });
+        let plane = |binding| wgpu::BindGroupLayoutEntry {
+            binding,
+            visibility: wgpu::ShaderStages::FRAGMENT,
+            ty: wgpu::BindingType::Texture {
+                sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                view_dimension: wgpu::TextureViewDimension::D2,
+                multisampled: false,
+            },
+            count: None,
+        };
         let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("video"),
             entries: &[
-                wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Texture {
-                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                        view_dimension: wgpu::TextureViewDimension::D2,
-                        multisampled: false,
-                    },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                    count: None,
-                },
+                plane(0),
+                plane(1),
+                plane(2),
+                wgpu::BindGroupLayoutEntry { binding: 3, visibility: wgpu::ShaderStages::FRAGMENT, ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering), count: None },
             ],
         });
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor { label: Some("video"), bind_group_layouts: &[&layout], push_constant_ranges: &[] });
@@ -123,9 +132,7 @@ impl shader::Pipeline for Pipeline {
             cache: None,
         });
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor { mag_filter: wgpu::FilterMode::Linear, min_filter: wgpu::FilterMode::Linear, ..Default::default() });
-        // The same bytes iced's own images would show: sRGB texture only for an sRGB target.
-        let texture_format = if format.is_srgb() { wgpu::TextureFormat::Rgba8UnormSrgb } else { wgpu::TextureFormat::Rgba8Unorm };
-        Self { pipeline, layout, sampler, texture_format, textures: HashMap::new(), used: HashSet::new() }
+        Self { pipeline, layout, sampler, textures: HashMap::new(), used: HashSet::new() }
     }
 
     fn trim(&mut self) {
@@ -141,19 +148,22 @@ impl shader::Primitive for Primitive {
         let frame = &self.frame;
         let size = (frame.width, frame.height);
         pipeline.used.insert(self.key.clone());
-        let (layout, sampler, format) = (&pipeline.layout, &pipeline.sampler, pipeline.texture_format);
-        let texture = pipeline.textures.entry(self.key.clone()).or_insert_with(|| new_texture(device, queue, layout, sampler, format, frame));
-        if texture.size != size {
-            *texture = new_texture(device, queue, layout, sampler, format, frame);
-        } else if texture.version != self.version {
-            queue.write_texture(
-                wgpu::TexelCopyTextureInfo { texture: &texture.texture, mip_level: 0, origin: wgpu::Origin3d::ZERO, aspect: wgpu::TextureAspect::All },
-                &frame.rgba,
-                wgpu::TexelCopyBufferLayout { offset: 0, bytes_per_row: Some(4 * frame.width), rows_per_image: Some(frame.height) },
-                wgpu::Extent3d { width: frame.width, height: frame.height, depth_or_array_layers: 1 },
-            );
+        let (layout, sampler) = (&pipeline.layout, &pipeline.sampler);
+        let planes = pipeline.textures.entry(self.key.clone()).or_insert_with(|| new_planes(device, queue, layout, sampler, frame));
+        if planes.size != size {
+            *planes = new_planes(device, queue, layout, sampler, frame);
+        } else if planes.version != self.version {
+            for (texture, data) in planes.planes.iter().zip([&frame.y, &frame.u, &frame.v]) {
+                let extent = texture.size();
+                queue.write_texture(
+                    wgpu::TexelCopyTextureInfo { texture, mip_level: 0, origin: wgpu::Origin3d::ZERO, aspect: wgpu::TextureAspect::All },
+                    data,
+                    wgpu::TexelCopyBufferLayout { offset: 0, bytes_per_row: Some(extent.width), rows_per_image: Some(extent.height) },
+                    extent,
+                );
+            }
         }
-        texture.version = self.version;
+        planes.version = self.version;
         let tile = *bounds * viewport.scale_factor();
         let fit = contain(size, (tile.width, tile.height));
         let letterboxed = [tile.x + (tile.width - fit.0) / 2.0, tile.y + (tile.height - fit.1) / 2.0, fit.0, fit.1];
@@ -161,13 +171,13 @@ impl shader::Primitive for Primitive {
     }
 
     fn draw(&self, pipeline: &Pipeline, pass: &mut wgpu::RenderPass<'_>) -> bool {
-        let (Some(texture), Some((tile, [x, y, width, height]))) = (pipeline.textures.get(&self.key), *self.viewports.lock().unwrap()) else {
+        let (Some(planes), Some((tile, [x, y, width, height]))) = (pipeline.textures.get(&self.key), *self.viewports.lock().unwrap()) else {
             return true;
         };
         if width >= 1.0 && height >= 1.0 {
             pass.set_viewport(x, y, width, height, 0.0, 1.0);
             pass.set_pipeline(&pipeline.pipeline);
-            pass.set_bind_group(0, &texture.bind_group, &[]);
+            pass.set_bind_group(0, &planes.bind_group, &[]);
             pass.draw(0..6, 0..1);
         }
         // What iced set before this draw; the images and text after it in this pass rely on it.
@@ -176,29 +186,42 @@ impl shader::Primitive for Primitive {
     }
 }
 
-fn new_texture(device: &wgpu::Device, queue: &wgpu::Queue, layout: &wgpu::BindGroupLayout, sampler: &wgpu::Sampler, format: wgpu::TextureFormat, frame: &VideoFrameSnapshot) -> Texture {
-    let texture = device.create_texture_with_data(
-        queue,
-        &wgpu::TextureDescriptor {
-            label: Some("video frame"),
-            size: wgpu::Extent3d { width: frame.width, height: frame.height, depth_or_array_layers: 1 },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format,
-            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-            view_formats: &[],
-        },
-        wgpu::util::TextureDataOrder::LayerMajor,
-        &frame.rgba,
-    );
-    let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+fn new_planes(device: &wgpu::Device, queue: &wgpu::Queue, layout: &wgpu::BindGroupLayout, sampler: &wgpu::Sampler, frame: &VideoFrameSnapshot) -> Planes {
+    let (chroma_width, chroma_height) = (frame.width.div_ceil(2), frame.height.div_ceil(2));
+    let plane = |(width, height), data: &[u8]| {
+        device.create_texture_with_data(
+            queue,
+            &wgpu::TextureDescriptor {
+                label: Some("video plane"),
+                size: wgpu::Extent3d { width, height, depth_or_array_layers: 1 },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::R8Unorm,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+                view_formats: &[],
+            },
+            wgpu::util::TextureDataOrder::LayerMajor,
+            data,
+        )
+    };
+    let planes = [
+        plane((frame.width, frame.height), &frame.y),
+        plane((chroma_width, chroma_height), &frame.u),
+        plane((chroma_width, chroma_height), &frame.v),
+    ];
+    let views = planes.each_ref().map(|plane| plane.create_view(&wgpu::TextureViewDescriptor::default()));
     let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-        label: Some("video frame"),
+        label: Some("video planes"),
         layout,
-        entries: &[wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(&view) }, wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::Sampler(sampler) }],
+        entries: &[
+            wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(&views[0]) },
+            wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::TextureView(&views[1]) },
+            wgpu::BindGroupEntry { binding: 2, resource: wgpu::BindingResource::TextureView(&views[2]) },
+            wgpu::BindGroupEntry { binding: 3, resource: wgpu::BindingResource::Sampler(sampler) },
+        ],
     });
-    Texture { texture, bind_group, size: (frame.width, frame.height), version: 0 }
+    Planes { planes, bind_group, size: (frame.width, frame.height), version: 0 }
 }
 
 /// The largest size with the frame's aspect that fits in `area`, like the image ContentFit::Contain.

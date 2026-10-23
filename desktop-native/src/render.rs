@@ -9,18 +9,21 @@ use std::{
 
 use libwebrtc::{
     media_stream_track::MediaStreamTrack,
-    native::yuv_helper,
     video_frame::VideoBuffer,
     video_stream::native::{NativeVideoStream, NativeVideoStreamOptions},
 };
 use tokio_stream::StreamExt;
 
-/// Latest decoded frame of one remote video track, RGBA, ready for the UI to upload.
+/// Latest decoded frame of one video track as tightly packed I420 planes; the UI converts to RGB
+/// on the GPU, so frames nobody draws cost a copy, not a conversion.
 #[derive(Clone)]
 pub struct VideoFrameSnapshot {
     pub width: u32,
     pub height: u32,
-    pub rgba: Vec<u8>,
+    /// `width`×`height` luma, then the two (`width`/2 rounded up)×(`height`/2 rounded up) chroma planes.
+    pub y: Vec<u8>,
+    pub u: Vec<u8>,
+    pub v: Vec<u8>,
     pub peer_id: String,
     pub track_id: String,
 }
@@ -150,8 +153,6 @@ impl RenderSink {
                     queue_size_frames: Some(2),
                 },
             );
-            // shortcut: every received video is converted at full rate, as the web plays every tile;
-            // throttle the rail tiles if several 1080p shares become a CPU problem.
             while !stop.load(Ordering::Acquire) && !sink.closed.load(Ordering::Acquire) {
                 let frame = tokio::select! {
                     frame = stream.next() => frame,
@@ -166,17 +167,16 @@ impl RenderSink {
                 if width == 0 || height == 0 || width > 8192 || height > 8192 {
                     continue;
                 }
-                let mut rgba = vec![0; width as usize * height as usize * 4];
                 let (y, u, v) = i420.data();
                 let (sy, su, sv) = i420.strides();
-                // libyuv's "ABGR" is R,G,B,A in memory: what iced's RGBA images expect.
-                yuv_helper::i420_to_abgr(y, sy, u, su, v, sv, &mut rgba, width * 4, width as i32, height as i32);
-                // Checked under the surface lock, so a frame converted while the peer left never lands.
+                let (chroma_width, chroma_height) = (width.div_ceil(2), height.div_ceil(2));
+                let (y, u, v) = (pack(y, sy, width, height), pack(u, su, chroma_width, chroma_height), pack(v, sv, chroma_width, chroma_height));
+                // Checked under the surface lock, so a frame copied while the peer left never lands.
                 let mut surface = sink.surface.lock().unwrap();
                 if stop.load(Ordering::Acquire) {
                     break;
                 }
-                let snapshot = VideoFrameSnapshot { width, height, rgba, peer_id: peer.clone(), track_id: track_id.clone() };
+                let snapshot = VideoFrameSnapshot { width, height, y, u, v, peer_id: peer.clone(), track_id: track_id.clone() };
                 surface.latest.insert((peer.clone(), track_id.clone()), Arc::new(snapshot));
                 surface.seen.insert((peer.clone(), track_id.clone()), Instant::now());
                 sink.presented.fetch_add(1, Ordering::Relaxed);
@@ -193,9 +193,24 @@ impl RenderSink {
     }
 }
 
+/// The `width`×`height` pixels of a plane whose rows are `stride` bytes apart, without the padding.
+fn pack(plane: &[u8], stride: u32, width: u32, height: u32) -> Vec<u8> {
+    let mut packed = Vec::with_capacity(width as usize * height as usize);
+    for row in plane.chunks(stride as usize).take(height as usize) {
+        packed.extend_from_slice(&row[..width as usize]);
+    }
+    packed
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn packing_drops_the_row_padding() {
+        let plane = [1, 2, 3, 0, 4, 5, 6, 0, 7, 8, 9];
+        assert_eq!(pack(&plane, 4, 3, 3), [1, 2, 3, 4, 5, 6, 7, 8, 9]);
+    }
     use libwebrtc::{
         peer_connection_factory::{PeerConnectionFactory, native::PeerConnectionFactoryExt},
         video_frame::{I420Buffer, VideoFrame, VideoRotation},
@@ -243,7 +258,8 @@ mod tests {
             let frames = surface.lock().unwrap();
             let width = |peer: &str| frames.latest[&(peer.to_owned(), format!("{peer}-screen"))].width;
             assert_eq!((width("b"), width("c")), (16, 32), "two sharers at once");
-            assert_eq!(frames.latest[&("b".into(), "b-screen".into())].rgba[3], 255, "alpha is opaque");
+            let b = &frames.latest[&("b".into(), "b-screen".into())];
+            assert_eq!((b.y.len(), b.u.len(), b.v.len()), (16 * 16, 8 * 8, 8 * 8), "packed planes");
         }
 
         renderer.remove("b");

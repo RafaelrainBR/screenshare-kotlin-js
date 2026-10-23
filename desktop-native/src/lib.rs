@@ -1399,15 +1399,21 @@ fn run_worker(
                     Command::StartCamera { .. } | Command::StopCamera | Command::ListCameras => Err("UNSUPPORTED: camera in synthetic tests".into()),
                     Command::GetAudioLevels => {
                         let voices = voices.lock().unwrap();
-                        let mut local = 0.0_f64;
-                        let mut remote = serde_json::Map::new();
-                        for (peer_id, peer) in &peers {
-                            let stats = runtime.block_on(peer.get_stats()).unwrap_or_default();
-                            let (level, microphone) = voice::levels(&stats, &voices.ids(peer_id));
-                            remote.insert(peer_id.clone(), json!(level));
-                            local = local.max(microphone);
-                        }
-                        event(&output, json!({ "event": "audioLevels", "peers": remote, "local": local }));
+                        let targets: Vec<_> = peers.iter().map(|(peer_id, peer)| (peer_id.clone(), peer.clone(), voices.ids(peer_id))).collect();
+                        let output = output.clone();
+                        // Off the command loop: every peer's stats, four times a second, kept mute
+                        // and share commands waiting behind them.
+                        runtime.spawn(async move {
+                            let mut local = 0.0_f64;
+                            let mut remote = serde_json::Map::new();
+                            for (peer_id, peer, ids) in targets {
+                                let stats = peer.get_stats().await.unwrap_or_default();
+                                let (level, microphone) = voice::levels(&stats, &ids);
+                                remote.insert(peer_id, json!(level));
+                                local = local.max(microphone);
+                            }
+                            event(&output, json!({ "event": "audioLevels", "peers": remote, "local": local }));
+                        });
                         Ok(())
                     }
                     Command::SetPeerMuted { peer_id, muted } => {
