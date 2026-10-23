@@ -32,10 +32,9 @@ class PeerConnections(
     private val screenShareSockets = mutableSetOf<String>()
     private val cameraShareSockets = mutableSetOf<String>()
 
-    // Contador de tracks de vídeo recebidos por peer. Como o remetente sempre
-    // adiciona a tela ANTES da câmera, o 1º track de vídeo é a tela e o 2º a
-    // câmera quando ambos estão ativos. Zerado ao parar um compartilhamento.
-    private val receivedVideoCount = mutableMapOf<String, Int>()
+    // Tracks de vídeo recebidos por peer (por id) e se cada um é a câmera.
+    // Zerado ao parar um compartilhamento.
+    private val receivedVideo = mutableMapOf<String, MutableMap<String, Pair<MediaStreamTrack, Boolean>>>()
     private var videoReceptionEnabled = true
 
     /** STUN/TURN from the server's ice-servers packet; it arrives before any peer is created. */
@@ -46,7 +45,7 @@ class PeerConnections(
         active: Boolean,
     ) {
         if (active) screenShareSockets.add(socketId) else screenShareSockets.remove(socketId)
-        if (!active) receivedVideoCount.remove(socketId)
+        if (!active) receivedVideo.remove(socketId)
     }
 
     fun markCameraSharing(
@@ -54,7 +53,7 @@ class PeerConnections(
         active: Boolean,
     ) {
         if (active) cameraShareSockets.add(socketId) else cameraShareSockets.remove(socketId)
-        if (!active) receivedVideoCount.remove(socketId)
+        if (!active) receivedVideo.remove(socketId)
     }
 
     fun isScreenSharing(socketId: String): Boolean = screenShareSockets.contains(socketId)
@@ -206,22 +205,25 @@ class PeerConnections(
                 return@onTrack
             }
 
-            val sharingScreen = screenShareSockets.contains(socketId)
-            val sharingCamera = cameraShareSockets.contains(socketId)
-            val videoIndex = receivedVideoCount[socketId] ?: 0
-            receivedVideoCount[socketId] = videoIndex + 1
-
-            val isCamera =
-                when {
-                    // Câmera sozinha: flag é suficiente (não há track de tela).
-                    sharingCamera && !sharingScreen -> true
-
-                    // Ambos ativos: o remetente adiciona tela antes de câmera,
-                    // então o 1º track é tela e os seguintes câmera.
-                    sharingCamera && videoIndex > 0 -> true
-
-                    else -> false
+            // The screen's audio and a page coming back visible re-fire `track` for a video
+            // already placed: it keeps its place instead of counting as another one.
+            val video = remoteStream.getVideoTracks().first()
+            val received = receivedVideo.getOrPut(socketId) { mutableMapOf() }
+            val others =
+                received.filterKeys { it != video.id }.values.filter {
+                    it.first.asDynamic().readyState ==
+                        "live"
                 }
+            val isCamera =
+                isCameraTrack(
+                    known = received[video.id]?.second,
+                    liveScreen = others.any { !it.second },
+                    liveCamera = others.any { it.second },
+                    sharingScreen = screenShareSockets.contains(socketId),
+                    sharingCamera = cameraShareSockets.contains(socketId),
+                    earlierVideos = received.size,
+                )
+            received[video.id] = video to isCamera
 
             if (isCamera) {
                 cameraSharing.handleRemoteCamera(socketId, remoteStream)
@@ -259,7 +261,7 @@ class PeerConnections(
         }
         screenShareSockets.remove(socketId)
         cameraShareSockets.remove(socketId)
-        receivedVideoCount.remove(socketId)
+        receivedVideo.remove(socketId)
         isPolite.remove(socketId)
         negotiationLocks.remove(socketId)
     }
@@ -271,7 +273,7 @@ class PeerConnections(
         negotiationLocks.clear()
         screenShareSockets.clear()
         cameraShareSockets.clear()
-        receivedVideoCount.clear()
+        receivedVideo.clear()
     }
 
     fun contains(socketId: String): Boolean = peers.containsKey(socketId)
@@ -336,3 +338,31 @@ class PeerConnections(
         }
     }
 }
+
+/**
+ * Whether a peer's incoming video is its camera (true) or its screen. A peer sends at most one
+ * of each, so with the other kind already live the answer does not depend on whether the offer
+ * or the start-*-share packet arrived first (both senders offer before announcing).
+ */
+internal fun isCameraTrack(
+    known: Boolean?,
+    liveScreen: Boolean,
+    liveCamera: Boolean,
+    sharingScreen: Boolean,
+    sharingCamera: Boolean,
+    earlierVideos: Int,
+): Boolean =
+    known ?: when {
+        liveScreen && !liveCamera -> true
+
+        liveCamera && !liveScreen -> false
+
+        // Câmera sozinha: flag é suficiente (não há track de tela).
+        sharingCamera && !sharingScreen -> true
+
+        // Ambos ativos: o remetente adiciona tela antes de câmera,
+        // então o 1º track é tela e os seguintes câmera.
+        sharingCamera && earlierVideos > 0 -> true
+
+        else -> false
+    }

@@ -56,9 +56,7 @@ class CameraSharing(
         stream: MediaStream,
     ) {
         val previous = remoteCameraStreams[socketId]
-        if (previous != null && previous.id != stream.id) {
-            previous.getTracks().forEach { it.stop() }
-        }
+        if (previous != null && previous.id != stream.id) stopReplacedTracks(previous, stream)
         remoteCameraStreams[socketId] = stream
         InterfaceMutations.addOrUpdateCameraTile(
             tileId = cameraTileId(socketId),
