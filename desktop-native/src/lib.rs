@@ -236,7 +236,7 @@ fn attach_camera(peer: &PeerConnection, factory: &PeerConnectionFactory, camera:
         let track = factory.create_video_track("camera", camera.source.clone());
         let init = RtpTransceiverInit { direction: RtpTransceiverDirection::SendRecv, stream_ids: vec!["camera".into()], send_encodings: Vec::new() };
         let transceiver = peer.add_transceiver(track.into(), init).map_err(|e| e.to_string())?;
-        let codecs = share::preferred_video_codecs(factory.get_rtp_sender_capabilities(libwebrtc::MediaType::Video).codecs);
+        let codecs = share::preferred_video_codecs(factory.get_rtp_sender_capabilities(libwebrtc::MediaType::Video).codecs, false);
         if let Err(error) = transceiver.set_codec_preferences(codecs) {
             eprintln!("codec preference not applied: {error}");
         }
@@ -317,6 +317,7 @@ fn attach_real_screen(
         // Codec order and encoding go in before the offer, as in addTracksIfNotPresent.
         let codecs = share::preferred_video_codecs(
             factory.get_rtp_sender_capabilities(libwebrtc::MediaType::Video).codecs,
+            profile.priority != share::SharePriority::Sharpness,
         );
         if let Err(error) = transceiver.set_codec_preferences(codecs) {
             eprintln!("codec preference not applied: {error}");
@@ -1541,6 +1542,8 @@ fn run_worker(
                             capture_generation = capture_generation.wrapping_add(1);
                             match Capture::start(&source, profile.fps, audio_mode, profile.priority.screencast(), capture_generation, &runtime, capture_sender.clone()) {
                                 Ok(capture) => {
+                                    #[cfg(windows)]
+                                    capture.set_max_height(height);
                                     screen = Some(capture);
                                     share_encoding = (profile, height);
                                     pending_capture_request = Some(request_id);
@@ -1556,6 +1559,8 @@ fn run_worker(
                         share_encoding = (profile, height);
                         if let Some(screen) = &screen {
                             screen.set_fps(profile.fps);
+                            #[cfg(windows)]
+                            screen.set_max_height(height);
                         }
                         for sender in peer_media.values().filter_map(|media| media.screen.first()) {
                             apply_share_encoding(sender, profile, height);
