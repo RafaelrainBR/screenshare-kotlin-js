@@ -204,9 +204,7 @@ class ScreenSharing(
         stream: MediaStream,
     ) {
         val previous = remoteScreenStreams[socketId]
-        if (previous != null && previous.id != stream.id) {
-            previous.getTracks().forEach { it.stop() }
-        }
+        if (previous != null && previous.id != stream.id) stopReplacedTracks(previous, stream)
         remoteScreenStreams[socketId] = stream
         InterfaceMutations.addOrUpdateScreenTile(
             tileId = socketId,
@@ -314,3 +312,16 @@ fun nativeAudioMode(
         kind == DesktopCaptureSourceKind.WINDOW -> ScreenSharing.DesktopAudioMode.PROCESS
         else -> ScreenSharing.DesktopAudioMode.SYSTEM
     }
+
+/**
+ * Stops what [previous] had that [next] does not. A remote track stopped here never plays again,
+ * and a re-fired `track` can bring the same live track in a new stream: stopping it froze the
+ * video until a reload.
+ */
+internal fun stopReplacedTracks(
+    previous: MediaStream,
+    next: MediaStream,
+) {
+    val kept = next.getTracks().map { it.id }
+    previous.getTracks().filter { it.id !in kept }.forEach { it.stop() }
+}
