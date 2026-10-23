@@ -48,6 +48,10 @@ pub fn view(app: &App) -> Element<'_, Message> {
         .cloned()
         .collect();
     let focused = app.focused.as_ref().filter(|key| videos.contains(key));
+    // A tile in or out, or one focused: the tiles that stay slide to their new place (motion::flip).
+    let mut arrangement = std::hash::DefaultHasher::new();
+    std::hash::Hash::hash(&(&videos, focused), &mut arrangement);
+    app.flips.arrange(&videos, std::hash::Hasher::finish(&arrangement));
     let main: Element<'_, Message> = match (videos.len(), focused) {
         (0, _) => container(
             column![
@@ -363,7 +367,8 @@ fn video_tile<'a>(app: &'a App, key: &TileKey, small: bool) -> Element<'a, Messa
     let tile = button(layers).padding(1).style(move |_, _| theme::video_tile(focused, speaking)).on_press(Message::Focus(key.clone()));
     let tile = if small { tile.width(168).height(94) } else { tile.width(Length::Fill).height(Length::Fill) };
     // A right click opens the same menu as the corner button, like the web contextmenu on .screen-tile.
-    mouse_area(tile).on_right_press(Message::PeerOptions(Some((peer.clone(), Some(*camera))))).into()
+    let tile = mouse_area(tile).on_right_press(Message::PeerOptions(Some((peer.clone(), Some(*camera)))));
+    motion::flip(tile, &app.flips, key.clone())
 }
 
 /// .chat-hide (27 px, in the header) and .chat-restore (32 px glass, over the stage).

@@ -75,16 +75,23 @@ fn glyph_color(tone: Tone) -> Color {
     if matches!(tone, Tone::Plain) { theme::TEXT } else { theme::RED }
 }
 
+/// How far the icon of dock state `index` (sharing, camera, microphone) is into its pop, 0 to 1.
+fn popped(app: &App, index: usize) -> f32 {
+    app.dock_icons[index].1.map_or(1.0, |at| super::motion::progress(at, super::motion::ICON))
+}
+
 /// An icon button with its hint (the web title), and a chevron on its right when it has a picker.
-fn tool(paths: String, tone: Tone, hint: String, press: Message, picker: Option<(String, Message)>) -> Element<'static, Message> {
+/// A new icon (`pop` under 1) grows from 85% as it fades in, like the web .icon-in; a press shrinks it to 94%.
+fn tool(paths: String, tone: Tone, hint: String, press: Message, picker: Option<(String, Message)>, pop: f32) -> Element<'static, Message> {
     let left = if picker.is_some() { Radius { top_left: 10.0, bottom_left: 10.0, ..Radius::default() } } else { Radius::from(10.0) };
-    let main = button(container(icon(&paths, 20.0, glyph_color(tone))).center(CONTROL))
+    let glyph = Color { a: pop, ..glyph_color(tone) };
+    let main = button(container(icon(&paths, 20.0 * (0.85 + 0.15 * pop), glyph)).center(CONTROL))
         .padding(0)
         .width(CONTROL)
         .height(CONTROL)
         .style(move |_, status| tool_style(tone, left, status))
         .on_press(press);
-    let mut group = row![hint_on(main.into(), hint)];
+    let mut group = row![hint_on(super::motion::press(main, 0.94), hint)];
     if let Some((hint, press)) = picker {
         let right = Radius { top_right: 10.0, bottom_right: 10.0, ..Radius::default() };
         let chevron = button(container(icon(CHEVRON_DOWN, 12.0, theme::TEXT)).center(CONTROL))
@@ -93,7 +100,7 @@ fn tool(paths: String, tone: Tone, hint: String, press: Message, picker: Option<
             .height(CONTROL)
             .style(move |_, status| tool_style(Tone::Plain, right, status))
             .on_press(press);
-        group = group.push(hint_on(chevron.into(), hint));
+        group = group.push(hint_on(super::motion::press(chevron, 0.94), hint));
     }
     group.into()
 }
@@ -113,9 +120,9 @@ pub fn view(app: &App) -> Element<'_, Message> {
     // The share chevron opens the transmission menu (#share-picker), live while sharing.
     let settings = Some(("Ajustes da transmissão · F5".into(), Message::ShareMenu(app.share_menu.is_none().then_some(profile::Menu::Main))));
     let share = if sharing {
-        tool(STOP_SCREEN.into(), Tone::Danger, "Parar compartilhamento · F4".into(), Message::StopShare, settings)
+        tool(STOP_SCREEN.into(), Tone::Danger, "Parar compartilhamento · F4".into(), Message::StopShare, settings, popped(app, 0))
     } else {
-        tool(SCREEN.into(), Tone::Plain, "Compartilhar tela · F4".into(), Message::OpenWizard, settings)
+        tool(SCREEN.into(), Tone::Plain, "Compartilhar tela · F4".into(), Message::OpenWizard, settings, popped(app, 0))
     };
     let tools = row![
         share,
@@ -126,6 +133,7 @@ pub fn view(app: &App) -> Element<'_, Message> {
             if camera { "Desligar câmera · F6" } else { "Ligar câmera · F6" }.into(),
             Message::ToggleCamera,
             Some(("Escolher câmera".into(), toggle_picker(app, Picker::Camera))),
+            popped(app, 1),
         ),
         tool(
             format!("{MIC}{}", if view.microphone_enabled { "" } else { SLASH }),
@@ -133,6 +141,7 @@ pub fn view(app: &App) -> Element<'_, Message> {
             if view.microphone_enabled { "Silenciar microfone · F2" } else { "Ativar microfone · F2" }.into(),
             Message::ToggleMic,
             Some(("Escolher microfone".into(), toggle_picker(app, Picker::Microphone))),
+            popped(app, 2),
         ),
         tool(
             format!("{OUTPUT}{}", if view.output_enabled { "" } else { SLASH }),
@@ -140,11 +149,12 @@ pub fn view(app: &App) -> Element<'_, Message> {
             if view.output_enabled { "Silenciar saída de áudio · F3" } else { "Ativar saída de áudio · F3" }.into(),
             Message::ToggleOutput,
             Some(("Escolher saída de áudio".into(), toggle_picker(app, Picker::Output))),
+            1.0,
         ),
     ]
     .spacing(GAP)
     .align_y(Alignment::Center);
-    let leave = tool(LEAVE.into(), Tone::Danger, "Sair ou trocar de sala".into(), Message::Leave, None);
+    let leave = tool(LEAVE.into(), Tone::Danger, "Sair ou trocar de sala".into(), Message::Leave, None, 1.0);
     // .dock-status: only while something is wrong, ellipsized on the left.
     let (status, status_color) = super::room::status(app);
     // A dot pulses while it is still trying ("…"), not beside a final error, like the web .connecting.
