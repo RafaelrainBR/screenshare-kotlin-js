@@ -164,8 +164,8 @@ pub struct App {
     entered: Option<Instant>,
     /// Sharing, camera and microphone as the dock last showed them, and when each changed: the new icon pops in.
     dock_icons: [(bool, Option<Instant>); 3],
-    /// Where each video tile was drawn, for the slide when the grid changes.
-    flips: ui::motion::Flips<TileKey>,
+    /// Where each video tile and rail avatar was drawn, for the slide when the stage changes (ui::room).
+    flips: ui::motion::Flips<(String, Option<bool>)>,
     /// The video shown alone (web focus mode); the others go to the rail.
     focused: Option<TileKey>,
     sent: u64,
