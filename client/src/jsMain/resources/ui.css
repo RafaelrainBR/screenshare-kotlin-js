@@ -415,6 +415,9 @@ button.participant-options { position: absolute; top: 5px; right: 5px; width: 28
   background: currentColor; vertical-align: 1px; animation: pulse 1.2s ease-in-out infinite;
 }
 /* `translate` and `scale` stack on the `transform` some of these already use for placing. */
+/* New chat message (InterfaceMutations.addMessageToChat); the list glides down to it. */
+#chat-messages { scroll-behavior: smooth; }
+#chat-messages > .animate-fade-in { animation: rise-in .18s ease-out; }
 @keyframes fade-in { from { opacity: 0; } }
 @keyframes rise-in { from { opacity: 0; translate: 0 4px; } }
 @keyframes grow-in { from { opacity: 0; scale: .97; } }
@@ -505,6 +508,7 @@ button.participant-options { position: absolute; top: 5px; right: 5px; width: 28
 @media (prefers-reduced-motion: reduce) {
   /* One iteration too: a looping pulse at .01ms would flicker instead of stopping. */
   *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
+  #chat-messages { scroll-behavior: auto; }
 }
 .update-banner { position: fixed; right: 16px; bottom: 16px; z-index: 50; display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-radius: 10px; background: var(--surface); border: 1px solid var(--line); box-shadow: 0 6px 24px rgba(0,0,0,.35); font-size: 13px; }
 .update-banner progress { width: 120px; }
