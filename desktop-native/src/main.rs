@@ -133,6 +133,10 @@ pub type TileKey = (String, bool);
 pub struct Tile {
     pub frame: Option<Arc<desktop_native::VideoFrameSnapshot>>,
     pub version: u64,
+    /// When the first frame arrived: it fades in over the tile.
+    pub shown_at: Option<Instant>,
+    /// The video stopped: its last frame fades out in its slot before the tile goes.
+    pub leaving_since: Option<Instant>,
 }
 
 #[derive(Default)]
@@ -145,6 +149,17 @@ pub struct App {
     wizard: Option<Wizard>,
     /// Newest frame per video, ours included, like the web screen tiles.
     tiles: HashMap<TileKey, Tile>,
+    /// The stage's videos in the order they appeared, the leaving ones still in their slot.
+    video_order: Vec<TileKey>,
+    /// When each peer started or stopped speaking, for the ring to ease between the two.
+    speaking_since: HashMap<String, (bool, Instant)>,
+    /// When the open popover (share menu or device list), the participant menu or a modal opened.
+    popover_at: Option<Instant>,
+    menu_opened: Option<Instant>,
+    modal_at: Option<Instant>,
+    /// When the chat or the rail was last hidden or shown, for their slide.
+    chat_toggled: Option<Instant>,
+    rail_toggled: Option<Instant>,
     /// The video shown alone (web focus mode); the others go to the rail.
     focused: Option<TileKey>,
     sent: u64,
@@ -421,6 +436,7 @@ fn update(app: &mut App, message: Message) -> Task<Message> {
         Message::Join => {}
         Message::Leave if !app.draft.trim().is_empty() && !app.confirm_leave => {
             app.confirm_leave = true;
+            app.modal_at = Some(Instant::now());
             // The tray's "Sair da sala" may come with the window hidden; unfocusing keeps Enter off the chat.
             return set_fullscreen(app, None).chain(show_window(app)).chain(operation::focus("leave-confirm"));
         }
@@ -514,6 +530,7 @@ fn update(app: &mut App, message: Message) -> Task<Message> {
         Message::OpenWizard => {
             app.share_menu = None;
             app.wizard = Some(Wizard::open());
+            app.modal_at = Some(Instant::now());
             // Focusing an id nobody has unfocuses the chat behind the modal, so A, P and Enter reach the wizard.
             return Task::batch([ui::wizard::load_sources(), operation::focus("share-wizard")]);
         }
@@ -562,16 +579,24 @@ fn update(app: &mut App, message: Message) -> Task<Message> {
         }
         // One popover at a time, like the web <details> pickers.
         Message::ShareMenu(page) => {
+            // A page change inside the open menu does not rise again.
+            if app.share_menu.is_none() {
+                app.popover_at = Some(Instant::now());
+            }
             app.share_menu = page;
             app.device_picker = None;
         }
         Message::DevicePicker(picker) => {
+            if picker.is_some() && picker != app.device_picker {
+                app.popover_at = Some(Instant::now());
+            }
             app.device_picker = picker;
             app.share_menu = None;
         }
         Message::ToggleAdvanced => app.advanced = !app.advanced,
         Message::PeerOptions(target) => {
             app.menu_at = target.is_some().then_some(app.cursor);
+            app.menu_opened = target.is_some().then(Instant::now);
             app.peer_options = target;
         }
         Message::Cursor(position) => app.cursor = position,
@@ -631,8 +656,14 @@ fn update(app: &mut App, message: Message) -> Task<Message> {
         Message::Tick => return tick(app),
         Message::Focus(key) => app.focused = (app.focused.as_ref() != Some(&key)).then_some(key),
         Message::Fullscreen(key) => return set_fullscreen(app, key),
-        Message::ToggleChat => app.chat_hidden = !app.chat_hidden,
-        Message::ToggleRail => app.rail_hidden = !app.rail_hidden,
+        Message::ToggleChat => {
+            app.chat_hidden = !app.chat_hidden;
+            app.chat_toggled = Some(Instant::now());
+        }
+        Message::ToggleRail => {
+            app.rail_hidden = !app.rail_hidden;
+            app.rail_toggled = Some(Instant::now());
+        }
         Message::Tray(action) => return tray_action(app, action),
         // hide_panel_on_blur: not while it is still opening.
         Message::PanelBlur if app.compact && app.visible && app.panel_shown.is_some_and(|at| at.elapsed() >= Duration::from_millis(250)) => {
@@ -765,6 +796,14 @@ fn tick(app: &mut App) -> Task<Message> {
     if !had_dialog && app.permission.is_some() {
         // Like the wizard: Enter and Esc reach the dialog instead of the chat field.
         unfocus = operation::focus("permission-recovery");
+        app.modal_at = Some(Instant::now());
+    }
+    let now = Instant::now();
+    for p in &app.view.participants {
+        let talking = app.view.speaking.contains(&p.socket_id);
+        if app.speaking_since.get(&p.socket_id).is_none_or(|(was, _)| *was != talking) {
+            app.speaking_since.insert(p.socket_id.clone(), (talking, now));
+        }
     }
     let errors = room::errors(app).join(" · ");
     if errors != app.shown_errors {
@@ -850,7 +889,24 @@ fn tick(app: &mut App) -> Task<Message> {
             })
             .collect()
     };
-    app.tiles.retain(|key, _| is_shared(view, key));
+    // A video that stopped keeps its last frame a moment, fading out in its slot (ui::motion::LEAVE).
+    app.tiles.retain(|key, tile| {
+        if is_shared(view, key) {
+            tile.leaving_since = None;
+            return true;
+        }
+        let since = *tile.leaving_since.get_or_insert(now);
+        tile.frame.is_some() && ui::motion::running(Some(since), ui::motion::LEAVE)
+    });
+    // New videos join the end, like the web .screen-tile list; a leaving one keeps its slot.
+    let shared: Vec<TileKey> = videos(view);
+    let tiles = &app.tiles;
+    app.video_order.retain(|key| shared.contains(key) || tiles.contains_key(key));
+    for key in shared {
+        if !app.video_order.contains(&key) {
+            app.video_order.push(key);
+        }
+    }
     if app.focused.as_ref().is_some_and(|key| !is_shared(view, key)) {
         app.focused = None;
     }
@@ -859,7 +915,10 @@ fn tick(app: &mut App) -> Task<Message> {
     // Only the newest frame per tile is kept; the window uploads it when it draws.
     for (key, snapshot) in frames {
         app.sent += 1;
-        *app.tiles.entry(key).or_default() = Tile { frame: Some(snapshot), version: app.sent };
+        let tile = app.tiles.entry(key).or_default();
+        tile.shown_at.get_or_insert(now);
+        tile.frame = Some(snapshot);
+        tile.version = app.sent;
     }
     unfocus.chain(windowed)
 }
@@ -873,6 +932,38 @@ fn set_fullscreen(app: &mut App, key: Option<TileKey>) -> Task<Message> {
         return Task::none();
     }
     window::oldest().then(move |id| id.map_or_else(Task::none, |id| window::set_mode(id, mode)))
+}
+
+/// Screens and cameras that are on, like the web .screen-tile list, ours (isLocal) included.
+fn videos(view: &SessionView) -> Vec<TileKey> {
+    let local = view.local_socket_id.as_deref();
+    let own = local.into_iter().flat_map(|id| [(id.to_owned(), false), (id.to_owned(), true)]);
+    view.screen_sharers
+        .iter()
+        .map(|peer| (peer.clone(), false))
+        .chain(view.camera_sharers.iter().map(|peer| (peer.clone(), true)))
+        .filter(|(peer, _)| Some(peer.as_str()) != local)
+        .chain(own)
+        .filter(|key| is_shared(view, key))
+        .collect()
+}
+
+/// How far `peer`'s ring is toward "speaking", 0 to 1: it eases instead of blinking with each read.
+pub fn speaking(app: &App, peer: &str) -> f32 {
+    app.speaking_since.get(peer).map_or(0.0, |(on, at)| {
+        let t = ui::motion::progress(*at, ui::motion::POP);
+        if *on { t } else { 1.0 - t }
+    })
+}
+
+/// Something is still moving, so the window redraws at 60 Hz (ui::motion).
+fn animating(app: &App) -> bool {
+    use ui::motion::{ENTER, LEAVE, POP, SLIDE, running};
+    let tiles = app.tiles.values().any(|tile| running(tile.shown_at, ENTER) || tile.leaving_since.is_some());
+    let speaking = app.speaking_since.values().any(|(_, at)| running(Some(*at), POP));
+    // The notice slides in, then fades out at the end of its 6 s.
+    let notice = app.notice.as_ref().is_some_and(|(_, at)| running(Some(*at), ENTER) || (at.elapsed() > Duration::from_secs(6) - LEAVE && at.elapsed() < Duration::from_secs(6)));
+    tiles || speaking || notice || [app.popover_at, app.menu_opened].into_iter().any(|at| running(at, POP)) || running(app.modal_at, ENTER) || [app.chat_toggled, app.rail_toggled].into_iter().any(|at| running(at, SLIDE))
 }
 
 /// A screen or camera that is still on: ours by the engine state, the others by the room's sharers.
@@ -955,7 +1046,8 @@ fn subscription(app: &App) -> Subscription<Message> {
     if app.running.is_some() {
         // Every update redraws the window: 60 a second only while a video plays in a shown room.
         let video = !app.tiles.is_empty() && app.visible && !app.compact;
-        subscriptions.push(iced::time::every(Duration::from_millis(if video { 16 } else { 100 })).map(|_| Message::Tick));
+        let fast = video || (app.visible && animating(app));
+        subscriptions.push(iced::time::every(Duration::from_millis(if fast { 16 } else { 100 })).map(|_| Message::Tick));
     }
     if app.wizard.is_some() {
         // Like the web wizard: windows that open or close show up while it is open.

@@ -7,7 +7,7 @@ use iced::{
     widget::{button, column, container, mouse_area, opaque, row, scrollable, stack, text, text_input},
 };
 
-use super::{dock, theme};
+use super::{dock, motion, theme};
 use crate::{App, Message, TileKey, is_shared};
 
 pub const CHAT_INPUT: &str = "chat-input";
@@ -40,16 +40,12 @@ pub fn view(app: &App) -> Element<'_, Message> {
     let view = &app.view;
     let local = view.local_socket_id.as_deref();
 
-    // Screens and cameras that are on, like the web .screen-tile list, ours (isLocal) included.
-    let own = local.into_iter().flat_map(|id| [(id.to_owned(), false), (id.to_owned(), true)]);
-    let videos: Vec<TileKey> = view
-        .screen_sharers
+    // Screens and cameras that are on, and the ones fading out in their slot (crate::tick).
+    let videos: Vec<TileKey> = app
+        .video_order
         .iter()
-        .map(|peer| (peer.clone(), false))
-        .chain(view.camera_sharers.iter().map(|peer| (peer.clone(), true)))
-        .filter(|(peer, _)| Some(peer.as_str()) != local)
-        .chain(own)
-        .filter(|key| is_shared(view, key))
+        .filter(|key| is_shared(view, key) || app.tiles.get(*key).is_some_and(|tile| tile.leaving_since.is_some()))
+        .cloned()
         .collect();
     let focused = app.focused.as_ref().filter(|key| videos.contains(key));
     let main: Element<'_, Message> = match (videos.len(), focused) {
@@ -91,14 +87,17 @@ pub fn view(app: &App) -> Element<'_, Message> {
             }
         }
         for p in view.participants.iter().filter(|p| !videos.iter().any(|(peer, _)| *peer == p.socket_id)) {
-            rail = rail.push(avatar_tile(p, Some(p.socket_id.as_str()) == local, view.speaking.contains(&p.socket_id)));
+            rail = rail.push(avatar_tile(p, Some(p.socket_id.as_str()) == local, crate::speaking(app, &p.socket_id)));
         }
         rail
     };
     // .strip-toggle hides the rail; the rail keeps 46 px on the right for it, as .screens-rail does.
     // Centered while it fits, scrolled sideways with a hidden bar once it does not (safe center, overflow-x).
-    let rail: Element<'_, Message> = if app.rail_hidden {
-        iced::widget::space().height(34).into()
+    // Hiding folds it down to the toggle's 34 px strip and showing unfolds it, empty while it moves.
+    let rail_moved = app.rail_toggled.map_or(1.0, |at| motion::progress(at, motion::SLIDE));
+    let rail_open = if app.rail_hidden { 1.0 - rail_moved } else { rail_moved };
+    let rail: Element<'_, Message> = if app.rail_hidden || rail_moved < 1.0 {
+        iced::widget::space().height(34.0 + (110.0 - 34.0) * rail_open).into()
     } else {
         let width = tiles as f32 * (168.0 + 8.0) - 8.0;
         let fitted = iced::widget::responsive(move |size| {
@@ -114,7 +113,7 @@ pub fn view(app: &App) -> Element<'_, Message> {
     let (paths, hint) = if app.rail_hidden { (CHEVRON_UP, "Mostrar prévias") } else { (dock::CHEVRON_DOWN, "Ocultar prévias") };
     let toggle = glass_button(paths, 16.0, 32.0, hint, Message::ToggleRail);
     let toggle = container(toggle)
-        .padding(iced::Padding { right: 6.0, bottom: if app.rail_hidden { 2.0 } else { 40.0 }, ..iced::Padding::ZERO })
+        .padding(iced::Padding { right: 6.0, bottom: 2.0 + (40.0 - 2.0) * rail_open, ..iced::Padding::ZERO })
         .align_right(Length::Fill)
         .align_bottom(Length::Fill);
     let stage = stack![column![main, rail].spacing(8), toggle];
@@ -174,11 +173,18 @@ pub fn view(app: &App) -> Element<'_, Message> {
 
     // .workspace.chat-collapsed: the stage takes the width and .chat-restore floats at its top right.
     let stage = container(stage).padding(10);
-    let body: Element<'_, Message> = if app.chat_hidden {
+    let chat_moved = app.chat_toggled.map_or(1.0, |at| motion::progress(at, motion::SLIDE));
+    let chat_padding = iced::Padding { top: 10.0, right: 10.0, bottom: 10.0, left: 0.0 };
+    let body: Element<'_, Message> = if chat_moved < 1.0 {
+        // The column slides open or shut as an empty panel; the conversation shows once it is open.
+        let width = 300.0 * if app.chat_hidden { 1.0 - chat_moved } else { chat_moved };
+        let slide = container(iced::widget::space()).width(Length::Fill).height(Length::Fill).style(theme::panel);
+        row![stage.width(Length::Fill), container(slide).padding(chat_padding).width(width).height(Length::Fill).clip(true)].into()
+    } else if app.chat_hidden {
         let restore = chat_button(CHEVRON_LEFT, "Mostrar conversa", 32.0);
         stack![stage, container(restore).padding(16).align_right(Length::Fill)].into()
     } else {
-        row![stage.width(Length::Fill), container(chat).padding(iced::Padding { top: 10.0, right: 10.0, bottom: 10.0, left: 0.0 }).width(300).height(Length::Fill)].into()
+        row![stage.width(Length::Fill), container(chat).padding(chat_padding).width(300).height(Length::Fill)].into()
     };
 
     let notice = app.notice.as_ref().filter(|(_, since)| since.elapsed() < Duration::from_secs(6));
@@ -201,20 +207,27 @@ pub fn view(app: &App) -> Element<'_, Message> {
         let remote = app.view.local_socket_id.as_deref() != Some(peer.as_str());
         // The volume label and slider add about 50 px for someone else.
         let height = 14.0 + 26.0 + rows as f32 * 33.0 + 30.0 + if remote { 50.0 } else { 0.0 };
+        // Rises 4 px into place while its content fades in, like the web .context-menu.
+        let shown = app.menu_opened.map_or(1.0, |at| motion::progress(at, motion::POP));
         let menu = iced::widget::responsive(move |size| {
             let x = at.x.min(size.width - 248.0 - 8.0).max(8.0);
-            let y = at.y.min(size.height - height - 8.0).max(8.0);
-            column![iced::widget::space().height(y), row![iced::widget::space().width(x), options_menu(app, peer, *camera)]].into()
+            let y = at.y.min(size.height - height - 8.0).max(8.0) + 4.0 * (1.0 - shown);
+            let menu = motion::veil(options_menu(app, peer, *camera), theme::SURFACE_2, 1.0 - shown, 11.0);
+            column![iced::widget::space().height(y), row![iced::widget::space().width(x), menu]].into()
         });
         layers = layers.push(outside).push(menu);
     }
+    // Modals: the backdrop dims in and the panel's content fades in over it.
+    let opened = app.modal_at.map_or(1.0, |at| motion::progress(at, motion::ENTER));
     if let Some(wizard) = &app.wizard {
         // The web #quality-modal: a dimmed room with the panel on top; opaque keeps clicks off the room.
-        let panel = container(wizard.view(app.profile, app.advanced)).padding(24).max_width(540).height(Length::Fill).style(theme::modal);
-        layers = layers.push(opaque(container(panel).center_x(Length::Fill).padding(18).style(theme::backdrop)));
+        let content = motion::veil(wizard.view(app.profile, app.advanced), theme::SURFACE, 1.0 - opened, 0.0);
+        let panel = container(content).padding(24).max_width(540).height(Length::Fill).style(theme::modal);
+        layers = layers.push(opaque(container(panel).center_x(Length::Fill).padding(18).style(theme::backdrop_at(opened))));
     }
     if let Some((_, help)) = app.permission {
-        layers = layers.push(opaque(container(super::permission::view(help)).center(Length::Fill).style(theme::backdrop)));
+        let panel = motion::veil(super::permission::view(help), theme::SURFACE, 1.0 - opened, 14.0);
+        layers = layers.push(opaque(container(panel).center(Length::Fill).style(theme::backdrop_at(opened))));
     }
     if app.confirm_leave {
         // leaveRoom's window.confirm: Enter leaves, Esc stays.
@@ -228,13 +241,16 @@ pub fn view(app: &App) -> Element<'_, Message> {
             container(buttons).align_right(Length::Fill),
         ]
         .spacing(16);
-        let panel = container(panel).padding(20).max_width(420).style(theme::modal);
-        layers = layers.push(opaque(container(panel).center(Length::Fill).style(theme::backdrop)));
+        let panel = container(motion::veil(panel.into(), theme::SURFACE, 1.0 - opened, 0.0)).padding(20).max_width(420).style(theme::modal);
+        layers = layers.push(opaque(container(panel).center(Length::Fill).style(theme::backdrop_at(opened))));
     }
-    // Floats over the top like the web .notice, without moving the layout.
-    if let Some((notice, _)) = notice {
-        let toast = container(text(notice.as_str()).size(12)).padding([12, 15]).max_width(560).style(theme::notice);
-        layers = layers.push(container(toast).center_x(Length::Fill).padding(12));
+    // Floats over the top like the web .notice, without moving the layout; drops 8 px in, fades out at the end.
+    if let Some((notice, since)) = notice {
+        let arrived = motion::progress(*since, motion::ENTER);
+        let left = Duration::from_secs(6).saturating_sub(since.elapsed()).as_secs_f32() / motion::LEAVE.as_secs_f32();
+        let toast = container(text(notice.as_str()).size(12)).padding([12, 15]).max_width(560).style(theme::notice(arrived.min(left.min(1.0))));
+        let top = 12.0 - 8.0 * (1.0 - arrived);
+        layers = layers.push(container(toast).center_x(Length::Fill).padding(iced::Padding { top, right: 12.0, bottom: 12.0, left: 12.0 }));
     }
     layers.into()
 }
@@ -300,9 +316,15 @@ fn local_time(timestamp_ms: i64) -> String {
 fn video_tile<'a>(app: &'a App, key: &TileKey, small: bool) -> Element<'a, Message> {
     let (peer, camera) = key;
     let name = app.view.participants.iter().find(|p| &p.socket_id == peer).map_or("…", |p| p.username.as_str());
-    let content: Element<'a, Message> = match app.tiles.get(key).and_then(|tile| Some((tile.frame.clone()?, tile.version))) {
+    let content: Element<'a, Message> = match app.tiles.get(key).and_then(|tile| Some((tile.frame.clone()?, tile.version, tile))) {
         _ if app.hidden_videos.contains(key) => container(text("Vídeo oculto").color(theme::DIM)).center(Length::Fill).into(),
-        Some((frame, version)) => iced::widget::Shader::new(super::video::Video { key: key.clone(), frame, version }).width(Length::Fill).height(Length::Fill).into(),
+        Some((frame, version, tile)) => {
+            let video = iced::widget::Shader::new(super::video::Video { key: key.clone(), frame, version }).width(Length::Fill).height(Length::Fill).into();
+            // The first frame fades in over the tile, the last one out before the tile goes.
+            let entering = tile.shown_at.map_or(0.0, |at| 1.0 - motion::progress(at, motion::ENTER));
+            let leaving = tile.leaving_since.map_or(0.0, |at| motion::progress(at, motion::LEAVE));
+            motion::veil(video, theme::VIDEO, entering.max(leaving), 0.0)
+        }
         None => container(text(format!("Conectando à {} de {name}…", if *camera { "câmera" } else { "tela" })).size(12).color(theme::DIM))
             .center(Length::Fill)
             .into(),
@@ -337,7 +359,7 @@ fn video_tile<'a>(app: &'a App, key: &TileKey, small: bool) -> Element<'a, Messa
     let options = if small { options_button(peer, Some(*camera)) } else { glass_button(DOTS, 17.0, 34.0, "Opções", options) };
     layers = layers.push(container(controls.push(options)).padding(if small { 5 } else { 12 }).align_right(Length::Fill).align_bottom(Length::Fill));
     let focused = app.focused.as_ref() == Some(key);
-    let speaking = app.view.speaking.contains(peer);
+    let speaking = crate::speaking(app, peer);
     let tile = button(layers).padding(1).style(move |_, _| theme::video_tile(focused, speaking)).on_press(Message::Focus(key.clone()));
     let tile = if small { tile.width(168).height(94) } else { tile.width(Length::Fill).height(Length::Fill) };
     // A right click opens the same menu as the corner button, like the web contextmenu on .screen-tile.
@@ -376,7 +398,7 @@ fn options_button(peer: &str, camera: Option<bool>) -> Element<'static, Message>
 }
 
 /// .participant-tile: initials, the speaking ring, the mute badge and the name, for someone without a video.
-fn avatar_tile<'a>(p: &'a Participant, me: bool, speaking: bool) -> Element<'a, Message> {
+fn avatar_tile<'a>(p: &'a Participant, me: bool, speaking: f32) -> Element<'a, Message> {
     let circle = container(text(initials(&p.username)).size(13).font(theme::BOLD)).center(46).style(move |_: &iced::Theme| theme::avatar(speaking));
     let mut badge = stack![circle];
     if p.is_muted {
