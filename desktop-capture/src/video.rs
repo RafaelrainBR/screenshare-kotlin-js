@@ -9,9 +9,9 @@ use windows::core::{Interface, BOOL};
 use windows::Win32::Foundation::{HMODULE, HWND, RECT};
 use windows::Win32::Graphics::Direct3D::D3D_DRIVER_TYPE_UNKNOWN;
 use windows::Win32::Graphics::Direct3D11::{
-    D3D11CreateDevice, ID3D11Device, ID3D11DeviceContext, ID3D11Texture2D, D3D11_CPU_ACCESS_READ,
-    D3D11_CREATE_DEVICE_BGRA_SUPPORT, D3D11_MAPPED_SUBRESOURCE, D3D11_MAP_READ, D3D11_SDK_VERSION,
-    D3D11_TEXTURE2D_DESC, D3D11_USAGE_STAGING,
+    D3D11CreateDevice, ID3D11Device, ID3D11DeviceContext, ID3D11Texture2D, D3D11_BOX,
+    D3D11_CPU_ACCESS_READ, D3D11_CREATE_DEVICE_BGRA_SUPPORT, D3D11_MAPPED_SUBRESOURCE,
+    D3D11_MAP_READ, D3D11_SDK_VERSION, D3D11_TEXTURE2D_DESC, D3D11_USAGE_STAGING,
 };
 use windows::Win32::Graphics::Dwm::{DwmGetWindowAttribute, DWMWA_EXTENDED_FRAME_BOUNDS};
 use windows::Win32::Graphics::Dxgi::{
@@ -155,7 +155,12 @@ struct DxgiGrabber {
     context: ID3D11DeviceContext,
     output: IDXGIOutput1,
     duplication: Option<IDXGIOutputDuplication>,
-    staging: Option<ID3D11Texture2D>,
+    // Two crop-sized readback textures: the CPU maps the one copied a tick ago, so it
+    // never waits for the GPU to finish this tick's copy (which would stall on the game).
+    staging: [Option<ID3D11Texture2D>; 2],
+    // Slot the next copy goes to; the other one holds the copy not read yet, if any.
+    next: usize,
+    unread: bool,
     // Crop inside the output, in output pixels.
     crop: (u32, u32, u32, u32),
     // Desktop image without the pointer, which DXGI reports separately.
@@ -194,7 +199,9 @@ impl DxgiGrabber {
                         context,
                         output,
                         duplication: None,
-                        staging: None,
+                        staging: [None, None],
+                        next: 0,
+                        unread: false,
                         crop: (crop_x, crop_y, width, height),
                         desktop: vec![0; (width * height * 4) as usize],
                         buffer: vec![0; (width * height * 4) as usize],
@@ -284,21 +291,39 @@ impl DxgiGrabber {
                     .ok_or("dxgi-capture-failed")?
                     .cast()
                     .map_err(|_| "dxgi-capture-failed")?;
-                if self.staging.is_none() {
+                let (x, y, w, h) = self.crop;
+                let slot = &mut self.staging[self.next];
+                if slot.is_none() {
                     let mut desc = D3D11_TEXTURE2D_DESC::default();
                     texture.GetDesc(&mut desc);
+                    desc.Width = w;
+                    desc.Height = h;
                     desc.Usage = D3D11_USAGE_STAGING;
                     desc.BindFlags = 0;
                     desc.CPUAccessFlags = D3D11_CPU_ACCESS_READ.0 as u32;
                     desc.MiscFlags = 0;
-                    let mut staging = None;
                     self.device
-                        .CreateTexture2D(&desc, None, Some(&mut staging))
+                        .CreateTexture2D(&desc, None, Some(slot))
                         .map_err(|_| "dxgi-capture-failed")?;
-                    self.staging = staging;
                 }
-                self.context
-                    .CopyResource(self.staging.as_ref().unwrap(), &texture);
+                let crop = D3D11_BOX {
+                    left: x,
+                    top: y,
+                    front: 0,
+                    right: x + w,
+                    bottom: y + h,
+                    back: 1,
+                };
+                self.context.CopySubresourceRegion(
+                    slot.as_ref().unwrap(),
+                    0,
+                    0,
+                    0,
+                    0,
+                    &texture,
+                    0,
+                    Some(&crop),
+                );
                 Ok::<bool, String>(true)
             })();
             let _ = duplication.ReleaseFrame();
@@ -306,8 +331,8 @@ impl DxgiGrabber {
         }
     }
 
-    fn read_staging(&mut self) -> Result<(), String> {
-        let Some(staging) = &self.staging else {
+    fn read_staging(&mut self, slot: usize) -> Result<(), String> {
+        let Some(staging) = &self.staging[slot] else {
             return Ok(());
         };
         unsafe {
@@ -315,11 +340,10 @@ impl DxgiGrabber {
             self.context
                 .Map(staging, 0, D3D11_MAP_READ, 0, Some(&mut mapped))
                 .map_err(|_| "dxgi-capture-failed")?;
-            let (x, y, w, h) = self.crop;
+            let (_, _, w, h) = self.crop;
             let row = (w * 4) as usize;
             for line in 0..h as usize {
-                let src = (mapped.pData as *const u8)
-                    .add((y as usize + line) * mapped.RowPitch as usize + x as usize * 4);
+                let src = (mapped.pData as *const u8).add(line * mapped.RowPitch as usize);
                 std::ptr::copy_nonoverlapping(src, self.desktop[line * row..].as_mut_ptr(), row);
             }
             self.context.Unmap(staging, 0);
@@ -330,10 +354,16 @@ impl DxgiGrabber {
 
 impl Grabber for DxgiGrabber {
     fn grab(&mut self, metrics: &VideoMetrics) -> Grab<'_> {
-        let (image_changed, pointer_changed) = self.acquire()?;
+        let (copied, pointer_changed) = self.acquire()?;
+        // Read last tick's copy, which the GPU has finished; this tick's copy waits for the
+        // next tick, so a still screen shows its last change one interval later.
+        let image_changed = std::mem::replace(&mut self.unread, copied);
         if image_changed {
+            self.read_staging(self.next ^ 1)?;
+        }
+        if copied {
             metrics.new_frames.fetch_add(1, Ordering::Relaxed);
-            self.read_staging()?;
+            self.next ^= 1;
         }
         if !self.has_frame && !image_changed {
             return Ok(None);
@@ -603,6 +633,41 @@ mod tests {
         assert_eq!(frame_interval(screen, 60), Duration::from_micros(16_666));
         assert_eq!(frame_interval(window, 60), Duration::from_micros(33_333));
         assert_eq!(frame_interval(screen, 0), Duration::from_secs(1));
+    }
+
+    #[test]
+    #[ignore = "captures the real primary screen"]
+    fn captures_a_crop_of_the_primary_screen() {
+        let running = Arc::new(AtomicBool::new(true));
+        let stop = running.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_secs(1));
+            stop.store(false, Ordering::Release);
+        });
+        let (mut frames, mut lit) = (0, false);
+        let source = VideoSource::Screen {
+            left: 0,
+            top: 0,
+            width: 640,
+            height: 480,
+        };
+        let metrics = Arc::new(VideoMetrics::default());
+        capture_video_loop(
+            source,
+            Arc::new(AtomicU32::new(30)),
+            running,
+            metrics,
+            |f| {
+                assert_eq!((f.width, f.height, f.data.len()), (640, 480, 640 * 480 * 4));
+                frames += 1;
+                lit |= f.data.iter().any(|&b| b != 0);
+                true
+            },
+        )
+        .unwrap();
+        // A still screen yields one desktop image, read a tick after its copy, then repeats.
+        assert!(frames > 10, "{frames} frames");
+        assert!(lit, "all black");
     }
 
     #[test]
