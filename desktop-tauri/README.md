@@ -138,14 +138,15 @@ distribution receives a browser-safe placeholder and never imports
 `@tauri-apps/api`.
 
 On a compatible WebView2, system-audio sharing uses WASAPI loopback. On Windows,
-if Discord desktop is already running, application loopback excludes its process
-tree (call audio and notifications) from the system mix across audio devices.
-Otherwise, capture uses the default render device. Open Discord before sharing;
-restart sharing after launching or restarting Discord. Closing the excluded
-process ends the audio track. Stable, PTB, Canary, and Development executables
-are recognized; multiple independent Discord trees are rejected because WASAPI
-can exclude only one tree. Discord in a browser is not filtered. Exclusion needs
-Windows build 20348 or later and never falls back to an unfiltered capture.
+WASAPI can exclude only one process tree, so the share is built the other way
+round: every second it lists the audio sessions of the default render device and
+mixes one application loopback per app that is kept. Left out are call and chat
+apps (Discord, Teams, Zoom, Skype, Slack, TeamSpeak, Mumble, WhatsApp, Telegram,
+Signal, Element, Guilded), Screenshare itself (its tree plays the call and the
+other screens) and Windows system sounds. A browser opened from one of those apps
+still plays; calls inside a browser are not filtered. Apps that start or stop
+during the share are picked up within a second. If application loopback is not
+available, the audio track ends instead of falling back to an unfiltered capture.
 
 Rust emits f32 PCM at 48 kHz, stereo, in 480-frame (3,840-byte)
 chunks with monotonic microsecond timestamps. The bridge creates `AudioData` and
