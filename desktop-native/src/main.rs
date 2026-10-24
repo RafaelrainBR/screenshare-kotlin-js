@@ -2,6 +2,7 @@
 // Release builds are a GUI app on Windows: no console window behind it. Debug builds keep it for the logs.
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 mod startup;
+mod telemetry;
 mod tray;
 mod ui;
 
@@ -428,6 +429,21 @@ fn whoami() -> String {
 }
 
 fn update(app: &mut App, message: Message) -> Task<Message> {
+    // What the user did, in Sentry's breadcrumbs and logs, so an error comes with the steps before it.
+    let action = match &message {
+        Message::Join => Some("join room"),
+        Message::Leave => Some("leave room"),
+        Message::StartShare => Some("start share"),
+        Message::StopShare => Some("stop share"),
+        Message::ToggleCamera => Some("toggle camera"),
+        Message::ToggleMic => Some("toggle microphone"),
+        Message::ToggleOutput => Some("toggle sound"),
+        _ => None,
+    };
+    if let Some(action) = action {
+        sentry::add_breadcrumb(sentry::Breadcrumb { category: Some("ui".into()), message: Some(action.into()), ..Default::default() });
+        sentry::logger_info!("{}", action);
+    }
     match message {
         Message::Room(value) => app.room = value,
         Message::Name(value) => app.name = value,
@@ -825,6 +841,8 @@ fn tick(app: &mut App) -> Task<Message> {
     if errors != app.shown_errors {
         if !errors.is_empty() {
             app.notice = Some((errors.clone(), Instant::now()));
+            // What the user saw go wrong (camera, audio, share, connection), with the session around it.
+            sentry::logger_warn!("toast: {}", errors.as_str());
         }
         app.shown_errors = errors;
     }
@@ -1031,6 +1049,9 @@ fn start(room: String, name: String) -> Running {
             &endpoint, &room, &name, &config, 24 * 3600, thread_stop, None, Some(ui),
         ));
         eprintln!("session ended: {result:?}");
+        if let Err(error) = result {
+            sentry::capture_message(&format!("session ended: {error}"), sentry::Level::Error);
+        }
     });
     Running { stop, thread: Some(thread), chat, screen, camera, devices, audio, share_profile, view, surface }
 }
@@ -1079,6 +1100,8 @@ fn subscription(app: &App) -> Subscription<Message> {
 }
 
 fn main() -> iced::Result {
+    // Flushes what is queued when main returns.
+    let _telemetry = telemetry::init();
     if !startup::first_instance() {
         return Ok(());
     }

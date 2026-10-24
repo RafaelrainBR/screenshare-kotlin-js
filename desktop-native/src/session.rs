@@ -1022,7 +1022,7 @@ async fn run_inner(
                                 None
                             },
                             "stats" => { eprintln!("Native engine: {event}"); if let Some(tx) = &status { let _ = tx.send("engine stats received".into()); } None },
-                            "error" => { eprintln!("engine error: {}", event.get("code").and_then(Value::as_str).unwrap_or("unknown")); None },
+                            "error" => { let code = event.get("code").and_then(Value::as_str).unwrap_or("unknown"); eprintln!("engine error: {code}"); sentry::logger_error!("engine error: {}", code); None },
                             _ => None,
                         };
                         if let Some(packet) = packet {

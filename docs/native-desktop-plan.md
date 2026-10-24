@@ -334,12 +334,22 @@ O PostHog fica como opção futura, só para análise de produto (duração dos 
 - **Log local:** um arquivo com rotação na pasta de dados do app, mais "Abrir pasta de logs" nos ajustes. Serve para quando a rede cai ou o Sentry está fora.
 
 **Regras:**
-- **Sem DSN, nada sai.** O DSN entra no build por secret (`SENTRY_DSN_NATIVE`, `SENTRY_DSN_WEB`, `SENTRY_DSN_SERVER`) via `option_env!`. Builds locais e forks não enviam nada.
+- **Sem DSN, nada sai.** O DSN entra no build pelas variáveis do repositório (`vars.SENTRY_DSN_NATIVE`, `vars.SENTRY_DSN_WEB`, `vars.SENTRY_DSN_SERVER`; um DSN não é segredo) via `option_env!`. Builds locais e forks não enviam nada.
 - **Privacidade:** `send_default_pii = false`. Um `before_send` tira o nome de usuário, o nome da sala, o IP e os caminhos com o nome do usuário do Windows. A sessão é identificada por um id aleatório.
 - **Cota:** amostragem de traces baixa e rate limit no cliente, para um loop de erro não gastar os 5 mil erros do mês.
 - **Clientes antigos:** nada muda no protocolo.
 
-**Depende do usuário:** criar a conta e os três projetos no Sentry e cadastrar os secrets acima. O resto é código.
+**Feito (24/10/2026):**
+- Projetos `screenshare-native`, `screenshare-web` e `screenshare-server` na org `screenshare-app`.
+- Variáveis de DSN criadas no repositório.
+- O DSN do nativo tem limite de 100 eventos/hora.
+- Nativo instrumentado em `desktop-native/src/telemetry.rs`: panics, sessões por release, breadcrumbs e logs das ações, erros do engine e avisos mostrados ao usuário. Um panic de teste chegou ao Sentry.
+
+**Depende do usuário:**
+- o secret `SENTRY_AUTH_TOKEN`, para o upload dos PDBs;
+- ligar "Prevent Storing of IP Addresses" nas configurações da org, porque o Sentry deduz a cidade pelo IP.
+
+**Falta:** minidump do C++, site, servidor e log local.
 
 ## Próximos passos (ordem combinada em 23/10/2026)
 
