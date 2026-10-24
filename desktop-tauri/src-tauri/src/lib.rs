@@ -320,6 +320,9 @@ struct VideoRequest {
     hwnd: Option<u64>,
     rect: Option<(i32, i32, u32, u32)>,
     fps: u32,
+    /// The chosen share height; the capture scales taller sources down to it.
+    #[serde(default)]
+    max_height: Option<u32>,
 }
 
 /// Frames travel through WebView2 shared memory; the channel only announces them
@@ -377,8 +380,11 @@ async fn start_video_capture(
     let app = window.app_handle().clone();
     state.fps.store(request.fps, Ordering::Relaxed);
     let fps = state.fps.clone();
+    let max_height = Arc::new(std::sync::atomic::AtomicU32::new(
+        request.max_height.unwrap_or(u32::MAX),
+    ));
     install(&state.capture, move |running| {
-        let result = capture_video_loop(source, fps, running, metrics, |frame| {
+        let result = capture_video_loop(source, fps, max_height, running, metrics, |frame| {
             let Some(slot) = slots.fill(frame.data) else {
                 return false;
             };

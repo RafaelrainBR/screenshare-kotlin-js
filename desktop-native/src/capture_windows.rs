@@ -27,7 +27,8 @@ pub struct Capture {
     pub audio: Option<NativeAudioSource>,
     /// Read by the capture loop every tick, so the rate changes without a restart.
     pub fps: Arc<AtomicU32>,
-    /// The chosen share height: bigger sources are scaled down before the (software) encoder.
+    /// The chosen share height: desktop-capture scales bigger sources down on the GPU, before
+    /// the I420 conversion and the (software) encoder.
     max_height: Arc<AtomicU32>,
     running: Arc<AtomicBool>,
     metrics: Arc<VideoMetrics>,
@@ -81,16 +82,12 @@ impl Capture {
             let max_height = max_height.clone();
             threads.push(thread::spawn(move || {
                 let mut ready = false;
-                let result = capture_video_loop(video, fps, running.clone(), metrics, |frame| {
+                let result = capture_video_loop(video, fps, max_height, running.clone(), metrics, |frame| {
                     let mut buffer = I420Buffer::new(frame.width, frame.height);
                     let (sy, su, sv) = buffer.strides();
                     let (y, u, v) = buffer.data_mut();
                     // libyuv's "ARGB" is B,G,R,A in memory: the layout desktop-capture produces.
                     yuv_helper::argb_to_i420(frame.data, frame.width * 4, y, sy, u, su, v, sv, frame.width as i32, frame.height as i32);
-                    let buffer = match scaled_size(frame.width, frame.height, max_height.load(Ordering::Relaxed)) {
-                        Some((width, height)) => buffer.scale(width as i32, height as i32),
-                        None => buffer,
-                    };
                     source.capture_frame(&VideoFrame {
                         rotation: VideoRotation::VideoRotation0,
                         timestamp_us: frame.timestamp_us as i64,
@@ -142,12 +139,6 @@ impl Capture {
     }
 }
 
-/// Even size with the source's aspect at `max_height`, or None when the source already fits.
-fn scaled_size(width: u32, height: u32, max_height: u32) -> Option<(u32, u32)> {
-    let even = |value: u64| ((value as u32) & !1).max(2);
-    (height > max_height).then(|| (even(u64::from(width) * u64::from(max_height) / u64::from(height)), even(u64::from(max_height))))
-}
-
 enum AudioRoute {
     Process(u32),
     Computer(Option<u32>),
@@ -159,19 +150,5 @@ impl Drop for Capture {
         for thread in self.threads.drain(..) {
             let _ = thread.join();
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::scaled_size;
-
-    #[test]
-    fn scales_down_to_the_share_height_keeping_aspect() {
-        assert_eq!(scaled_size(3840, 2160, 1080), Some((1920, 1080)));
-        assert_eq!(scaled_size(2560, 1440, 1080), Some((1920, 1080)));
-        assert_eq!(scaled_size(1282, 911, 720), Some((1012, 720)), "1013.2 wide rounds down to even");
-        assert_eq!(scaled_size(1920, 1080, 1080), None);
-        assert_eq!(scaled_size(1280, 720, u32::MAX), None);
     }
 }
