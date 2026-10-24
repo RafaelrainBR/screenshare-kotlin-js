@@ -61,7 +61,7 @@ impl SharePreset {
     pub fn profile(self) -> ShareProfile {
         let (fps, priority) = match self {
             Self::Game => (60, SharePriority::Smoothness),
-            Self::Video => (30, SharePriority::Balanced),
+            Self::Video => (30, SharePriority::Sharpness),
             // A still screen costs almost nothing at any fps; 10 keeps scrolling and the cursor readable.
             Self::Text => (10, SharePriority::Sharpness),
         };
@@ -234,7 +234,7 @@ mod tests {
         let table: Vec<_> = SharePreset::ALL.iter().map(|p| (p.profile().fps, p.profile().priority)).collect();
         assert_eq!(
             table,
-            [(60, SharePriority::Smoothness), (30, SharePriority::Balanced), (10, SharePriority::Sharpness)]
+            [(60, SharePriority::Smoothness), (30, SharePriority::Sharpness), (10, SharePriority::Sharpness)]
         );
         let video = SharePreset::Video.profile();
         let game = SharePreset::Game.profile();

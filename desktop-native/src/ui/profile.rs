@@ -205,11 +205,11 @@ mod tests {
     #[test]
     fn fields_edit_the_profile_and_presets_match_like_the_web() {
         let video = SharePreset::Video.profile();
-        assert_eq!(summary(video), "30 fps · Equilíbrio · Bitrate auto");
+        assert_eq!(summary(video), "30 fps · Nitidez · Bitrate auto");
         let custom = Field::Bitrate.set(Field::Fps.set(video, 15), 8_000_000);
         assert_eq!(matching(custom), None);
-        assert_eq!(summary(custom), "Personalizado · 15 fps · Equilíbrio · 8 Mbps");
-        assert_eq!(Field::Priority.set(video, 0).priority, SharePriority::Sharpness);
+        assert_eq!(summary(custom), "Personalizado · 15 fps · Nitidez · 8 Mbps");
+        assert_eq!(Field::Priority.set(video, 1).priority, SharePriority::Balanced);
         assert_eq!(Field::Bitrate.set(custom, 0).max_bitrate, None, "Automático clears the ceiling");
         assert_eq!(matching(Field::Priority.set(Field::Fps.set(video, 60), 2)), Some(SharePreset::Game));
         for field in Field::ALL {
