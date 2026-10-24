@@ -346,14 +346,14 @@ O PostHog fica como opção futura, só para análise de produto (duração dos 
 - Nativo instrumentado em `desktop-native/src/telemetry.rs`: panics, sessões por release, breadcrumbs e logs das ações, erros do engine e avisos mostrados ao usuário. Um panic de teste chegou ao Sentry.
 
 **Depende do usuário:**
-- o secret `SENTRY_AUTH_TOKEN`, para o upload dos PDBs;
+- o secret `SENTRY_AUTH_TOKEN`, para o upload dos PDBs. O passo já está no `release-native.yml` (`sentry-cli debug-files upload`) e só roda quando o secret existe. Em 24/10/2026 o secret ainda não existia;
 - ligar "Prevent Storing of IP Addresses" nas configurações da org, porque o Sentry deduz a cidade pelo IP.
 
 **Falta:** minidump do C++, site, servidor e log local.
 
-## Próximos passos (ordem combinada em 23/10/2026)
+## Próximos passos (ordem combinada em 23/10/2026, revisada em 24/10/2026)
 
-1. **F7 — Observabilidade com Sentry** (acima).
+1. **F7 — Observabilidade com Sentry** (acima). O nativo está feito. Faltam o minidump do C++, o site, o servidor e o log local, mais as duas pendências do usuário.
 2. **Atualização automática do nativo** (feita em 24/10/2026, `desktop-native/src/updater.rs`). É pré-requisito da F6.
    - Ao abrir e a cada 6 h, lista as releases e pega a maior tag `native-vX.Y.Z` (sem sufixo), porque as do nativo nunca são `latest`. A versão do build é a tag, via `SENTRY_RELEASE`; builds locais não checam.
    - Avisa com um toast, um item no topo do menu da bandeja e um link na tela de entrada.
@@ -365,12 +365,14 @@ O PostHog fica como opção futura, só para análise de produto (duração dos 
    - Se a release não tiver o pacote ou algo falhar, abre a página da release.
    - Não instala sem clique, para não derrubar uma chamada.
    - **Risco:** não há assinatura de código. O app grava o setup sem Mark-of-the-Web, então o SmartScreen não deve aparecer, mas um antivírus pode barrar um exe sem assinatura. O SHA256 vem da mesma release, então protege contra download corrompido, não contra uma release adulterada.
-3. **Config ICE pelo servidor**, em vez do secret `NATIVE_ENGINE_CONFIG` no build.
-4. **Validar à mão** o áudio do PC e o share pelo assistente com mouse.
-5. **Encoder por hardware no Windows:** hoje o share usa só CPU. Medir o custo em jogo e ver se o libwebrtc da LiveKit expõe NVENC, AMF ou QSV.
+3. **Config ICE pelo servidor** (feita em 17/10/2026, `d733e49`). O nativo entra com `clientVersion: 3` e aplica o `ice-servers` que o servidor manda (`Room.kt`). O build não embute nada, e o secret `NATIVE_ENGINE_CONFIG` saiu. O `SCREENSHARE_ENGINE_CONFIG` local continua valendo para testes.
+4. **Validar à mão:**
+   - o áudio do PC, que o #76 refez: cada app é mixado e ficam de fora os apps de chamada e o próprio Screenshare. O teste ao vivo do `live_mix` passou no Windows 10, mas nenhum share real foi feito de ponta a ponta;
+   - o share pelo assistente usando o mouse.
+5. **Encoder por hardware no Windows:** ainda só CPU no Windows. O libwebrtc da LiveKit não compila NVENC/AMF/QSV para Windows. A mitigação atual é preferir H264 nos presets de jogo e vídeo (`share.rs`). No macOS, o H264 já sai pelo VideoToolbox. Falta medir o custo em jogo e decidir se vale compilar o encoder.
 6. **Polimento pequeno:**
-   - ler "reduzir movimento" no macOS (hoje há um `shortcut:` em `ui/motion.rs`);
-   - transição de cor no hover do dock.
+   - ler "reduzir movimento" no macOS. O Windows já respeita a opção "Efeitos de animação"; o macOS ainda anima sempre (`shortcut:` em `ui/motion.rs`);
+   - transição de cor no hover do dock: hoje a cor troca de uma vez.
 
 ## Riscos
 
@@ -380,6 +382,6 @@ O PostHog fica como opção futura, só para análise de produto (duração dos 
 - **libwebrtc.** Build pesado; os binários pré-compilados da LiveKit cobrem Windows x64. Tamanho do exe maior que o do Tauri. O encoder deixa de ser o do Chromium: confirmar cedo (F1) quais codecs e encoders de hardware o build da LiveKit oferece no Windows. Se VP9/H264 por hardware faltarem, a qualidade do share pode ficar diferente da do Tauri mesmo com a mesma captura.
 - **Lógica WebRTC duplicada.** A engine Rust reimplementa a negociação que o cliente web faz em `PeerConnections.kt`. O protótipo já cobre glare, ICE adiantado e restart com testes; manter esses testes.
 
-## Estado (23/10/2026)
+## Estado (24/10/2026)
 
-F-1 a F5 feitos. A native-v0.1.13 tem as animações dos lotes 1 e 2; a native-v0.1.14 tira o console no Windows. A ordem do que vem agora está em "Próximos passos", acima dos riscos.
+F-1 a F5 feitos. A native-v0.1.13 tem as animações dos lotes 1 e 2; a native-v0.1.14 tira o console no Windows. A native-v0.2.x traz o Sentry, a atualização automática e o bundle do macOS com assinatura fixa. A ordem do que vem agora está em "Próximos passos", acima dos riscos.
