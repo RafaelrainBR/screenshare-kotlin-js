@@ -26,7 +26,8 @@ enum class SharePreset(
     val profile: ShareProfile,
 ) {
     GAME(ShareProfile(60, SharePriority.SMOOTHNESS)),
-    VIDEO(ShareProfile(30, SharePriority.BALANCED)),
+    // The default. Sharp like the browser's own screen share: a blurry screen was the most reported problem.
+    VIDEO(ShareProfile(30, SharePriority.SHARPNESS)),
 
     // A still screen costs almost nothing at any fps; 10 keeps scrolling and the cursor readable.
     TEXT(ShareProfile(10, SharePriority.SHARPNESS)),
@@ -49,7 +50,7 @@ fun shareProfileFrom(
         fps = frameRate,
         priority =
             SharePriority.entries.firstOrNull { it.name == priority }
-                ?: if (frameRate >= 60) SharePriority.SMOOTHNESS else SharePriority.BALANCED,
+                ?: if (frameRate >= 60) SharePriority.SMOOTHNESS else SharePreset.VIDEO.profile.priority,
         maxBitrate = maxBitrate?.toIntOrNull()?.takeIf { it > 0 },
     )
 }

@@ -53,7 +53,7 @@ Open the arrow beside the screen button to choose:
 | Preset | Starting point | Use for |
 |---|---|---|
 | **Jogo** | 60 fps; prioritize smoothness | Games and fast motion |
-| **Vídeo** | 30 fps; balanced | Video and general sharing |
+| **Vídeo** (default) | 30 fps; prioritize sharpness | Video and general sharing |
 | **Código e texto** | 10 fps; prioritize sharpness | Text, code and slides |
 
 Customize **Quadros/s**, **Se piorar** (quality preference when the network tightens), and **Bitrate**. Native desktop video keeps source dimensions. Actual quality depends on capture support, encoding, bandwidth and the receiving device.
