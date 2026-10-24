@@ -138,11 +138,12 @@ impl RenderSink {
         {
             let mut tracks = self.tracks.lock().unwrap();
             let key = (peer.clone(), track.id());
-            if tracks.contains_key(&key) {
-                return;
+            // The native app sends every share as "screen", so a new receiver (a re-share, a rolled
+            // back offer) can reuse a live id: the newest track takes over instead of being ignored.
+            match tracks.insert(key, stop.clone()) {
+                Some(previous) => previous.store(true, Ordering::Release),
+                None => self.surface.lock().unwrap().order.entry(peer.clone()).or_default().push(track.id()),
             }
-            tracks.insert(key, stop.clone());
-            self.surface.lock().unwrap().order.entry(peer.clone()).or_default().push(track.id());
         }
         let track_id = track.id();
         let sink = self.clone();
@@ -181,14 +182,19 @@ impl RenderSink {
                 surface.seen.insert((peer.clone(), track_id.clone()), Instant::now());
                 sink.presented.fetch_add(1, Ordering::Relaxed);
             }
-            let mut surface = sink.surface.lock().unwrap();
-            if let Some(ids) = surface.order.get_mut(&peer) {
-                ids.retain(|id| *id != track_id);
+            // A track that took this id over keeps its entry and frames.
+            let key = (peer, track_id);
+            let mut tracks = sink.tracks.lock().unwrap();
+            if !tracks.get(&key).is_some_and(|current| Arc::ptr_eq(current, &stop)) {
+                return;
             }
-            surface.latest.remove(&(peer.clone(), track_id.clone()));
-            surface.seen.remove(&(peer.clone(), track_id.clone()));
-            drop(surface);
-            sink.tracks.lock().unwrap().remove(&(peer, track_id));
+            tracks.remove(&key);
+            let mut surface = sink.surface.lock().unwrap();
+            if let Some(ids) = surface.order.get_mut(&key.0) {
+                ids.retain(|id| *id != key.1);
+            }
+            surface.latest.remove(&key);
+            surface.seen.remove(&key);
         });
     }
 }
@@ -288,6 +294,28 @@ mod tests {
         assert_eq!((frames.kind("b", "camera", true, false), frames.kind("b", "screen", false, true)), (Some(false), Some(true)));
         assert_eq!(frames.kind("b", "screen", false, false), None);
         assert_eq!(frames.latest[&("b".into(), "camera".into())].width, 32);
+    }
+
+    #[test]
+    fn a_new_track_reusing_the_id_of_an_old_one_is_shown() {
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        let _runtime_context = runtime.enter();
+        let factory = PeerConnectionFactory::default();
+        let (old, new) = (source(16), source(32));
+        let surface = VideoSurface::default();
+        let renderer = Renderer::with_surface(surface.clone());
+        let sink = renderer.sink();
+        // The native app shares as "screen" every time: a second share is a new track with the same id.
+        sink.add_track("b".into(), factory.create_video_track("screen", old.clone()).into(), runtime.handle().clone());
+        pump(&surface, &[(&old, 16)], 1);
+        sink.add_track("b".into(), factory.create_video_track("screen", new.clone()).into(), runtime.handle().clone());
+        // Past the old sink's 100 ms poll, so its exit has run.
+        thread::sleep(Duration::from_millis(250));
+        surface.lock().unwrap().latest.clear();
+        pump(&surface, &[(&new, 32)], 1);
+        let frames = surface.lock().unwrap();
+        assert_eq!(frames.latest[&("b".into(), "screen".into())].width, 32);
+        assert_eq!(frames.order["b"], ["screen"]);
     }
 
     #[test]
