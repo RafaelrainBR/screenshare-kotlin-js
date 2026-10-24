@@ -59,6 +59,8 @@ impl Capture {
             mac::start_video(
                 video_target,
                 fps,
+                // The wizard caps the share height at 1080p, as ScreenCaptureKit already does.
+                u32::MAX,
                 move |frame| {
                     let Some(i420) = i420(&frame) else { return };
                     source.capture_frame(&i420);

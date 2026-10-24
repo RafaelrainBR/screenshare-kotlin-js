@@ -28,6 +28,9 @@ pub struct VideoRequest {
     hwnd: Option<u64>,
     rect: Option<(i32, i32, u32, u32)>,
     fps: u32,
+    /// The chosen share height; the capture scales taller sources down to it.
+    #[serde(default)]
+    max_height: Option<u32>,
 }
 
 #[tauri::command]
@@ -65,6 +68,7 @@ pub async fn start_video_capture(
     let capture = mac::start_video(
         target,
         request.fps,
+        request.max_height.unwrap_or(u32::MAX),
         move |frame| {
             let _ = on_frame.send(InvokeResponseBody::Raw(frame));
         },

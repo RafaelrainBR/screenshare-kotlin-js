@@ -27,6 +27,9 @@ pub struct Capture {
     pub audio: Option<NativeAudioSource>,
     /// Read by the capture loop every tick, so the rate changes without a restart.
     pub fps: Arc<AtomicU32>,
+    /// The chosen share height: desktop-capture scales bigger sources down on the GPU, before
+    /// the I420 conversion and the (software) encoder.
+    max_height: Arc<AtomicU32>,
     running: Arc<AtomicBool>,
     metrics: Arc<VideoMetrics>,
     threads: Vec<JoinHandle<()>>,
@@ -71,12 +74,14 @@ impl Capture {
         let running = Arc::new(AtomicBool::new(true));
         let metrics = Arc::new(VideoMetrics::default());
         let fps = Arc::new(AtomicU32::new(fps));
+        let max_height = Arc::new(AtomicU32::new(u32::MAX));
         let mut threads = Vec::new();
         {
             let (source, running, metrics, fps) = (source.clone(), running.clone(), metrics.clone(), fps.clone());
+            let max_height = max_height.clone();
             threads.push(thread::spawn(move || {
                 let mut ready = false;
-                let result = capture_video_loop(video, fps, running.clone(), metrics, |frame| {
+                let result = capture_video_loop(video, fps, max_height, running.clone(), metrics, |frame| {
                     let mut buffer = I420Buffer::new(frame.width, frame.height);
                     let (sy, su, sv) = buffer.strides();
                     let (y, u, v) = buffer.data_mut();
@@ -113,12 +118,17 @@ impl Capture {
             }));
             audio
         });
-        Ok(Self { source, audio, fps, running, metrics, threads })
+        Ok(Self { source, audio, fps, max_height, running, metrics, threads })
     }
 
     /// Read by the capture loop every tick, so the rate changes without a restart.
     pub fn set_fps(&self, fps: u32) {
         self.fps.store(fps, Ordering::Relaxed);
+    }
+
+    /// Read by the capture loop every frame, like the rate.
+    pub fn set_max_height(&self, height: u32) {
+        self.max_height.store(height, Ordering::Relaxed);
     }
 
     pub fn frames(&self) -> u64 {

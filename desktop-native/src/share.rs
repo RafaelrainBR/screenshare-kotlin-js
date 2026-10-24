@@ -84,11 +84,15 @@ pub fn share_bitrate(profile: ShareProfile, height: u32) -> u64 {
 }
 
 /// VP9 > H264 > VP8 > AV1, keeping RTX/RED/ULPFEC: without them fullscreen video corrupts
-/// as soon as packets are lost.
-pub fn preferred_video_codecs(capabilities: Vec<RtpCodecCapability>) -> Vec<RtpCodecCapability> {
+/// as soon as packets are lost. `h264_first` (game and video shares) is this side's take on the
+/// web's hardware-first order: this libwebrtc has no GPU encoder on Windows, and H264 is the
+/// cheapest software codec there and the VideoToolbox one on macOS. Software VP9 at 60 fps
+/// takes cores from the game being shared.
+pub fn preferred_video_codecs(capabilities: Vec<RtpCodecCapability>, h264_first: bool) -> Vec<RtpCodecCapability> {
     let ends = |codec: &RtpCodecCapability, id: &str| codec.mime_type.to_lowercase().ends_with(id);
     let mut preferred = Vec::new();
-    for id in ["vp9", "h264", "vp8", "av1", "rtx", "red", "ulpfec"] {
+    let video = if h264_first { ["h264", "vp9", "vp8", "av1"] } else { ["vp9", "h264", "vp8", "av1"] };
+    for id in video.into_iter().chain(["rtx", "red", "ulpfec"]) {
         preferred.extend(capabilities.iter().filter(|codec| ends(codec, id)).cloned());
     }
     preferred
@@ -250,8 +254,9 @@ mod tests {
     fn codec_order_is_vp9_h264_vp8_av1_and_keeps_repair_codecs() {
         let caps = ["video/VP8", "video/AV1", "video/H264", "video/flexfec-03", "video/VP9", "video/rtx", "video/red", "video/ulpfec"]
             .map(|mime| RtpCodecCapability { channels: None, clock_rate: Some(90_000), mime_type: mime.into(), sdp_fmtp_line: None });
-        let order: Vec<_> = preferred_video_codecs(caps.to_vec()).into_iter().map(|c| c.mime_type).collect();
-        assert_eq!(order, ["video/VP9", "video/H264", "video/VP8", "video/AV1", "video/rtx", "video/red", "video/ulpfec"]);
+        let order = |h264_first| -> Vec<_> { preferred_video_codecs(caps.to_vec(), h264_first).into_iter().map(|c| c.mime_type).collect() };
+        assert_eq!(order(false), ["video/VP9", "video/H264", "video/VP8", "video/AV1", "video/rtx", "video/red", "video/ulpfec"]);
+        assert_eq!(order(true), ["video/H264", "video/VP9", "video/VP8", "video/AV1", "video/rtx", "video/red", "video/ulpfec"]);
     }
 
     #[test]
