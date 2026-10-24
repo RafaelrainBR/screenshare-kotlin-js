@@ -18,7 +18,7 @@ pub enum ScreenAudioMode {
     None,
     /// The shared window's application, including its child processes.
     Application,
-    /// Everything the PC plays except Discord, so voice calls never leak into the share.
+    /// Everything the PC plays except call apps and Screenshare itself, so voices never leak into the share.
     Computer,
 }
 

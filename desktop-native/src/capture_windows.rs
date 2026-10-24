@@ -63,8 +63,7 @@ impl Capture {
             (ScreenAudioMode::Computer, _) => {
                 loopback::preflight_default_render_device()
                     .map_err(|_| "CAPTURE_ERROR: nenhuma saída de áudio padrão.".to_owned())?;
-                // shortcut: exclusion is resolved at start, like Tauri; restart sharing after launching Discord.
-                Some(AudioRoute::Computer(process::discord_process_id().map_err(|e| format!("CAPTURE_ERROR: {e}"))?))
+                Some(AudioRoute::Computer)
             }
         };
         let _runtime = runtime.enter();
@@ -109,9 +108,7 @@ impl Capture {
                 // An audio failure ends only the audio; the video keeps going, as in Tauri.
                 let _ = match route {
                     AudioRoute::Process(pid) => process::capture_process_loop(pid, true, running, deliver),
-                    AudioRoute::Computer(excluded) => {
-                        loopback::capture_loop(excluded, running, deliver).map_err(|e| e.to_string())
-                    }
+                    AudioRoute::Computer => loopback::capture_loop(running, deliver),
                 };
             }));
             audio
@@ -131,7 +128,7 @@ impl Capture {
 
 enum AudioRoute {
     Process(u32),
-    Computer(Option<u32>),
+    Computer,
 }
 
 impl Drop for Capture {
