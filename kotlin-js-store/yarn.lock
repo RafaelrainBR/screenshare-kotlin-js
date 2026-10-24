@@ -352,6 +352,62 @@
     tslib "^2.8.1"
     tsyringe "^4.10.0"
 
+"@sentry/browser-utils@11.6.0":
+  version "11.6.0"
+  resolved "https://registry.yarnpkg.com/@sentry/browser-utils/-/browser-utils-11.6.0.tgz#9997e8a9954fa6409c18a80635fba1c43987c3e6"
+  integrity sha512-s4zuuE71NORfyNd6ciS27/o97qgfu70qDRdPCkLK8UOcs1REsaAQPgmvNBSADRYm4eeFwWejKBCQKjL5kOzLqw==
+  dependencies:
+    "@sentry/conventions" "^0.26.0"
+    "@sentry/core" "11.6.0"
+    web-vitals "^6.2.3"
+
+"@sentry/browser@11.6.0":
+  version "11.6.0"
+  resolved "https://registry.yarnpkg.com/@sentry/browser/-/browser-11.6.0.tgz#2322ea11d95c5f1dabcb8fa82a3c03f5dd6a2ce6"
+  integrity sha512-zkqUIbRc9HCBMsoL67HOAr6PSfNzJSMw4JhytCHuDZ5O7KuOwwgBENGhVh3mr5lj2D47Bhv01MpwCJMP3yBnZQ==
+  dependencies:
+    "@sentry/browser-utils" "11.6.0"
+    "@sentry/conventions" "^0.26.0"
+    "@sentry/core" "11.6.0"
+    "@sentry/feedback" "11.6.0"
+    "@sentry/replay" "11.6.0"
+    "@sentry/replay-canvas" "11.6.0"
+
+"@sentry/conventions@^0.26.0":
+  version "0.26.0"
+  resolved "https://registry.yarnpkg.com/@sentry/conventions/-/conventions-0.26.0.tgz#3da6c91e1c4e570914b998f8b4f97ab7e5144a23"
+  integrity sha512-ttSRcoLf2kIENDIFzH12aJaVMdxnidMYLvVNwEX/JjXfXaQot8u5M47QmgAFOOhVJ4nQ2uU8wTCh+fwSPrrCfg==
+
+"@sentry/core@11.6.0":
+  version "11.6.0"
+  resolved "https://registry.yarnpkg.com/@sentry/core/-/core-11.6.0.tgz#1b01452a097b45493df90b75b443754fb078f016"
+  integrity sha512-PbITT1kfJYKJiS9fH4ZtOcwIONKyt+tUsTZSPtcAjPdkUDOzMKT61MkUa1Ze07VzNtLALT24ZdUOc6d9K4YoKA==
+  dependencies:
+    "@sentry/conventions" "^0.26.0"
+
+"@sentry/feedback@11.6.0":
+  version "11.6.0"
+  resolved "https://registry.yarnpkg.com/@sentry/feedback/-/feedback-11.6.0.tgz#cff70e594797886209691834ebd07777f590c81a"
+  integrity sha512-V52/+SkMcPdlldExPC9TWS2sZ+CC+8BSzvVbRtkQxvy+jTOXFAJfInaVLPAAVt8W4WbPw9iAxVMzwHGaZ2muBw==
+  dependencies:
+    "@sentry/core" "11.6.0"
+
+"@sentry/replay-canvas@11.6.0":
+  version "11.6.0"
+  resolved "https://registry.yarnpkg.com/@sentry/replay-canvas/-/replay-canvas-11.6.0.tgz#d251577e8d52928facc5d8fb15105d4fe011f444"
+  integrity sha512-cRuiC8N9xXDoaKEDpMPRDtmGAr0G2YMx1m2JrnrmTnMt9z/VcIKNwaiURTTW8W8u96/RyRQfflMHYARX7FG8YQ==
+  dependencies:
+    "@sentry/core" "11.6.0"
+    "@sentry/replay" "11.6.0"
+
+"@sentry/replay@11.6.0":
+  version "11.6.0"
+  resolved "https://registry.yarnpkg.com/@sentry/replay/-/replay-11.6.0.tgz#8c27c452f7ae0cdd253d070b2737f0b61687597a"
+  integrity sha512-cJyPYnF6QJA8ADRfAW06YoU7EVIebtWezBOCU9Vag5+W1VLBkXEvH7C4LbeMUiDmrqw92sumq06NgqipIxA7BA==
+  dependencies:
+    "@sentry/browser-utils" "11.6.0"
+    "@sentry/core" "11.6.0"
+
 "@socket.io/component-emitter@~3.1.0":
   version "3.1.2"
   resolved "https://registry.yarnpkg.com/@socket.io/component-emitter/-/component-emitter-3.1.2.tgz#821f8442f4175d8f0467b9daf26e3a18e2d02af2"
@@ -2744,6 +2800,11 @@ watchpack@^2.5.2:
   integrity sha512-6i/00NBjP4yGPs+caKSyRfpTF/8Torsu0MOW3mMzIbhgISFder8i7xbqgHlLMwJrdiN8ndBV3UA1/AfzPSr+jg==
   dependencies:
     graceful-fs "^4.1.2"
+
+web-vitals@^6.2.3:
+  version "6.2.3"
+  resolved "https://registry.yarnpkg.com/web-vitals/-/web-vitals-6.2.3.tgz#8581188b2a46875d04b9536ab06b352e3a0468b8"
+  integrity sha512-Dmy+vdO1UPMqXiAtZSNayhl4f794Bxfd94W4HIj2HlYtczEQfEOon969memlcpcHrTuOKLa5baFjX7WbgmOq+A==
 
 webpack-cli@7.2.1:
   version "7.2.1"

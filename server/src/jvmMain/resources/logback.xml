@@ -5,7 +5,19 @@
         </encoder>
     </appender>
 
+    <!-- Errors only (docs/native-desktop-plan.md, F7): the INFO lines carry IPs, names and rooms, so
+         they are neither events nor breadcrumbs. Without SENTRY_DSN (set in fly.toml) nothing is sent. -->
+    <appender name="SENTRY" class="io.sentry.logback.SentryAppender">
+        <options>
+            <dsn>${SENTRY_DSN:-}</dsn>
+            <sendDefaultPii>false</sendDefaultPii>
+        </options>
+        <minimumEventLevel>ERROR</minimumEventLevel>
+        <minimumBreadcrumbLevel>ERROR</minimumBreadcrumbLevel>
+    </appender>
+
     <root level="INFO">
         <appender-ref ref="STDOUT"/>
+        <appender-ref ref="SENTRY"/>
     </root>
 </configuration>

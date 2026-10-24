@@ -24,6 +24,7 @@ kotlin {
         jvmMain {
             dependencies {
                 implementation(libs.logback.classic)
+                implementation(libs.sentry.logback)
             }
         }
 

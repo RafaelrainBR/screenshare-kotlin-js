@@ -7,6 +7,7 @@ kotlinx-serialization = "1.11.0"
 kotest = "6.2.5"
 ktor = "3.6.0"
 logback = "1.6.5"
+sentry = "8.60.0"
 shadow = "9.6.1"
 jackson = "2.21.7"
 mocha = "12.0.3"
@@ -27,6 +28,7 @@ ktor-serialization-kotlinx-json = { group = "io.ktor", name = "ktor-serializatio
 ktor-server-websockets = { group = "io.ktor", name = "ktor-server-websockets", version.ref = "ktor" }
 ktor-server-partialContent = { group = "io.ktor", name = "ktor-server-partial-content", version.ref = "ktor" }
 logback-classic = { group = "ch.qos.logback", name = "logback-classic", version.ref = "logback" }
+sentry-logback = { group = "io.sentry", name = "sentry-logback", version.ref = "sentry" }
 
 ktor-client-core = { group = "io.ktor", name = "ktor-client-core", version.ref = "ktor" }
 ktor-client-cio = { group = "io.ktor", name = "ktor-client-cio", version.ref = "ktor" }

@@ -8,6 +8,10 @@ primary_region = 'gru'
 
 [build]
 
+[env]
+  # Errors to Sentry (server/src/jvmMain/resources/logback.xml); a DSN is not a secret.
+  SENTRY_DSN = 'https://a2cda62d3635abd1eecd033dd335cdef@o4512308528087040.ingest.us.sentry.io/4512308563542016'
+
 [http_service]
   internal_port = 8080
   force_https = true
