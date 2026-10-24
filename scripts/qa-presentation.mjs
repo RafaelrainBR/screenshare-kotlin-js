@@ -2,13 +2,14 @@ import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 import { mkdir, writeFile, readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
-import { downloadsFromManifest } from './build-presentation.mjs';
+import { downloadsFromManifest, nativeDownloads } from './build-presentation.mjs';
 
 const require = createRequire(resolve(process.env.PLAYWRIGHT_MODULE_DIR || 'node_modules', 'package.json'));
 const { chromium } = require('playwright');
 const base = process.env.SCREENSHARE_DOCS_URL || 'http://localhost:8080';
 assert(['localhost', '127.0.0.1'].includes(new URL(base).hostname), 'Use a local QA server');
 const expected = downloadsFromManifest(JSON.parse(await readFile('site/latest.json', 'utf8')));
+const native = nativeDownloads(JSON.parse(await readFile('site/native.json', 'utf8')).version);
 const output = resolve('artifacts/qa/presence');
 await mkdir(output, { recursive: true });
 const browser = await chromium.launch({ channel: 'chrome', headless: true });
@@ -21,8 +22,8 @@ try {
     page.on('pageerror', error => errors.push(error.message));
     assert.equal((await page.goto(base + path)).status(), 200);
     assert.equal(await page.locator('html').getAttribute('lang'), locale === 'pt' ? 'pt-BR' : 'en');
-    assert.equal(await page.locator('[data-download=windows]').getAttribute('href'), expected.windowsUrl);
-    assert.equal(await page.locator('[data-download=mac]').getAttribute('href'), expected.macUrl);
+    const downloadPage = locale === 'pt' ? '/about/download.html' : '/about/download-en.html';
+    assert.equal(await page.locator('#downloads .button').getAttribute('href'), downloadPage);
     assert.equal(await page.locator('.actions .primary').getAttribute('href'), '/');
     assert.equal(await page.locator('video').getAttribute('autoplay'), null);
     assert.equal(await page.locator('video').getAttribute('preload'), 'none');
@@ -46,9 +47,6 @@ try {
     assert.equal(await page.locator(':focus').getAttribute('class'), 'skip');
     await page.keyboard.press('Enter');
     assert.equal(new URL(page.url()).hash, '#main');
-    await page.locator('#mac-install summary').click();
-    assert(await page.locator('#mac-install code').isVisible());
-    await page.keyboard.press('Tab');
     const metaImage = await page.locator('meta[property="og:image"]').getAttribute('content');
     assert(metaImage.startsWith('https://screen-share.fly.dev/about/assets/'));
     const imageResponse = await context.request.get(base + new URL(metaImage).pathname);
@@ -61,7 +59,20 @@ try {
     for (const asset of ['/fonts/barlow-regular.ttf', '/brand/screenshare-logo-on-dark.svg', '/brand/screenshare-logo.svg', `/about/assets/captions-${locale}.vtt`, `/about/transcript-${locale}.html`]) {
       assert.equal((await context.request.get(base + asset)).status(), 200, asset);
     }
-    results.push(`${locale}: content and downloads without JavaScript, five viewports in light/dark, keyboard skip link, macOS guide, metadata and assets`);
+    results.push(`${locale}: content without JavaScript, five viewports in light/dark, keyboard skip link, metadata and assets`);
+
+    // Without JavaScript the download page keeps the versions of its build.
+    assert.equal((await page.goto(base + downloadPage)).status(), 200);
+    assert.equal(await page.locator('[data-line=classic][data-file$="setup.exe"]').getAttribute('href'), expected.windowsUrl);
+    assert.equal(await page.locator('[data-line=classic][data-file$="macos-arm64.tar.gz"]').getAttribute('href'), expected.macUrl);
+    assert.equal(await page.locator('.variants [data-line=native][data-file$="setup.exe"]').getAttribute('href'), native.nativeSetupUrl);
+    assert(!(await page.content()).includes('{{'));
+    for (const [width, height] of [[1440, 900], [390, 844], [320, 640]]) {
+      await page.setViewportSize({ width, height });
+      assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), `${locale} download: overflow at ${width}`);
+      await page.screenshot({ path: `${output}/${locale}-download-${width}.png`, fullPage: true });
+    }
+    results.push(`${locale}: download page links without JavaScript, three viewports`);
     await context.close();
   }
   const mediaContext = await browser.newContext({ viewport: { width: 1280, height: 800 }, reducedMotion: 'reduce' });

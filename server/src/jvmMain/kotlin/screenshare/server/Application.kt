@@ -7,6 +7,8 @@ import io.ktor.server.http.content.staticResources
 import io.ktor.server.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.server.plugins.origin
 import io.ktor.server.plugins.partialcontent.PartialContent
+import io.ktor.server.response.respondRedirect
+import io.ktor.server.routing.get
 import io.ktor.server.routing.route
 import io.ktor.server.routing.routing
 import io.ktor.server.websocket.WebSockets
@@ -113,6 +115,8 @@ fun Application.module() {
             disconnectUser()
         }
 
+        // Short link to share and to put in release notes.
+        get("/download") { call.respondRedirect("/about/download.html") }
         route("/about") {
             install(PartialContent)
             staticResources("", "presentation") {
