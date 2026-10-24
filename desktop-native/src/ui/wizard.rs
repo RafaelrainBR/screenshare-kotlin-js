@@ -51,7 +51,7 @@ impl std::fmt::Display for PresetChoice {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(match self.0 {
             SharePreset::Game => "Jogo · ação fluida, 60 fps",
-            SharePreset::Video => "Vídeo · filmes e séries, 30 fps",
+            SharePreset::Video => "Vídeo · uso geral, imagem nítida, 30 fps",
             SharePreset::Text => "Código e texto · letras nítidas, 10 fps",
         })
     }
