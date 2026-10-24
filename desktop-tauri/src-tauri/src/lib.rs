@@ -199,10 +199,8 @@ fn start_system_audio(
     state: State<'_, CaptureState>,
 ) -> Result<(), String> {
     capture::loopback::preflight_default_render_device().map_err(|_| "no-default-render-device")?;
-    // shortcut: exclusion is resolved at start; restart sharing after launching/restarting Discord.
-    let excluded_pid = capture::process::discord_process_id()?;
     install(&state, move |running| {
-        let _ = capture::loopback::capture_loop(excluded_pid, running, |chunk| {
+        let _ = capture::loopback::capture_loop(running, |chunk| {
             on_audio.send(chunk).is_ok()
         });
         // The worker cannot return an error through a command that has already

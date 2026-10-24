@@ -55,7 +55,7 @@ For an instance you host, adjust both that startup URL and the `connect-src` all
 ## Capture and lifecycle
 
 - Windows video uses DXGI Desktop Duplication for screens and PrintWindow for windows. Window capture can have a lower practical frame rate than full-screen capture.
-- Windows audio uses WASAPI loopback for computer audio or a selected process tree. Computer audio excludes one already-running Discord desktop tree when the OS supports it; see [platform limits](../docs/usage.md#share-a-screen-and-audio).
+- Windows audio uses WASAPI loopback for computer audio or a selected process tree. Computer audio leaves out call apps (Discord, Teams, Zoom, WhatsApp…) and Screenshare itself; see [platform limits](../docs/usage.md#share-a-screen-and-audio).
 - macOS uses ScreenCaptureKit for video/system audio and Core Audio taps for application audio, including descendant audio processes.
 - The bridge produces media tracks for Kotlin/JS; it is not another frontend or signaling service. Source IDs, window metadata, thumbnails and PCM stay on the local capture path.
 - Stop, replacement, room exit and shutdown release the corresponding media resources. Camera and microphone are independent of screen sharing.

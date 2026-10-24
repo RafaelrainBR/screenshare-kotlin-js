@@ -44,7 +44,7 @@ Click the screen button. In a browser, choose a screen, window or tab in its pic
 
 In the desktop app, choose a screen or window from the native thumbnails and whether to share its audio. A screen can send computer audio; a window can send the selected application's audio. Stop sharing with the screen stop button; camera and microphone have separate controls.
 
-On Windows, computer-audio capture excludes Discord desktop when one supported Discord process tree is already running. Open Discord before sharing and restart sharing after restarting Discord. Exclusion requires Windows build 20348 or later; unsupported exclusion does not silently fall back to an unfiltered mix. Multiple independent Discord trees are rejected, and Discord in a browser is not filtered.
+On Windows, computer-audio capture leaves out call and chat apps (Discord, Teams, Zoom, Skype, Slack, TeamSpeak, Mumble, WhatsApp, Telegram, Signal, Element, Guilded), Screenshare itself (the call and the other screens) and system sounds. Apps opened during the share are picked up within a second, so there is no need to share again. A browser opened from one of those apps still plays, and calls inside a browser are not filtered. If the system does not support per-app audio capture, the audio stops instead of falling back to an unfiltered mix.
 
 ### Transmission settings
 
