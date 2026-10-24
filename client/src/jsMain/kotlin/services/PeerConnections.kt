@@ -83,7 +83,6 @@ class PeerConnections(
             maxBitrate = shareBitrate(profile, screenSharing.lastShareHeight),
             maxFramerate = profile.fps,
             degradationPreference = profile.priority.degradationPreference,
-            scaleResolutionDownBy = screenSharing.lastShareScaleDown,
         )
     }
 

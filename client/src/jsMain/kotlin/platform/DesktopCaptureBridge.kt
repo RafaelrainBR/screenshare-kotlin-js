@@ -108,15 +108,18 @@ object DesktopCaptureBridge {
     /**
      * Starts the native capture of [source] (no picker, sharing bar or border).
      * [onEnded] runs when the capture ends on its own, e.g. "window-closed".
+     * A source taller than [maxHeight] is scaled down to it on the GPU before it reaches the WebView.
      */
     suspend fun startVideoCapture(
         source: DesktopCaptureSource,
         fps: Int,
+        maxHeight: Int? = null,
         onEnded: (String) -> Unit,
     ): MediaStreamTrack {
         if (!isAvailable) throw DesktopCaptureException("native-unavailable", "Captura nativa não disponível")
         val request: dynamic = js("({})")
         request.fps = fps
+        if (maxHeight != null) request.maxHeight = maxHeight
         if (source.kind == DesktopCaptureSourceKind.WINDOW) {
             request.hwnd = source.hwnd.toDouble()
         } else {

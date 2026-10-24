@@ -22,13 +22,6 @@ class SharePresetTest {
     }
 
     @Test
-    fun scaleDownOnlyShrinksToTheChosenHeight() {
-        assertEquals(2.0, shareScaleDown(2160, 1080))
-        assertEquals(1.0, shareScaleDown(1080, 1440))
-        assertEquals(1.0, shareScaleDown(1080, 0))
-    }
-
-    @Test
     fun manualBitrateWinsOverAutomatic() {
         assertEquals(6_000_000, shareBitrate(SharePreset.TEXT.profile, 1080))
         assertEquals(9_000_000, shareBitrate(SharePreset.GAME.profile, 1080))

@@ -210,15 +210,17 @@ pub fn capture_thumbnail(target: Target) -> Result<Option<Thumbnail>, String> {
 
 /// Streams NV12 frames (`FRAME_HEADER` + Y plane + interleaved UV plane).
 /// `on_end` receives "window-closed" or "capture-failed" when the system stops the stream.
+/// ScreenCaptureKit scales the source on the GPU to fit 1080p and `max_height`.
 pub fn start_video(
     target: Target,
     fps: u32,
+    max_height: u32,
     on_frame: impl Fn(Vec<u8>) + Send + Sync + 'static,
     on_end: impl Fn(String) + Send + Sync + 'static,
 ) -> Result<Capture, String> {
     let is_window = matches!(target, Target::Window(_));
     let (filter, (width, height)) = filter_for(&target)?;
-    let (width, height) = fit_within(width, height, MAX_W, MAX_H);
+    let (width, height) = fit_within(width, height, MAX_W, MAX_H.min(max_height));
     let config = SCStreamConfiguration::new()
         .with_width(width)
         .with_height(height)

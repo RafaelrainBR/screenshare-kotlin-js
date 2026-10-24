@@ -153,7 +153,7 @@ async function installUpdate(onProgress: (fraction: number) => void): Promise<vo
   await relaunch()
 }
 
-type VideoRequest = { hwnd?: number; rect?: [number, number, number, number]; fps: number }
+type VideoRequest = { hwnd?: number; rect?: [number, number, number, number]; fps: number; maxHeight?: number }
 type VideoMetrics = { received: number; written: number; droppedWriter: number; latencyUs: number[] }
 const sharedHeader = 16
 let currentVideo: NativeCapture | undefined
