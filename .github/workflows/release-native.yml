@@ -17,6 +17,11 @@ env:
   # cargo's built-in git (libgit2 over SecureTransport on macOS) drops the libyuv submodule clone from
   # chromium.googlesource.com; the git CLI does not.
   CARGO_NET_GIT_FETCH_WITH_CLI: "true"
+  # Sentry (desktop-native/src/telemetry.rs): only these builds report, tagged with the tag as release.
+  SENTRY_DSN_NATIVE: ${{ vars.SENTRY_DSN_NATIVE }}
+  SENTRY_RELEASE: ${{ github.ref_name }}
+  # The PDB upload needs a token; without one the release still ships, with unsymbolicated frames.
+  SENTRY_UPLOAD: ${{ secrets.SENTRY_AUTH_TOKEN != '' }}
 
 jobs:
   build:
@@ -46,6 +51,13 @@ jobs:
         working-directory: desktop-native
         # STUN/TURN arrive from the server at runtime (ice-servers); nothing is embedded.
         run: cargo build --release --locked
+      - name: Upload debug symbols to Sentry
+        if: env.SENTRY_UPLOAD == 'true'
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+        run: |
+          npx --yes @sentry/cli@2 debug-files upload --org screenshare-app --project screenshare-native --include-sources \
+            "$CARGO_TARGET_DIR/release/desktop-native.exe" "$CARGO_TARGET_DIR/release/desktop_native.pdb"
       - name: Package
         run: |
           version="${GITHUB_REF_NAME#native-v}"
