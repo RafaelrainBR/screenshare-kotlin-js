@@ -1,15 +1,15 @@
 {
-  "version": "0.11.2",
+  "version": "0.11.4",
   "notes": "",
-  "pub_date": "2026-10-23T03:58:12.548Z",
+  "pub_date": "2026-10-24T06:02:49.046Z",
   "platforms": {
     "windows-x86_64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSeEZhSlRlV3F3R1hPT29ob3VGTXRzZ2dacGtuQ0plVDlJb01LSnYxRENnb1dpYzlOZmhuRmxRemdITjluZzQwcDJMd1YwYWJjUXZOc3JDRmx5NFUrRnNPTDFxZFFkMGdrPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkyNzI3Nzc4CWZpbGU6U2NyZWVuc2hhcmVfMC4xMS4yX3g2NC1zZXR1cC5leGUJdmVyc2lvbjowLjExLjIKbEhId0h4bWVPSnY5djAxUlBMMUpwWkJ2TjdTUThlUjV1Y2lEWTZmZEd5TjRxVkJ6OVJOdEtWejBJcTJHN093RmorUEp1ZzFNaGZaODRCTjczRWZKQVE9PQo=",
-      "url": "https://github.com/RafaelrainBR/screenshare-kotlin-js/releases/download/v0.11.2/Screenshare_0.11.2_x64-setup.exe"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSeEZhSlRlV3F3R1dwL2lkcDJqTEZndFpybjQ2V3NNaFdVcEpDUnlHd3FZZkl0cDgvWGRjYkpFbGEyUFhteHVQbzcyZWY0R3NLYXRtOFNKMEN1Tmc0TkIxd0Faa1d5NndjPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkyODIxNzA0CWZpbGU6U2NyZWVuc2hhcmVfMC4xMS40X3g2NC1zZXR1cC5leGUJdmVyc2lvbjowLjExLjQKYitpbWFQUC9hMHExYXg2b1FRV05vc3FaNjVzRVh1Ri9pRXI4RGJvMlVOOStLWUJvZlpoZlRaYUJiSk5NN3puRk1GeUVMVTBBOFFCbjlIa0lmM05LQkE9PQo=",
+      "url": "https://github.com/RafaelrainBR/screenshare-kotlin-js/releases/download/v0.11.4/Screenshare_0.11.4_x64-setup.exe"
     },
     "darwin-aarch64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSeEZhSlRlV3F3R2ZnbDkwWVpranl5N3JqdWVPcm5jNitid2xQZTZWM2pYSWNoa2hwZjUrbyt3biszRXVxR29ibVluS2R0SnZCb2hoTUxYOVhmNjE3akk2MkxHb2N1TkE0PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkyNzI3ODM2CWZpbGU6U2NyZWVuc2hhcmUuYXBwLnRhci5negl2ZXJzaW9uOjAuMTEuMgo5d1JjRUJIbW1qcFRLcUh2NCtieVRjVHN3Q0JURXlYSnBid3hTYlUzaENBTGtlK3ZHK3F2UnNZQWlJZDFqdjR0ZTNsQ0wzMWlyTFNSK1doRVN2ZlFDUT09Cg==",
-      "url": "https://github.com/RafaelrainBR/screenshare-kotlin-js/releases/download/v0.11.2/Screenshare-macos-arm64.tar.gz"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSeEZhSlRlV3F3R2Y3bU5hL2xOSmhkTHl1dk9keVMybHhsRmdCYWZzSGtHYnBJb1pvdFhIK2dmSUZrQ3QvVmRSemM4QS9lb25DMmFKbDljc3lBWVd5b1JuWDZFV1A2NEFvPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkyODIxNjAwCWZpbGU6U2NyZWVuc2hhcmUuYXBwLnRhci5negl2ZXJzaW9uOjAuMTEuNApLMWhiWEx6R2djbGI2KzJZcDNac0NzQkEwdFhxR3YzQ0FuaDVWZjNndzlqOC9nY1dLQVFTSGFwZm5zT05DOUtka2htRFRvbnZNdmVwQ2R0NGpEZldBUT09Cg==",
+      "url": "https://github.com/RafaelrainBR/screenshare-kotlin-js/releases/download/v0.11.4/Screenshare-macos-arm64.tar.gz"
     }
   }
 }
