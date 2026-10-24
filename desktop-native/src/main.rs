@@ -198,6 +198,11 @@ pub struct App {
     share_height: u32,
     /// A new source picked while sharing: started once the old share ends.
     pending_share: Option<ScreenOptions>,
+    /// The share last started, so it can start again after a reconnection.
+    share_options: Option<ScreenOptions>,
+    /// Share, camera and microphone as they were in `media_generation`, turned back on in the next one.
+    media_before: (Option<ScreenOptions>, bool, bool),
+    media_generation: u64,
     autostart: bool,
     /// Without a tray (Explorer not running) closing the window quits.
     has_tray: bool,
@@ -422,6 +427,50 @@ fn a_room_link_joins_its_room() {
     assert_eq!(room_code("http://localhost:8080/?x=1&roomId=ab12&y=2#top"), "ab12");
     assert_eq!(room_code(" 4f8a2c1e "), "4f8a2c1e");
     assert_eq!(room_code("https://screen-share.fly.dev/?roomId="), "");
+}
+
+#[test]
+fn a_reconnection_turns_the_share_camera_and_mic_back_on() {
+    let (chat, _chat) = channel();
+    let (screen, screens) = channel();
+    let (camera, cameras) = channel();
+    let (devices, _devices) = channel();
+    let (audio, audios) = channel();
+    let (share_profile, _profiles) = channel();
+    let view = Arc::new(Mutex::new(SessionView {
+        generation: 1,
+        local_socket_id: Some("a".into()),
+        screen_state: "active".into(),
+        camera_state: "active".into(),
+        microphone_enabled: true,
+        ..Default::default()
+    }));
+    let running = Running {
+        stop: Arc::default(),
+        thread: None,
+        chat,
+        screen,
+        camera,
+        devices,
+        audio,
+        share_profile,
+        view: view.clone(),
+        surface: VideoSurface::default(),
+    };
+    let options = ScreenOptions::default();
+    let mut app = App { running: Some(running), share_options: Some(options.clone()), ..Default::default() };
+    let _ = tick(&mut app);
+    let _ = tick(&mut app);
+    assert!(screens.try_recv().is_err(), "nothing replayed on the first connection");
+    // Dropped: a fresh view until the new socket joins, then generation 2 joined.
+    *view.lock().unwrap() = SessionView { generation: 2, ..Default::default() };
+    let _ = tick(&mut app);
+    view.lock().unwrap().local_socket_id = Some("b".into());
+    let _ = tick(&mut app);
+    assert_eq!(screens.try_recv().unwrap(), (2, Some(options)));
+    assert!(cameras.try_recv().is_err() && app.camera_after_share, "the camera waits for the share");
+    assert!(audios.try_iter().any(|(generation, control)| generation == 2
+        && matches!(control, AudioControl::Microphone { enabled: true, .. })));
 }
 
 fn whoami() -> String {
@@ -666,6 +715,7 @@ fn update(app: &mut App, message: Message) -> Task<Message> {
                         let _ = running.camera.send((app.view.generation, None));
                         app.camera_after_share = true;
                     }
+                    app.share_options = Some(options.clone());
                     let _ = running.screen.send((app.view.generation, Some(options)));
                 }
                 app.wizard = None;
@@ -852,6 +902,7 @@ fn tick(app: &mut App) -> Task<Message> {
     }
     if !sharing(&app.view) {
         if let Some(options) = app.pending_share.take() {
+            app.share_options = Some(options.clone());
             let _ = running.screen.send((app.view.generation, Some(options)));
         }
     }
@@ -888,6 +939,30 @@ fn tick(app: &mut App) -> Task<Message> {
         app.output_generation = app.view.generation;
         if !app.output_muted && !app.view.output_enabled {
             audio(app, AudioControl::Output { enabled: true, device_id: app.output_device.clone() });
+        }
+    }
+    // A server deploy or a dropped connection starts a new session without the local media;
+    // what was on comes back on, so nobody has to share or unmute again.
+    if app.view.local_socket_id.is_some() {
+        if app.media_generation != app.view.generation {
+            app.media_generation = app.view.generation;
+            let (share, camera, mic) = std::mem::take(&mut app.media_before);
+            if let Some(running) = &app.running {
+                if let Some(options) = share {
+                    app.share_height = options.height;
+                    let _ = running.screen.send((app.view.generation, Some(options)));
+                    // As in StartShare, the camera returns once the share is up.
+                    app.camera_after_share = camera;
+                } else if camera {
+                    let _ = running.camera.send((app.view.generation, Some(app.camera_device.clone())));
+                }
+            }
+            if mic {
+                audio(app, AudioControl::Microphone { enabled: true, device_id: app.mic_device.clone() });
+            }
+        } else {
+            let share = app.share_options.clone().filter(|_| sharing(&app.view));
+            app.media_before = (share, camera_on(&app.view), app.view.microphone_enabled);
         }
     }
     if app.view.audio_pending == 0 {
