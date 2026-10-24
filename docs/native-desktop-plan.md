@@ -357,8 +357,12 @@ O PostHog fica como opção futura, só para análise de produto (duração dos 
 2. **Atualização automática do nativo** (feita em 24/10/2026, `desktop-native/src/updater.rs`). É pré-requisito da F6.
    - Ao abrir e a cada 6 h, lista as releases e pega a maior tag `native-vX.Y.Z` (sem sufixo), porque as do nativo nunca são `latest`. A versão do build é a tag, via `SENTRY_RELEASE`; builds locais não checam.
    - Avisa com um toast, um item no topo do menu da bandeja e um link na tela de entrada.
-   - **Windows instalado** (há `unins000.exe` ao lado do exe): um clique baixa o setup, confere o `SHA256SUMS`, roda `/VERYSILENT` e o app sai. O `installer.iss` reabre o app no modo silencioso. Se falhar, abre a página da release.
-   - **Portátil e macOS:** o clique abre a página da release.
+   - Um clique baixa o pacote do sistema e confere o `SHA256SUMS`. Depois:
+     - **Windows instalado** (há `unins000.exe` ao lado do exe): roda o setup com `/VERYSILENT` e o app sai. O `installer.iss` reabre o app no modo silencioso.
+     - **Windows portátil:** renomeia o próprio exe para `.exe.old` (o Windows deixa, mesmo rodando), grava o novo no lugar e o abre.
+     - **macOS:** extrai o `tar.gz` em `.screenshare-native-update`, ao lado do `.app`, troca os bundles e abre o novo com `open -n`. Como o download não passa por navegador, não há quarentena. A permissão de Gravação de Tela pode precisar ser refeita, como já avisa o `install-macos.sh`.
+   - O app novo recebe `--replaces <pid>` e espera o antigo sair antes da checagem de instância única. As sobras (`.exe.old`, a pasta de staging) somem na próxima abertura.
+   - Se a release não tiver o pacote ou algo falhar, abre a página da release.
    - Não instala sem clique, para não derrubar uma chamada.
    - **Risco:** não há assinatura de código. O app grava o setup sem Mark-of-the-Web, então o SmartScreen não deve aparecer, mas um antivírus pode barrar um exe sem assinatura. O SHA256 vem da mesma release, então protege contra download corrompido, não contra uma release adulterada.
 3. **Config ICE pelo servidor**, em vez do secret `NATIVE_ENGINE_CONFIG` no build.
