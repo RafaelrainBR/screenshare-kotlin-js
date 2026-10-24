@@ -307,6 +307,51 @@ Teclado e foco básicos entram no beta. UIA/IME completos são gate de promoçã
 
 Critérios mínimos: duas betas usadas de verdade sem bug grave; paridade com o Tauri nas features do dia a dia; teclado/IME ok; instalação e desinstalação limpas. Ao promover, avisar usuários Tauri por uma última release Tauri com notas apontando para o nativo. Updater próprio, se houver, começa nessa versão.
 
+### F7 — Observabilidade com Sentry (decidido em 23/10/2026)
+
+Desde a native-v0.1.14 o exe de release é um app GUI (`windows_subsystem`), sem console. Por isso os `eprintln!` não aparecem mais em lugar nenhum. O objetivo é ver erros, crashes e o comportamento de cada sessão, e não só as exceções.
+
+**Por que o Sentry.** Foi comparado com o PostHog e com o Grafana Cloud, nos planos gratuitos. Só o Sentry pega crash nativo: tanto o panic do Rust quanto o minidump do C++ do libwebrtc. Ele também cobre o nativo, o site e o servidor numa ferramenta só. O plano Developer (gratuito) dá, segundo agregadores de preço (conferir em sentry.io/pricing):
+
+| Item | Limite |
+|---|---|
+| Erros | 5 mil/mês |
+| Spans | 5 milhões/mês |
+| Logs | 5 GB/mês |
+| Replays | 50/mês |
+| Usuários | 1 |
+| Retenção | 30 dias |
+
+O PostHog fica como opção futura, só para análise de produto (duração dos shares, reconexões, features usadas).
+
+**Escopo:**
+- **Nativo (Rust):**
+  - crate `sentry` com panic, contexts e logs. A versão de release é a tag `native-vX.Y.Z`;
+  - os `eprintln!` viram logs estruturados, e as ações do usuário (entrar na sala, iniciar e parar o share, câmera, reconectar) viram breadcrumbs;
+  - crash do C++ (libwebrtc) via handler de minidump fora do processo (ex.: `crash-handler` + `minidumper`) enviado como evento com anexo. Precisa dos PDBs: o `release-native.yml` sobe os símbolos com `sentry-cli` (secret `SENTRY_AUTH_TOKEN`).
+- **Site (Kotlin/JS):** `@sentry/browser` com erros, logs e poucos replays (amostragem baixa, cabe nos 50/mês).
+- **Servidor (JVM):** SDK Java com erros e logs.
+- **Log local:** um arquivo com rotação na pasta de dados do app, mais "Abrir pasta de logs" nos ajustes. Serve para quando a rede cai ou o Sentry está fora.
+
+**Regras:**
+- **Sem DSN, nada sai.** O DSN entra no build por secret (`SENTRY_DSN_NATIVE`, `SENTRY_DSN_WEB`, `SENTRY_DSN_SERVER`) via `option_env!`. Builds locais e forks não enviam nada.
+- **Privacidade:** `send_default_pii = false`. Um `before_send` tira o nome de usuário, o nome da sala, o IP e os caminhos com o nome do usuário do Windows. A sessão é identificada por um id aleatório.
+- **Cota:** amostragem de traces baixa e rate limit no cliente, para um loop de erro não gastar os 5 mil erros do mês.
+- **Clientes antigos:** nada muda no protocolo.
+
+**Depende do usuário:** criar a conta e os três projetos no Sentry e cadastrar os secrets acima. O resto é código.
+
+## Próximos passos (ordem combinada em 23/10/2026)
+
+1. **F7 — Observabilidade com Sentry** (acima).
+2. **Atualização automática do nativo.** É pré-requisito da F6. Começa só avisando que há versão nova, lendo o GitHub Releases das tags `native-v*`; depois baixa e instala sozinho.
+3. **Config ICE pelo servidor**, em vez do secret `NATIVE_ENGINE_CONFIG` no build.
+4. **Validar à mão** o áudio do PC e o share pelo assistente com mouse.
+5. **Encoder por hardware no Windows:** hoje o share usa só CPU. Medir o custo em jogo e ver se o libwebrtc da LiveKit expõe NVENC, AMF ou QSV.
+6. **Polimento pequeno:**
+   - ler "reduzir movimento" no macOS (hoje há um `shortcut:` em `ui/motion.rs`);
+   - transição de cor no hover do dock.
+
 ## Riscos
 
 - **Duas linhas de produto.** Toda feature nova do Tauri precisa ser portada. Manter o escopo do beta pequeno e fazer merge do master com frequência.
@@ -315,6 +360,6 @@ Critérios mínimos: duas betas usadas de verdade sem bug grave; paridade com o 
 - **libwebrtc.** Build pesado; os binários pré-compilados da LiveKit cobrem Windows x64. Tamanho do exe maior que o do Tauri. O encoder deixa de ser o do Chromium: confirmar cedo (F1) quais codecs e encoders de hardware o build da LiveKit oferece no Windows. Se VP9/H264 por hardware faltarem, a qualidade do share pode ficar diferente da do Tauri mesmo com a mesma captura.
 - **Lógica WebRTC duplicada.** A engine Rust reimplementa a negociação que o cliente web faz em `PeerConnections.kt`. O protótipo já cobre glare, ICE adiantado e restart com testes; manter esses testes.
 
-## Próximo passo
+## Estado (23/10/2026)
 
-F-1 a F5 feitos e native-v0.1.0 publicado. Pendente: validar à mão o áudio do PC e o share pelo assistente com mouse; depois, o servidor distribuir a config ICE (hoje é o secret `NATIVE_ENGINE_CONFIG`).
+F-1 a F5 feitos. A native-v0.1.13 tem as animações dos lotes 1 e 2; a native-v0.1.14 tira o console no Windows. A ordem do que vem agora está em "Próximos passos", acima dos riscos.
