@@ -26,6 +26,7 @@ enum class SharePreset(
     val profile: ShareProfile,
 ) {
     GAME(ShareProfile(60, SharePriority.SMOOTHNESS)),
+
     // The default. Sharp like the browser's own screen share: a blurry screen was the most reported problem.
     VIDEO(ShareProfile(30, SharePriority.SHARPNESS)),
 
