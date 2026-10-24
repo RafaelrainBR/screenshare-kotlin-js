@@ -520,10 +520,6 @@ private fun updateSourceState() {
                 "Escolha o que você quer compartilhar."
             }
 
-            source.kind == DesktopCaptureSourceKind.WINDOW && shareProfile.fps > 30 -> {
-                "Janelas são enviadas a até 30 fps."
-            }
-
             else -> {
                 ""
             }

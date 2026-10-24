@@ -106,14 +106,12 @@ class RTCPeerConnectionDecorator(
         maxBitrate: Int,
         maxFramerate: Int,
         degradationPreference: String,
-        scaleResolutionDownBy: Double = 1.0,
     ): Promise<Boolean> {
         val limits =
             json(
                 "maxBitrate" to maxBitrate,
                 "maxFramerate" to maxFramerate,
                 "degradationPreference" to degradationPreference,
-                "scaleResolutionDownBy" to scaleResolutionDownBy,
             )
         videoEncodings[trackId] = limits
         return applyVideoEncoding(trackId, limits)
@@ -131,7 +129,6 @@ class RTCPeerConnectionDecorator(
         for (enc in encodings) {
             enc.maxBitrate = limits["maxBitrate"]
             enc.maxFramerate = limits["maxFramerate"]
-            enc.scaleResolutionDownBy = limits["scaleResolutionDownBy"]
         }
         params.degradationPreference = limits["degradationPreference"]
         val applied = runCatching { sender.setParameters(params) as Promise<dynamic> }.getOrElse { Promise.reject(it) }
