@@ -104,7 +104,7 @@ pub enum Message {
     UpdateFound(Option<updater::Release>),
     /// The tray item or the join screen's link: install it, or open its page.
     Update,
-    /// The setup was downloaded, checked and started: quit so it can replace the exe.
+    /// The new version is in place (or its setup is running) and started: quit.
     UpdateStarted(Result<(), String>),
 }
 
@@ -276,6 +276,7 @@ fn boot() -> (App, Task<Message>) {
     };
     // Like the desktop web client: with autostart on and a saved room, every launch rejoins it.
     let rejoin = app.autostart && !app.room.trim().is_empty();
+    updater::clean_up();
     let mut tasks = vec![operation::focus(NAME_INPUT), Task::done(Message::CheckUpdate)];
     if rejoin {
         tasks.push(Task::done(Message::Join));
@@ -1232,6 +1233,7 @@ fn subscription(app: &App) -> Subscription<Message> {
 fn main() -> iced::Result {
     // Flushes what is queued when main returns.
     let _telemetry = telemetry::init();
+    updater::wait_for_replaced();
     if !startup::first_instance() {
         return Ok(());
     }
