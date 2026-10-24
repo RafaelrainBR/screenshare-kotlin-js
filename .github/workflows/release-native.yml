@@ -13,6 +13,11 @@ concurrency:
   group: release-native-${{ github.ref_name }}
   cancel-in-progress: false
 
+env:
+  # cargo's built-in git (libgit2 over SecureTransport on macOS) drops the libyuv submodule clone from
+  # chromium.googlesource.com; the git CLI does not.
+  CARGO_NET_GIT_FETCH_WITH_CLI: "true"
+
 jobs:
   build:
     runs-on: windows-latest
