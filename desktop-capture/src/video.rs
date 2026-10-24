@@ -45,11 +45,11 @@ use windows::Win32::Graphics::Gdi::{
     SelectObject, SetBrushOrgEx, SetStretchBltMode, StretchBlt, BITMAPINFO, BITMAPINFOHEADER,
     BI_RGB, DIB_RGB_COLORS, HALFTONE, HBITMAP, HDC, HGDIOBJ, SRCCOPY,
 };
+use windows::Win32::System::Com::CoIncrementMTAUsage;
 use windows::Win32::System::WinRT::Direct3D11::{
     CreateDirect3D11DeviceFromDXGIDevice, IDirect3DDxgiInterfaceAccess,
 };
 use windows::Win32::System::WinRT::Graphics::Capture::IGraphicsCaptureItemInterop;
-use windows::Win32::System::WinRT::{RoInitialize, RO_INIT_MULTITHREADED};
 use windows::Win32::UI::WindowsAndMessaging::{GetWindowRect, IsIconic, IsWindow};
 
 #[link(name = "user32")]
@@ -671,8 +671,13 @@ impl WgcGrabber {
     fn new(hwnd: HWND) -> Result<Self, String> {
         const FAILED: &str = "wgc-unavailable";
         unsafe {
-            // WinRT on this capture thread; S_FALSE or a different mode set earlier are fine.
-            let _ = RoInitialize(RO_INIT_MULTITHREADED);
+            // WGC lives in the MTA. Pin it for the process instead of joining it from this
+            // thread: a thread that leaves the MTA on exit (this one, or a WASAPI one) could
+            // otherwise tear it down under WGC and crash the next capture.
+            static MTA: std::sync::Once = std::sync::Once::new();
+            MTA.call_once(|| {
+                let _ = CoIncrementMTAUsage();
+            });
             if !GraphicsCaptureSession::IsSupported().unwrap_or(false) {
                 return Err(FAILED.into());
             }
@@ -1064,13 +1069,14 @@ mod tests {
     // keeps the frame counts honest.
     static SCREEN: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
-    /// Captures a 640x480 crop of the real primary screen for a second at 30 fps.
+    /// Captures a 640x480 crop of the real primary screen for two seconds at 30 fps; device
+    /// creation (up to ~0.5 s, more under load) comes out of that time.
     fn capture_crop(max_height: u32, expected: (u32, u32)) {
         let _screen = SCREEN.lock().unwrap_or_else(|e| e.into_inner());
         let running = Arc::new(AtomicBool::new(true));
         let stop = running.clone();
         std::thread::spawn(move || {
-            std::thread::sleep(Duration::from_secs(1));
+            std::thread::sleep(Duration::from_secs(2));
             stop.store(false, Ordering::Release);
         });
         let (mut frames, mut lit) = (0, false);
@@ -1146,24 +1152,49 @@ mod tests {
         (frames, largest)
     }
 
-    #[test]
-    #[ignore = "captures a real window"]
-    fn captures_a_real_window_through_wgc() {
-        let hwnd = crate::sources::enumerate_sources()
+    fn open_window() -> HWND {
+        crate::sources::enumerate_sources()
             .into_iter()
             .filter(|s| s.kind == crate::sources::SourceKind::Window)
             .map(|s| HWND(s.hwnd as usize as *mut _))
             .find(|&hwnd| unsafe { !IsIconic(hwnd).as_bool() })
-            .expect("no open window to capture");
+            .expect("no open window to capture")
+    }
+
+    #[test]
+    #[ignore = "captures a real window and the primary screen"]
+    fn a_cancelled_window_share_then_a_screen_share_on_new_threads() {
+        // As in the app: each share runs on its own thread, which exits when it stops. A window
+        // share stopped before its first tick used to crash the next capture.
+        let source = VideoSource::Window(open_window());
+        std::thread::spawn(move || {
+            let stopped = Arc::new(AtomicBool::new(false));
+            let limit = || Arc::new(AtomicU32::new(60));
+            let metrics = Arc::new(VideoMetrics::default());
+            capture_video_loop(source, limit(), limit(), stopped, metrics, |_| true)
+        })
+        .join()
+        .unwrap()
+        .unwrap();
+        std::thread::spawn(|| capture_crop(240, (320, 240)))
+            .join()
+            .unwrap();
+    }
+
+    #[test]
+    #[ignore = "captures a real window"]
+    fn captures_a_real_window_through_wgc() {
+        let hwnd = open_window();
+        // capture_video_loop falls back to PrintWindow silently; make sure it won't, uncapped.
+        let wgc = WgcGrabber::new(hwnd).expect("WGC refused the window");
+        assert_eq!(wgc.max_fps(), u32::MAX);
+        drop(wgc);
         let (frames, (w, h)) = capture_window(hwnd, u32::MAX);
-        // PrintWindow is capped at 30 fps; startup (device creation) takes up to ~0.5 s.
-        // More than its 60 frames in two seconds means WGC ran.
-        assert!(frames > 60, "{frames} frames");
+        assert!(frames > 10, "{frames} frames");
         assert!(w > 2 && h > 2, "{w}x{h}");
         let (_, (_, scaled_h)) = capture_window(hwnd, 120);
         assert!(scaled_h <= 120 && scaled_h < h, "scaled to {scaled_h}");
     }
-
 
     #[test]
     fn scaled_keeps_aspect_and_even_sizes_and_never_grows() {
