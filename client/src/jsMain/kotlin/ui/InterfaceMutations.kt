@@ -241,7 +241,7 @@ object InterfaceMutations {
         val existingTile = document.getElementById("screen-tile-$tileId")
         if (existingTile != null) {
             val video = document.getElementById("screen-tile-video-$tileId") as? HTMLVideoElement
-            if (video != null && video.srcObject.asDynamic().id != stream.id) {
+            if (video != null && video.srcObject !== stream) {
                 video.srcObject = stream
             }
             existingTile.setAttribute("data-username", username)
@@ -611,7 +611,7 @@ object InterfaceMutations {
         val existingTile = document.getElementById("camera-tile-$tileId")
         if (existingTile != null) {
             val video = document.getElementById("camera-tile-video-$tileId") as? HTMLVideoElement
-            if (video != null && video.srcObject.asDynamic().id != stream.id) {
+            if (video != null && video.srcObject !== stream) {
                 video.srcObject = stream
             }
             existingTile.setAttribute("data-username", username)

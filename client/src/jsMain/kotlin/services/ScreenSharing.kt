@@ -212,7 +212,7 @@ class ScreenSharing(
         stream: MediaStream,
     ) {
         val previous = remoteScreenStreams[socketId]
-        if (previous != null && previous.id != stream.id) stopReplacedTracks(previous, stream)
+        if (previous != null && previous !== stream) stopReplacedTracks(previous, stream)
         remoteScreenStreams[socketId] = stream
         InterfaceMutations.addOrUpdateScreenTile(
             tileId = socketId,
