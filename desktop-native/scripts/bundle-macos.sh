@@ -49,8 +49,9 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 </dict>
 </plist>
 PLIST
-# Ad hoc, like the Tauri app: enough for the privacy prompts; install-macos.sh avoids the quarantine.
-codesign --force --deep --sign - "$APP"
+# The self-signed certificate import-macos-cert.sh loads (the same in every release, so permissions survive
+# updates), else ad hoc. Neither needs Apple: install-macos.sh and the updater avoid the quarantine.
+codesign --force --deep --sign "${MACOS_SIGN_IDENTITY:--}" "$APP"
 codesign --verify --deep --strict "$APP"
 tar -czf "$OUT/Screenshare-native-macos-arm64.tar.gz" -C "$OUT" "Screenshare nativo.app"
 sed "s/__VERSION__/$VERSION/" "$ROOT/desktop-native/scripts/install-macos.sh" > "$OUT/install-macos-native.sh"

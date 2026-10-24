@@ -360,7 +360,7 @@ O PostHog fica como opção futura, só para análise de produto (duração dos 
    - Um clique baixa o pacote do sistema e confere o `SHA256SUMS`. Depois:
      - **Windows instalado** (há `unins000.exe` ao lado do exe): roda o setup com `/VERYSILENT` e o app sai. O `installer.iss` reabre o app no modo silencioso.
      - **Windows portátil:** renomeia o próprio exe para `.exe.old` (o Windows deixa, mesmo rodando), grava o novo no lugar e o abre.
-     - **macOS:** extrai o `tar.gz` em `.screenshare-native-update`, ao lado do `.app`, troca os bundles e abre o novo com `open -n`. Como o download não passa por navegador, não há quarentena. A permissão de Gravação de Tela pode precisar ser refeita, como já avisa o `install-macos.sh`.
+     - **macOS:** extrai o `tar.gz` em `.screenshare-native-update`, ao lado do `.app`, troca os bundles e abre o novo com `open -n`. Como o download não passa por navegador, não há quarentena. Desde a 0.2.0, o bundle é assinado com um certificado autoassinado fixo (secrets `MACOS_SIGN_P12` e `MACOS_SIGN_PASSWORD`, válido até 2046, via `scripts/import-macos-cert.sh`). Assim a assinatura não muda entre versões e o macOS mantém a permissão de Gravação de Tela depois de atualizar. Não usa conta da Apple (grátis). Se o secret se perder, basta gerar outro: os usuários só aceitam a permissão de novo uma vez.
    - O app novo recebe `--replaces <pid>` e espera o antigo sair antes da checagem de instância única. As sobras (`.exe.old`, a pasta de staging) somem na próxima abertura.
    - Se a release não tiver o pacote ou algo falhar, abre a página da release.
    - Não instala sem clique, para não derrubar uma chamada.
