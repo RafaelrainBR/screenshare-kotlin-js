@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="{{lang}}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{dlTitle}}</title>
+  <meta name="description" content="{{dlDescription}}">
+  <link rel="canonical" href="{{canonical}}">
+  <link rel="alternate" hreflang="pt-BR" href="https://screen-share.fly.dev/about/download.html">
+  <link rel="alternate" hreflang="en" href="https://screen-share.fly.dev/about/download-en.html">
+  <link rel="alternate" hreflang="x-default" href="https://screen-share.fly.dev/about/download.html">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="Screenshare">
+  <meta property="og:locale" content="{{ogLocale}}">
+  <meta property="og:title" content="{{dlTitle}}">
+  <meta property="og:description" content="{{dlDescription}}">
+  <meta property="og:url" content="{{canonical}}">
+  <meta property="og:image" content="https://screen-share.fly.dev/about/assets/social-{{shortLang}}.png">
+  <meta name="twitter:card" content="summary_large_image">
+  <link rel="icon" href="/brand/screenshare-mark.svg" type="image/svg+xml">
+  <link rel="preload" href="/fonts/barlow-bold.ttf" as="font" type="font/ttf" crossorigin>
+  <link rel="stylesheet" href="/about/style.css">
+  <script src="/about/download.js" defer></script>
+</head>
+<body>
+  <a class="skip" href="#main">{{skip}}</a>
+  <header class="site-header wrap">
+    <a class="brand" href="{{canonicalPath}}" aria-label="Screenshare"><picture><source media="(prefers-color-scheme: dark)" srcset="/brand/screenshare-logo-on-dark.svg"><img src="/brand/screenshare-logo.svg" width="86" height="67" alt="Screenshare"></picture></a>
+    <nav aria-label="{{navigation}}"><a href="{{canonicalPath}}">{{navAbout}}</a><a class="nav-secondary" href="/">{{navOpen}}</a><a href="https://github.com/RafaelrainBR/screenshare-kotlin-js">GitHub</a><a class="language" href="{{dlOtherPath}}" lang="{{otherLang}}" hreflang="{{otherLang}}">{{otherLabel}}</a></nav>
+  </header>
+  <main id="main">
+    <section class="hero download-hero wrap" aria-labelledby="headline">
+      <div class="hero-copy"><h1 id="headline">{{dlHeadline}}</h1></div>
+      <div class="hero-description">
+        <p class="intro">{{dlIntro}}</p>
+        <div class="actions">
+          <a class="button primary" data-os="windows" data-line="native" data-file="Screenshare-native_{v}_x64-setup.exe" href="{{nativeSetupUrl}}">{{dlWindowsAction}}</a>
+          <a class="button primary" data-os="mac" href="#native-mac">{{dlMacAction}}</a>
+          <a class="text-link" href="/">{{dlBrowser}}</a>
+        </div>
+      </div>
+    </section>
+
+    <section class="line wrap" aria-labelledby="native-title">
+      <div class="section-heading">
+        <p class="eyebrow">{{dlRecommended}} <span class="badge">Beta</span></p>
+        <h2 id="native-title">{{dlNativeName}} <span class="line-version" data-version="native">{{nativeVersion}}</span></h2>
+        <p>{{dlNativeAbout}}</p>
+      </div>
+      <div class="platforms">
+        <article aria-labelledby="native-windows">
+          <h3 id="native-windows">Windows</h3><p class="platform-spec">x64 · Windows 10 / 11</p>
+          <ul class="variants">
+            <li><a class="button primary" data-line="native" data-file="Screenshare-native_{v}_x64-setup.exe" href="{{nativeSetupUrl}}">{{dlInstaller}}</a><span>{{dlNativeInstallerNote}}</span></li>
+            <li><a class="button secondary" data-line="native" data-file="Screenshare-native_{v}_x64-portable.exe" href="{{nativePortableUrl}}">{{dlPortable}}</a><span>{{dlPortableNote}}</span></li>
+          </ul>
+        </article>
+        <article id="native-mac" aria-labelledby="native-mac-title">
+          <h3 id="native-mac-title">macOS</h3><p class="platform-spec">{{dlAppleSilicon}}</p>
+          <p class="download-note">{{dlMacSteps}}</p>
+          <div class="command"><code id="native-command" data-line="native" data-file="install-macos-native.sh" data-template="curl -fsSL {url} | bash">curl -fsSL {{nativeMacScriptUrl}} | bash</code><button type="button" class="button secondary" data-copy="native-command" data-done="{{dlCopied}}">{{dlCopy}}</button></div>
+          <p class="download-note"><a data-line="native" data-file="install-macos-native.sh" href="{{nativeMacScriptUrl}}">{{dlReadScript}}</a> · <a data-line="native" data-file="Screenshare-native-macos-arm64.tar.gz" href="{{nativeMacUrl}}">{{dlMacArchive}}</a></p>
+        </article>
+      </div>
+      <p class="download-alternatives"><a data-line="native" data-file="SHA256SUMS" href="{{nativeChecksumsUrl}}">SHA256SUMS</a></p>
+    </section>
+
+    <section class="line wrap" aria-labelledby="classic-title">
+      <div class="section-heading">
+        <p class="eyebrow">{{dlClassic}}</p>
+        <h2 id="classic-title">{{dlClassicName}} <span class="line-version" data-version="classic">{{version}}</span></h2>
+        <p>{{dlClassicAbout}}</p>
+      </div>
+      <div class="platforms">
+        <article aria-labelledby="classic-windows">
+          <h3 id="classic-windows">Windows</h3><p class="platform-spec">x64 · {{dlNeedsWebView}}</p>
+          <ul class="variants">
+            <li><a class="button secondary" data-line="classic" data-file="Screenshare_{v}_x64-setup.exe" href="{{windowsUrl}}">{{dlInstaller}}</a><span>{{dlClassicInstallerNote}}</span></li>
+            <li><a class="button secondary" data-line="classic" data-file="Screenshare_{v}_x64-portable.exe" href="{{portableUrl}}">{{dlPortable}}</a><span>{{dlPortableNote}}</span></li>
+            <li><a class="button secondary" data-line="classic" data-file="Screenshare_{v}_x64_en-US.msi" href="{{msiUrl}}">MSI</a><span>{{dlMsiNote}}</span></li>
+          </ul>
+        </article>
+        <article aria-labelledby="classic-mac">
+          <h3 id="classic-mac">macOS</h3><p class="platform-spec">{{dlAppleSilicon}}</p>
+          <p class="download-note">{{dlMacSteps}}</p>
+          <div class="command"><code id="classic-command" data-line="classic" data-file="install-macos.sh" data-template="curl -fsSL {url} | bash">curl -fsSL {{macScriptUrl}} | bash</code><button type="button" class="button secondary" data-copy="classic-command" data-done="{{dlCopied}}">{{dlCopy}}</button></div>
+          <p class="download-note"><a data-line="classic" data-file="install-macos.sh" href="{{macScriptUrl}}">{{dlReadScript}}</a> · <a data-line="classic" data-file="Screenshare-macos-arm64.tar.gz" href="{{macUrl}}">{{dlMacArchive}}</a></p>
+        </article>
+      </div>
+      <p class="download-alternatives"><a data-line="classic" data-file="SHA256SUMS" href="{{checksumsUrl}}">SHA256SUMS</a> · <a href="https://github.com/RafaelrainBR/screenshare-kotlin-js/releases">{{dlAllReleases}}</a></p>
+    </section>
+
+    <section class="questions wrap" aria-labelledby="help-title">
+      <h2 id="help-title">{{dlHelpTitle}}</h2>
+      <details><summary>{{dlWindowsWarn}}</summary><p>{{dlWindowsWarnText}}</p></details>
+      <details><summary>{{dlMacWhy}}</summary><p>{{dlMacWhyText}}</p><p>{{macPermission}}</p></details>
+      <details><summary>{{dlWhich}}</summary><p>{{dlWhichText}}</p></details>
+      <details><summary>{{dlLinux}}</summary><p>{{dlLinuxText}}</p></details>
+    </section>
+  </main>
+  <footer class="wrap"><p>Screenshare · {{footer}}</p><nav aria-label="{{footerNavigation}}"><a href="https://github.com/RafaelrainBR/screenshare-kotlin-js">{{source}}</a><a href="https://github.com/RafaelrainBR/screenshare-kotlin-js/blob/master/docs/usage.md">{{guide}}</a><a href="https://github.com/RafaelrainBR/screenshare-kotlin-js/issues/new/choose">{{feedback}}</a></nav></footer>
+</body>
+</html>

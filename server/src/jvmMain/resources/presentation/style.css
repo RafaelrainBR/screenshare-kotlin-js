@@ -89,10 +89,26 @@ details p + p { margin-top: 16px; }
 .mac-install p { max-width: 800px; }
 .mac-install a { display: inline-block; margin-top: 16px; }
 .questions { display: grid; grid-template-columns: 1fr 1.5fr; column-gap: 64px; padding-block: 56px 80px; border-top: 1px solid var(--line); }
-.questions h2 { grid-column: 1; grid-row: 1 / 4; }
+.questions h2 { grid-column: 1; grid-row: 1 / span 6; align-self: start; }
 .questions details { grid-column: 2; }
 .questions summary { font-size: 20px; }
 .questions details:first-of-type summary { padding-top: 0; }
+[hidden] { display: none !important; }
+.download-hero { grid-template-columns: 1.1fr 1fr; padding-block: 64px 56px; }
+.line { padding-block: 56px; border-top: 1px solid var(--line); }
+.line .section-heading { margin-bottom: 32px; }
+.line .platforms > article { min-width: 0; }
+.eyebrow { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; color: var(--accent); font-size: 14px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+.badge { padding: 2px 8px; border: 1px solid currentColor; border-radius: 999px; font-size: 12px; letter-spacing: .04em; }
+.line-version { color: var(--dim); font-weight: 400; font-size: .6em; letter-spacing: 0; white-space: nowrap; }
+.variants { list-style: none; margin: 20px 0 0; padding: 0; display: grid; gap: 14px; }
+.variants li { display: grid; grid-template-columns: 148px 1fr; align-items: center; gap: 16px; }
+.platforms .variants .button { margin-top: 0; }
+.variants span { color: var(--dim); font-size: 15px; line-height: 1.4; }
+.command { display: flex; align-items: stretch; gap: 8px; margin-top: 16px; }
+.command code { flex: 1; min-width: 0; overflow-x: auto; white-space: nowrap; padding: 12px 14px; background: var(--surface); border: 1px solid var(--line); border-radius: 6px; font-size: 14px; line-height: 22px; }
+.command .button { min-height: 0; padding-block: 8px; font-size: 15px; }
+.platforms .command .button { margin-top: 0; }
 footer { border-top: 1px solid var(--line); padding-block: 28px 40px; display: flex; align-items: center; justify-content: space-between; gap: 24px; font-size: 15px; color: var(--dim); }
 footer nav { display: flex; gap: 24px; flex-wrap: wrap; }
 footer nav a { padding-block: 10px; }
@@ -114,7 +130,7 @@ footer nav a { padding-block: 10px; }
   .site-header { min-height: 80px; gap: 16px; }
   .site-header nav { gap: 16px; font-size: 14px; }
   .site-header nav .language { padding-left: 16px; }
-  .site-header nav > a[href*=github] { display: none; }
+  .site-header nav > a[href*=github], .site-header nav > .nav-secondary { display: none; }
   .brand img { width: 62px; height: 48px; }
   .hero { grid-template-columns: 1fr; padding-block: 36px 40px; gap: 24px; }
   .hero h1 { font-size: clamp(34px, 7vw, 46px); }
@@ -129,6 +145,9 @@ footer nav a { padding-block: 10px; }
   .questions summary { font-size: 18px; }
   .downloads { padding-block: 40px; }
   .platforms { grid-template-columns: 1fr; gap: 32px; }
+  .download-hero { grid-template-columns: 1fr; }
+  .line { padding-block: 40px; }
+  .variants li { grid-template-columns: 1fr; gap: 6px; }
   .download-alternatives { line-height: 1.9; }
   footer { align-items: flex-start; flex-direction: column; font-size: 14px; }
   footer nav { gap: 20px; }

@@ -313,6 +313,11 @@ button.participant-options { position: absolute; top: 5px; right: 5px; width: 28
 .share-menu-presets button { min-height: 34px; padding: 4px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface-2); color: var(--text); font-size: 12px; }
 .share-menu-presets button[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); }
 .share-menu-note { margin: 0 8px 6px; color: var(--dim); font-size: 11px; }
+.share-menu-app { display: block; margin: 6px 8px 2px; color: var(--dim); font-size: 11px; }
+.share-menu-app:hover, .share-app-hint a:hover, .join-links a:hover { color: var(--text); }
+.share-app-hint { margin: 10px 0 4px; color: var(--dim); font-size: 12px; }
+.share-app-hint a, .join-links a { color: inherit; text-underline-offset: 3px; }
+.join-links { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px 18px; margin: 18px 0 0 !important; font-size: 13px; }
 .share-menu-rows { padding-top: 4px; border-top: 1px solid var(--line); }
 .share-menu-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; padding: 8px; border: 0; border-radius: 7px; background: none; color: var(--text); text-align: left; }
 .share-menu-row:hover, .share-menu-row:focus-visible { background: var(--hover); }

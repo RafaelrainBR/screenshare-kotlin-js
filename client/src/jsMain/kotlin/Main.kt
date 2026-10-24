@@ -119,6 +119,9 @@ fun main() {
             .getElementById("startup-option")
             ?.classList
             ?.remove("hidden")
+        // Links to the site would navigate the app's own window away.
+        val webOnly = kotlinx.browser.document.querySelectorAll(".web-only")
+        for (i in 0 until webOnly.length) (webOnly.item(i) as org.w3c.dom.HTMLElement).classList.add("hidden")
         val usernameInput = kotlinx.browser.document.getElementById("username") as org.w3c.dom.HTMLInputElement
         val roomInput = kotlinx.browser.document.getElementById("roomId") as org.w3c.dom.HTMLInputElement
         val startupToggle = kotlinx.browser.document.getElementById("start-at-login") as org.w3c.dom.HTMLInputElement
