@@ -1,4 +1,6 @@
 // Screenshare native desktop: iced UI over the session and libwebrtc engine.
+// Release builds are a GUI app on Windows: no console window behind it. Debug builds keep it for the logs.
+#![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 mod startup;
 mod tray;
 mod ui;
