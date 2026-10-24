@@ -18,6 +18,8 @@ var session: Session? = null
 var hideAfterLocalShare = false
 
 fun main() {
+    // Reporting must never be what breaks the page.
+    runCatching { platform.Telemetry.init() }
     val websocketService =
         with(window.location) {
             val endpoint =

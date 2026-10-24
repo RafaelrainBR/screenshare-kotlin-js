@@ -39,6 +39,10 @@ kotlin {
             implementation(libs.ktor.serialization.kotlinx.json)
         }
 
+        jsMain.dependencies {
+            implementation(npm("@sentry/browser", "11.6.0"))
+        }
+
         jsTest.dependencies {
             implementation(kotlin("test"))
         }
