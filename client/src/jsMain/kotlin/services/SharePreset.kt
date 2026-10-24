@@ -54,6 +54,12 @@ fun shareProfileFrom(
     )
 }
 
+/** Encoder downscale from the captured height to the chosen one; never upscales. */
+fun shareScaleDown(
+    sourceHeight: Int,
+    height: Int,
+): Double = if (height in 1 until sourceHeight) sourceHeight.toDouble() / height else 1.0
+
 fun shareBitrate(
     profile: ShareProfile,
     height: Int,
