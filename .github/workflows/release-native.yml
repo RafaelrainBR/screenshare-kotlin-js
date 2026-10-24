@@ -5,41 +5,72 @@ name: Release native (beta)
 on:
   push:
     tags: ['native-v*']
+  # The tag push only starts this on native/desktop (job "dispatch"): a tag's run can restore only the
+  # default branch's caches, a run on native/desktop restores the ones native/desktop saves, which turns
+  # the ~14 min compile into an incremental one.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: native-vX.Y.Z (already pushed)
+        required: true
 
 permissions:
   contents: read
 
 concurrency:
-  group: release-native-${{ github.ref_name }}
+  group: release-native-${{ inputs.tag || github.ref_name }}
   cancel-in-progress: false
 
 env:
+  TAG: ${{ inputs.tag || github.ref_name }}
   # cargo's built-in git (libgit2 over SecureTransport on macOS) drops the libyuv submodule clone from
   # chromium.googlesource.com; the git CLI does not.
   CARGO_NET_GIT_FETCH_WITH_CLI: "true"
   # Sentry (desktop-native/src/telemetry.rs): only these builds report, tagged with the tag as release.
   SENTRY_DSN_NATIVE: ${{ vars.SENTRY_DSN_NATIVE }}
-  SENTRY_RELEASE: ${{ github.ref_name }}
+  SENTRY_RELEASE: ${{ inputs.tag || github.ref_name }}
   # The PDB upload needs a token; without one the release still ships, with unsymbolicated frames.
   SENTRY_UPLOAD: ${{ secrets.SENTRY_AUTH_TOKEN != '' }}
 
 jobs:
+  dispatch:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+    steps:
+      - env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run release-native.yml --repo "$GITHUB_REPOSITORY" --ref native/desktop -f tag="$TAG"
+
   build:
+    if: github.event_name == 'workflow_dispatch'
     runs-on: windows-latest
     defaults:
       run:
         shell: bash
     steps:
+      # Windows Defender scanning every object file slows the compile down.
+      - run: Set-MpPreference -DisableRealtimeMonitoring $true
+        shell: pwsh
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.TAG }}
       # A short target path: libwebrtc's abseil includes overflow MAX_PATH under the workspace.
       # (The runner context is not available in job-level env.)
       - run: echo "CARGO_TARGET_DIR=$(cygpath -m "$RUNNER_TEMP")/t" >> "$GITHUB_ENV"
       - name: Check tag
-        run: '[[ "$GITHUB_REF_NAME" =~ ^native-v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z.]+)?$ ]]'
+        run: '[[ "$TAG" =~ ^native-v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z.]+)?$ ]]'
       - name: Install Rust
         run: |
           rustup update stable --no-self-update
           rustup default stable
+      # The same shared key as native-check.yml. Swatinem joins the target to the workspace path, so
+      # this is CARGO_TARGET_DIR ($RUNNER_TEMP/t) relative to desktop-native.
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: native
+          workspaces: desktop-native -> ../../../_temp/t
       - name: Test capture
         run: cargo test --release --locked --manifest-path desktop-capture/Cargo.toml
       # desktop-native/.cargo/config.toml (crt-static, to match the prebuilt libwebrtc's /MT) is only
@@ -60,7 +91,7 @@ jobs:
             "$CARGO_TARGET_DIR/release/desktop-native.exe" "$CARGO_TARGET_DIR/release/desktop_native.pdb"
       - name: Package
         run: |
-          version="${GITHUB_REF_NAME#native-v}"
+          version="${TAG#native-v}"
           mkdir release-assets
           cp "$CARGO_TARGET_DIR/release/desktop-native.exe" "release-assets/Screenshare-native_${version}_x64-portable.exe"
           # Per-user installer (no admin) with a clean uninstall: desktop-native/installer.iss.
@@ -77,15 +108,24 @@ jobs:
 
   build-macos:
     # apple-metal's Swift bridge requires the macOS 26 SDK, as in release.yml.
+    if: github.event_name == 'workflow_dispatch'
     runs-on: macos-26
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.TAG }}
       - name: Check tag
-        run: '[[ "$GITHUB_REF_NAME" =~ ^native-v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z.]+)?$ ]]'
+        run: '[[ "$TAG" =~ ^native-v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z.]+)?$ ]]'
       - name: Install Rust
         run: |
           rustup update stable --no-self-update
           rustup default stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: native
+          workspaces: |
+            desktop-native -> target
+            desktop-capture -> target
       - name: Test capture
         run: cargo test --release --locked --manifest-path desktop-capture/Cargo.toml
       - name: Test
@@ -98,7 +138,7 @@ jobs:
         run: |
           test "$(uname -m)" = arm64
           mkdir release-assets
-          bash desktop-native/scripts/bundle-macos.sh "${GITHUB_REF_NAME#native-v}" "$PWD/release-assets"
+          bash desktop-native/scripts/bundle-macos.sh "${TAG#native-v}" "$PWD/release-assets"
           rm -rf "release-assets/Screenshare nativo.app"
       - uses: actions/upload-artifact@v7
         with:
@@ -122,7 +162,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "$GITHUB_REF_NAME" release-assets/* --repo "$GITHUB_REPOSITORY" --verify-tag \
-            --prerelease --latest=false --title "Screenshare nativo ${GITHUB_REF_NAME#native-v} (beta)" \
-            --notes "Beta do app nativo (Rust + iced). Windows x64: instalador por usuário (sem admin, desinstala limpo) ou executável portátil. macOS (Apple Silicon): curl -fsSL https://github.com/$GITHUB_REPOSITORY/releases/download/$GITHUB_REF_NAME/install-macos-native.sh | bash. O app avisa quando há versão nova e se atualiza com um clique no menu da bandeja (instalador, portátil e macOS). Pode rodar junto com o app atual."
-          test "$(gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --json isPrerelease --jq .isPrerelease)" = true
+          gh release create "$TAG" release-assets/* --repo "$GITHUB_REPOSITORY" --verify-tag \
+            --prerelease --latest=false --title "Screenshare nativo ${TAG#native-v} (beta)" \
+            --notes "Beta do app nativo (Rust + iced). Windows x64: instalador por usuário (sem admin, desinstala limpo) ou executável portátil. macOS (Apple Silicon): curl -fsSL https://github.com/$GITHUB_REPOSITORY/releases/download/$TAG/install-macos-native.sh | bash. O app avisa quando há versão nova e se atualiza com um clique no menu da bandeja (instalador, portátil e macOS). Pode rodar junto com o app atual."
+          test "$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json isPrerelease --jq .isPrerelease)" = true

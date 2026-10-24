@@ -2,6 +2,12 @@ name: Dependency security
 
 on:
   pull_request:
+    # The Kotlin, server and Tauri checks: nothing here builds the native app (native-check.yml does).
+    paths-ignore:
+      - desktop-native/**
+      - docs/**
+      - .github/workflows/native-check.yml
+      - .github/workflows/release-native.yml
   workflow_dispatch:
 
 permissions:
