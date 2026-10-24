@@ -96,7 +96,7 @@ pub async fn check() -> Option<Release> {
     match fetch.await {
         Ok(releases) => newest(releases, current, package),
         Err(error) => {
-            sentry::logger_warn!("update check failed: {}", error.as_str());
+            crate::telemetry::warn(&format!("update check failed: {error}"));
             None
         }
     }

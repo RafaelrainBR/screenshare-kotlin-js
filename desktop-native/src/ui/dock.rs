@@ -61,10 +61,11 @@ pub fn icon(paths: &str, size: f32, color: Color) -> Element<'static, Message> {
     svg(svg::Handle::from_memory(source.into_bytes())).width(size).height(size).style(move |_, _| svg::Style { color: Some(color) }).into()
 }
 
-fn tool_style(tone: Tone, radius: Radius, status: button::Status) -> button::Style {
-    let hover = matches!(status, button::Status::Hovered | button::Status::Pressed);
+/// `key` (the button's hint) keeps its hover fading in and out.
+fn tool_style(key: &str, tone: Tone, radius: Radius, status: button::Status) -> button::Style {
+    let hover = super::motion::hover(key, matches!(status, button::Status::Hovered | button::Status::Pressed));
     button::Style {
-        background: Some(Background::Color(if hover { theme::HOVER } else { theme::SURFACE_2 })),
+        background: Some(Background::Color(super::motion::mix(theme::SURFACE_2, theme::HOVER, hover))),
         text_color: theme::TEXT,
         border: Border { color: if matches!(tone, Tone::Danger) { theme::RED_LINE } else { theme::LINE }, width: 1.0, radius },
         ..Default::default()
@@ -89,7 +90,10 @@ fn tool(paths: String, tone: Tone, hint: String, press: Message, picker: Option<
         .padding(0)
         .width(CONTROL)
         .height(CONTROL)
-        .style(move |_, status| tool_style(tone, left, status))
+        .style({
+            let key = hint.clone();
+            move |_, status| tool_style(&key, tone, left, status)
+        })
         .on_press(press);
     let mut group = row![hint_on(super::motion::press(main, 0.94), hint)];
     if let Some((hint, press)) = picker {
@@ -98,7 +102,10 @@ fn tool(paths: String, tone: Tone, hint: String, press: Message, picker: Option<
             .padding(0)
             .width(CHEVRON)
             .height(CONTROL)
-            .style(move |_, status| tool_style(Tone::Plain, right, status))
+            .style({
+                let key = hint.clone();
+                move |_, status| tool_style(&key, Tone::Plain, right, status)
+            })
             .on_press(press);
         group = group.push(hint_on(super::motion::press(chevron, 0.94), hint));
     }

@@ -23,6 +23,7 @@ pub const SLIDE: Duration = Duration::from_millis(200);
 pub const FLIP: Duration = Duration::from_millis(220);
 pub const ICON: Duration = Duration::from_millis(140);
 pub const ROOM: Duration = Duration::from_millis(200);
+pub const HOVER: Duration = Duration::from_millis(150);
 
 /// How far an animation that started at `since` is, 0 to 1, eased out.
 pub fn progress(since: Instant, duration: Duration) -> f32 {
@@ -66,6 +67,30 @@ pub fn pulse() -> f32 {
     }
     let turn = START.get_or_init(Instant::now).elapsed().as_secs_f32() / 1.2;
     0.625 + 0.375 * (turn * std::f32::consts::TAU).cos()
+}
+
+thread_local! {
+    // Per control: hovered when last drawn, and since when it changed (None once settled).
+    static HOVERS: RefCell<HashMap<String, (bool, Option<Instant>)>> = RefCell::default();
+}
+
+/// 0 → 1 over HOVER as `key` turns hovered, and back as it leaves (the web's background .15s).
+/// iced keeps no hover time, so this runs in the style closure, which sees the status on every draw.
+pub fn hover(key: &str, hovered: bool) -> f32 {
+    HOVERS.with(|hovers| {
+        let mut hovers = hovers.borrow_mut();
+        let entry = hovers.entry(key.to_owned()).or_insert((hovered, None));
+        if entry.0 != hovered {
+            *entry = (hovered, Some(Instant::now()));
+        }
+        let t = entry.1.map_or(1.0, |at| progress(at, HOVER));
+        if hovered { t } else { 1.0 - t }
+    })
+}
+
+/// A hover color still changing: the app ticks at 60 Hz meanwhile.
+pub fn hovers_running() -> bool {
+    HOVERS.with(|hovers| hovers.borrow().values().any(|(_, at)| running(*at, HOVER)))
 }
 
 /// `a` to `b` by `t`.
@@ -268,10 +293,27 @@ fn reduced() -> bool {
     })
 }
 
-/// shortcut: always animates on macOS; read accessibilityDisplayShouldReduceMotion if asked.
+/// System Settings > Accessibility > Display > "Reduce motion", read once like the Windows one.
 #[cfg(not(windows))]
 fn reduced() -> bool {
-    false
+    static REDUCED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *REDUCED.get_or_init(|| {
+        let read = std::process::Command::new("defaults").args(["read", "com.apple.universalaccess", "reduceMotion"]).output();
+        read.is_ok_and(|out| out.stdout.trim_ascii() == b"1")
+    })
+}
+
+#[test]
+fn a_hover_fades_in_and_out_from_where_it_settled() {
+    if reduced() {
+        return;
+    }
+    assert_eq!(hover("test", false), 0.0);
+    assert!(hover("test", true) < 0.1);
+    assert!(hovers_running());
+    std::thread::sleep(HOVER);
+    assert_eq!(hover("test", true), 1.0);
+    assert!(hover("test", false) > 0.9);
 }
 
 #[test]
