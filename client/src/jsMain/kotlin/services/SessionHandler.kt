@@ -104,6 +104,10 @@ private fun handleUserConnected(
             ) {
                 session.websocketService.startCameraShare(session.localRoomId)
             }
+            // The server starts everyone muted; after a reconnect the mic may still be open.
+            if (session.voiceChat.localMicStream != null && !session.voiceChat.isMicMuted) {
+                session.websocketService.sendToggleMute(session.localRoomId, isMuted = false)
+            }
         }
     } else {
         InterfaceMutations.addMessageToChat(

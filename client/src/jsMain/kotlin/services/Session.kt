@@ -312,9 +312,12 @@ class Session(
 
     fun setVideoReception(enabled: Boolean) = peerConnections.setVideoReception(enabled)
 
+    /**
+     * Local screen, camera and mic keep running: the rejoin announces them again, so a server
+     * deploy or a network drop doesn't make everyone share again. Only the peers are rebuilt.
+     */
     fun prepareForReconnect() {
         mediaCaptureGate.setAvailable(false)
-        stopSendingMedia(recreatePeers = false)
         peerConnections.closeAll()
         screenSharing.remoteScreenStreams.keys
             .toList()
