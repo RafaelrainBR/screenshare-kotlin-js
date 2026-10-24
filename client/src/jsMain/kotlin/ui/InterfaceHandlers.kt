@@ -268,7 +268,7 @@ private fun setShareAudio(enabled: Boolean) {
     val source = selectedSource
     val systemAudioDescription =
         if (window.navigator.userAgent.contains("Windows")) {
-            "Exclui o Discord desktop já aberto. Se abrir ou reiniciar o Discord, compartilhe novamente."
+            "Sem o som do Discord, de outras chamadas (Teams, Zoom, WhatsApp…) e do próprio Screenshare."
         } else {
             "Enviar todo o som da saída padrão."
         }

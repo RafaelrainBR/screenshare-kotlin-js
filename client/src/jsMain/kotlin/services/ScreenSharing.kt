@@ -297,6 +297,8 @@ class ScreenSharing(
                 "channelCount" to 2,
                 "sampleRate" to 48000,
                 "sampleSize" to 16,
+                // The whole computer's sound would carry this tab's own playback (the call, other screens).
+                "restrictOwnAudio" to true,
             )
 
         return MediaStreamConstraints(
