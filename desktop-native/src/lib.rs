@@ -18,6 +18,8 @@ mod camera;
 #[cfg(target_os = "macos")]
 #[path = "camera_macos.rs"]
 mod camera;
+#[cfg(windows)]
+mod ducking;
 mod capture;
 pub use capture::{ScreenAudioMode, ShareSource};
 mod render;
@@ -532,6 +534,8 @@ impl RustEngine {
 
     pub fn new_with_surface(config_json: &str, surface: VideoSurface) -> Result<Self, String> {
         let config = parse_config(config_json)?;
+        #[cfg(windows)]
+        ducking::opt_out();
         let factory = PeerConnectionFactory::default();
         let (sender, receiver) = sync_channel(QUEUE_CAPACITY);
         let (event_sender, events) = channel();
