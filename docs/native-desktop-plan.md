@@ -354,7 +354,13 @@ O PostHog fica como opção futura, só para análise de produto (duração dos 
 ## Próximos passos (ordem combinada em 23/10/2026)
 
 1. **F7 — Observabilidade com Sentry** (acima).
-2. **Atualização automática do nativo.** É pré-requisito da F6. Começa só avisando que há versão nova, lendo o GitHub Releases das tags `native-v*`; depois baixa e instala sozinho.
+2. **Atualização automática do nativo** (feita em 24/10/2026, `desktop-native/src/updater.rs`). É pré-requisito da F6.
+   - Ao abrir e a cada 6 h, lista as releases e pega a maior tag `native-vX.Y.Z` (sem sufixo), porque as do nativo nunca são `latest`. A versão do build é a tag, via `SENTRY_RELEASE`; builds locais não checam.
+   - Avisa com um toast, um item no topo do menu da bandeja e um link na tela de entrada.
+   - **Windows instalado** (há `unins000.exe` ao lado do exe): um clique baixa o setup, confere o `SHA256SUMS`, roda `/VERYSILENT` e o app sai. O `installer.iss` reabre o app no modo silencioso. Se falhar, abre a página da release.
+   - **Portátil e macOS:** o clique abre a página da release.
+   - Não instala sem clique, para não derrubar uma chamada.
+   - **Risco:** não há assinatura de código. O app grava o setup sem Mark-of-the-Web, então o SmartScreen não deve aparecer, mas um antivírus pode barrar um exe sem assinatura. O SHA256 vem da mesma release, então protege contra download corrompido, não contra uma release adulterada.
 3. **Config ICE pelo servidor**, em vez do secret `NATIVE_ENGINE_CONFIG` no build.
 4. **Validar à mão** o áudio do PC e o share pelo assistente com mouse.
 5. **Encoder por hardware no Windows:** hoje o share usa só CPU. Medir o custo em jogo e ver se o libwebrtc da LiveKit expõe NVENC, AMF ou QSV.

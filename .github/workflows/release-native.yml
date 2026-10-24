@@ -124,5 +124,5 @@ jobs:
         run: |
           gh release create "$GITHUB_REF_NAME" release-assets/* --repo "$GITHUB_REPOSITORY" --verify-tag \
             --prerelease --latest=false --title "Screenshare nativo ${GITHUB_REF_NAME#native-v} (beta)" \
-            --notes "Beta do app nativo (Rust + iced). Windows x64: instalador por usuário (sem admin, desinstala limpo) ou executável portátil. macOS (Apple Silicon): curl -fsSL https://github.com/$GITHUB_REPOSITORY/releases/download/$GITHUB_REF_NAME/install-macos-native.sh | bash. Sem atualização automática; pode rodar junto com o app atual."
+            --notes "Beta do app nativo (Rust + iced). Windows x64: instalador por usuário (sem admin, desinstala limpo) ou executável portátil. macOS (Apple Silicon): curl -fsSL https://github.com/$GITHUB_REPOSITORY/releases/download/$GITHUB_REF_NAME/install-macos-native.sh | bash. O app instalado avisa e se atualiza sozinho (menu da bandeja); o portátil e o macOS avisam e abrem esta página. Pode rodar junto com o app atual."
           test "$(gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --json isPrerelease --jq .isPrerelease)" = true

@@ -18,6 +18,8 @@ pub enum Action {
     Output,
     Screen,
     Leave,
+    /// "Atualizar para a versão …": install it, or open its page.
+    Update,
     Quit,
 }
 
@@ -32,10 +34,15 @@ pub struct State {
     pub sharing: bool,
     pub participants: usize,
     pub remote_sharing: bool,
+    /// The update item's text, once a newer release is known.
+    pub update: Option<String>,
 }
 
 struct Tray {
     icon: TrayIcon,
+    menu: Menu,
+    /// Added at the top of the menu when an update is found.
+    update: Option<MenuItem>,
     mic: MenuItem,
     camera: MenuItem,
     output: MenuItem,
@@ -88,10 +95,10 @@ pub fn install() -> bool {
         let icon = TrayIconBuilder::new()
             .with_icon(tray_icon::Icon::from_rgba(rgba, width, height)?)
             .with_tooltip("Screenshare")
-            .with_menu(Box::new(menu))
+            .with_menu(Box::new(menu.clone()))
             .with_menu_on_left_click(false)
             .build()?;
-        Ok(Tray { icon, mic, camera, output, screen, leave, shown: State::default() })
+        Ok(Tray { icon, menu, update: None, mic, camera, output, screen, leave, shown: State::default() })
     };
     match build() {
         Ok(tray) => {
@@ -121,6 +128,7 @@ pub fn actions() -> Vec<Action> {
             "output" => Some(Action::Output),
             "screen" => Some(Action::Screen),
             "leave" => Some(Action::Leave),
+            "update" => Some(Action::Update),
             "quit" => Some(Action::Quit),
             _ => None,
         });
@@ -145,6 +153,16 @@ pub fn update(state: State) {
         }
         tray.output.set_enabled(state.connected);
         tray.leave.set_enabled(state.in_room);
+        match (&tray.update, &state.update) {
+            (Some(item), Some(label)) => item.set_text(label),
+            (None, Some(label)) => {
+                let item = MenuItem::with_id("update", label, true, None);
+                if tray.menu.prepend_items(&[&item, &PredefinedMenuItem::separator()]).is_ok() {
+                    tray.update = Some(item);
+                }
+            }
+            _ => {}
+        }
         let _ = tray.icon.set_tooltip(Some(tooltip(&state)));
         tray.shown = state;
     });
