@@ -9,6 +9,14 @@ on:
       - desktop-native/**
       - desktop-capture/**
       - .github/workflows/native-check.yml
+  # A pull request's cache is only visible to that pull request: this run saves the one that pull
+  # requests and release-native.yml (dispatched on native/desktop) restore.
+  push:
+    branches: [native/desktop]
+    paths:
+      - desktop-native/**
+      - desktop-capture/**
+      - .github/workflows/native-check.yml
   workflow_dispatch:
 
 permissions:
@@ -32,6 +40,14 @@ jobs:
         run: |
           rustup update stable --no-self-update
           rustup default stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          # The same key as release-native.yml's macOS build.
+          shared-key: native
+          workspaces: |
+            desktop-native -> target
+            desktop-capture -> target
+          save-if: ${{ github.event_name == 'push' }}
       - name: Test capture
         run: cargo test --release --locked --manifest-path desktop-capture/Cargo.toml
       - name: Test
