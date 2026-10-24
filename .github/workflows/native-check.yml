@@ -56,6 +56,11 @@ jobs:
       - name: Build
         working-directory: desktop-native
         run: cargo build --release --locked
+      - name: Import signing certificate
+        env:
+          MACOS_SIGN_P12: ${{ secrets.MACOS_SIGN_P12 }}
+          MACOS_SIGN_PASSWORD: ${{ secrets.MACOS_SIGN_PASSWORD }}
+        run: bash desktop-native/scripts/import-macos-cert.sh
       # The same .app and tar.gz the release publishes, signed and verified.
       - name: Package
         run: bash desktop-native/scripts/bundle-macos.sh 0.0.0 "$RUNNER_TEMP/bundle" && ls -la "$RUNNER_TEMP/bundle"
