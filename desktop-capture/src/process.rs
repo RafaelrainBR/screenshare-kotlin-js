@@ -4,7 +4,9 @@ use std::collections::VecDeque;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
-use wasapi::{AudioClient, Direction, SampleType, StreamMode, WasapiError, WaveFormat};
+use wasapi::{
+    AudioCaptureClient, AudioClient, Direction, Handle, SampleType, StreamMode, WasapiError, WaveFormat,
+};
 use windows::Win32::Foundation::CloseHandle;
 use windows::Win32::Foundation::ERROR_NO_MORE_FILES;
 use windows::Win32::System::Diagnostics::ToolHelp::{
@@ -14,34 +16,85 @@ use windows::Win32::System::Threading::{OpenProcess, PROCESS_QUERY_LIMITED_INFOR
 
 use super::{AudioChunk, AudioClock, BYTES_PER_CHUNK};
 
-fn discord_root(processes: &[(u32, u32, String)]) -> Result<Option<u32>, String> {
-    let discord: Vec<_> = processes
-        .iter()
-        .filter(|(_, _, name)| {
-            [
-                "discord.exe",
-                "discordptb.exe",
-                "discordcanary.exe",
-                "discorddevelopment.exe",
-            ]
-            .iter()
-            .any(|expected| name.eq_ignore_ascii_case(expected))
-        })
-        .collect();
-    let roots: Vec<_> = discord
-        .iter()
-        .filter(|(_, parent, _)| !discord.iter().any(|(pid, _, _)| pid == parent))
-        .map(|(pid, _, _)| *pid)
-        .collect();
-    match roots.as_slice() {
-        [] if discord.is_empty() => Ok(None),
-        [pid] => Ok(Some(*pid)),
-        // WASAPI can exclude one tree only. Never pick one and leak another call.
-        _ => Err("discord-multiple-process-trees".into()),
-    }
+/// Call and chat apps: their sound is the conversation itself, which viewers either hear
+/// already or must not hear. Steam stays out on purpose: it is the parent of its games.
+const EXCLUDED_APPS: &[&str] = &[
+    "discord.exe",
+    "discordptb.exe",
+    "discordcanary.exe",
+    "discorddevelopment.exe",
+    "ms-teams.exe",
+    "teams.exe",
+    "zoom.exe",
+    "skype.exe",
+    "slack.exe",
+    "ts3client_win64.exe",
+    "ts3client_win32.exe",
+    "teamspeak.exe",
+    "mumble.exe",
+    "whatsapp.exe",
+    "whatsapp.root.exe",
+    "telegram.exe",
+    "signal.exe",
+    "element.exe",
+    "guilded.exe",
+    // Another Screenshare build plays the room too; installed and portable names start with "screenshare".
+    "desktop-native.exe",
+];
+
+/// A browser opened from a link in a call app is that app's child, but it is its own app.
+const BROWSERS: &[&str] = &[
+    "chrome.exe",
+    "msedge.exe",
+    "firefox.exe",
+    "brave.exe",
+    "opera.exe",
+    "vivaldi.exe",
+];
+
+/// (pid, parent pid, exe name) of every running process.
+pub type ProcessList = Vec<(u32, u32, String)>;
+
+/// `pid` and its parents, nearest first. Parent ids can be stale or reused, so the walk is bounded.
+fn lineage(pid: u32, processes: &[(u32, u32, String)]) -> impl Iterator<Item = &(u32, u32, String)> {
+    std::iter::successors(processes.iter().find(|p| p.0 == pid), move |(_, parent, _)| {
+        processes.iter().find(|p| p.0 == *parent && p.0 != 0)
+    })
+    .take(64)
 }
 
-pub fn discord_process_id() -> Result<Option<u32>, String> {
+fn is_excluded(pid: u32, processes: &[(u32, u32, String)], own_pid: u32) -> bool {
+    for (pid, _, name) in lineage(pid, processes) {
+        let name = name.to_ascii_lowercase();
+        // Our own tree plays the call and the other screens (WebView2 runs as our child).
+        if *pid == own_pid || name.starts_with("screenshare") || EXCLUDED_APPS.contains(&name.as_str()) {
+            return true;
+        }
+        if BROWSERS.contains(&name.as_str()) {
+            return false;
+        }
+    }
+    false
+}
+
+/// The process trees to capture for "the computer's sound": every audio session owner that
+/// is not excluded, minus the ones already inside another captured tree. WASAPI can exclude
+/// a single tree only, so the share is built from the apps that are kept instead.
+pub fn capture_targets(session_pids: &[u32], processes: &[(u32, u32, String)], own_pid: u32) -> Vec<u32> {
+    let mut kept: Vec<u32> = session_pids
+        .iter()
+        .copied()
+        .filter(|&pid| pid != 0 && !is_excluded(pid, processes, own_pid))
+        .collect();
+    kept.sort_unstable();
+    kept.dedup();
+    kept.iter()
+        .copied()
+        .filter(|&pid| !lineage(pid, processes).skip(1).any(|(parent, _, _)| kept.contains(parent)))
+        .collect()
+}
+
+pub fn process_list() -> Result<ProcessList, String> {
     let snapshot = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) }
         .map_err(|_| "capture-process-list-unavailable")?;
     let result = (|| {
@@ -69,7 +122,7 @@ pub fn discord_process_id() -> Result<Option<u32>, String> {
                 Err(_) => return Err("capture-process-list-unavailable".into()),
             }
         }
-        discord_root(&processes)
+        Ok(processes)
     })();
     let _ = unsafe { CloseHandle(snapshot) };
     result
@@ -86,21 +139,11 @@ pub fn process_exists(pid: u32) -> bool {
     true
 }
 
-/// Includes the target process tree when true, excludes it when false. A target
-/// that is alive but currently silent remains a valid capture: zero PCM chunks
-/// keep the WebCodecs track alive without blocking the UI.
-pub fn capture_process_loop<F>(
+/// Starts a 48 kHz stereo f32 loopback of `pid`'s tree, or of everything but it.
+pub fn open_process_loopback(
     pid: u32,
     include_process_tree: bool,
-    running: Arc<AtomicBool>,
-    mut on_chunk: F,
-) -> Result<(), String>
-where
-    F: FnMut(AudioChunk) -> bool,
-{
-    if !process_exists(pid) {
-        return Err("process-not-found".into());
-    }
+) -> Result<(AudioClient, Handle, AudioCaptureClient), String> {
     let _ = wasapi::initialize_mta();
     let mut client = AudioClient::new_application_loopback_client(pid, include_process_tree)
         .map_err(|e| format!("process-loopback-activation: {e}"))?;
@@ -124,6 +167,25 @@ where
     client
         .start_stream()
         .map_err(|e| format!("process-loopback-start: {e}"))?;
+    Ok((client, event, capture))
+}
+
+/// Includes the target process tree when true, excludes it when false. A target
+/// that is alive but currently silent remains a valid capture: zero PCM chunks
+/// keep the WebCodecs track alive without blocking the UI.
+pub fn capture_process_loop<F>(
+    pid: u32,
+    include_process_tree: bool,
+    running: Arc<AtomicBool>,
+    mut on_chunk: F,
+) -> Result<(), String>
+where
+    F: FnMut(AudioChunk) -> bool,
+{
+    if !process_exists(pid) {
+        return Err("process-not-found".into());
+    }
+    let (client, event, capture) = open_process_loopback(pid, include_process_tree)?;
     let mut clock = AudioClock::new();
     let mut bytes = VecDeque::new();
     while running.load(Ordering::Acquire) {
@@ -177,42 +239,40 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    #[test]
-    fn discord_detection_selects_root_not_audio_helper() {
-        let processes = vec![
-            (22, 11, "Discord.exe".into()),
-            (11, 1, "DISCORD.EXE".into()),
-            (33, 22, "Discord.exe".into()),
+    fn tree() -> ProcessList {
+        vec![
             (1, 0, "explorer.exe".into()),
-        ];
-        assert_eq!(discord_root(&processes), Ok(Some(11)));
-        for name in [
-            "DiscordPTB.exe",
-            "DiscordCanary.exe",
-            "DiscordDevelopment.exe",
-        ] {
-            assert_eq!(discord_root(&[(7, 1, name.into())]), Ok(Some(7)));
-        }
+            (10, 1, "Discord.exe".into()),
+            (11, 10, "Discord.exe".into()),
+            (12, 10, "chrome.exe".into()),
+            (13, 12, "chrome.exe".into()),
+            (20, 1, "ms-teams.exe".into()),
+            (21, 20, "msedgewebview2.exe".into()),
+            (30, 1, "Spotify.exe".into()),
+            (40, 1, "steam.exe".into()),
+            (41, 40, "game.exe".into()),
+            (50, 1, "Screenshare.exe".into()),
+            (51, 50, "msedgewebview2.exe".into()),
+            (60, 1, "desktop-native.exe".into()),
+        ]
     }
     #[test]
-    fn discord_detection_does_not_match_browser_or_similar_names() {
-        assert_eq!(
-            discord_root(&[
-                (1, 0, "chrome.exe".into()),
-                (2, 0, "not-discord.exe".into())
-            ]),
-            Ok(None)
-        );
+    fn call_apps_and_screenshare_are_left_out_with_their_helpers() {
+        assert_eq!(capture_targets(&[11, 21, 51, 60, 30], &tree(), 99), vec![30]);
+        // The running app is excluded by pid, whatever its exe is called.
+        assert_eq!(capture_targets(&[30], &tree(), 30), Vec::<u32>::new());
     }
     #[test]
-    fn discord_detection_rejects_independent_instances() {
-        assert_eq!(
-            discord_root(&[
-                (1, 0, "Discord.exe".into()),
-                (2, 0, "DiscordCanary.exe".into())
-            ]),
-            Err("discord-multiple-process-trees".into())
-        );
+    fn a_browser_opened_from_discord_and_steam_games_still_play() {
+        assert_eq!(capture_targets(&[13, 41], &tree(), 99), vec![13, 41]);
+    }
+    #[test]
+    fn a_tree_already_captured_is_not_captured_twice() {
+        assert_eq!(capture_targets(&[13, 12, 12, 0], &tree(), 99), vec![12]);
+    }
+    #[test]
+    fn an_unknown_session_owner_is_still_captured() {
+        assert_eq!(capture_targets(&[777], &tree(), 99), vec![777]);
     }
     #[test]
     fn nonexistent_pid_is_rejected_immediately() {

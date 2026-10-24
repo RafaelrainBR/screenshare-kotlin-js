@@ -153,7 +153,7 @@ impl Wizard {
         match &self.selected {
             None => ("Áudio", "Escolha uma tela ou janela.".into()),
             Some(s) if s.kind == SourceKind::Screen => {
-                ("Áudio do computador", "Exclui o Discord desktop já aberto. Se abrir ou reiniciar o Discord, compartilhe novamente.".into())
+                ("Áudio do computador", "Sem o som do Discord, de outras chamadas (Teams, Zoom, WhatsApp…) e do próprio Screenshare.".into())
             }
             Some(s) => ("Áudio do aplicativo", format!("Enviar só o som de {}.", s.title)),
         }

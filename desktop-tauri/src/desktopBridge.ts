@@ -27,7 +27,6 @@ function errorFor(error: unknown): NativeCaptureError {
   if (text.includes('generator-unavailable')) return new NativeCaptureError('generator-unavailable', 'Este WebView não oferece MediaStreamTrackGenerator.')
   if (text.includes('no-default-render-device')) return new NativeCaptureError('no-default-render-device', 'Nenhum dispositivo de saída de áudio está disponível.')
   if (text.includes('process-not-found')) return new NativeCaptureError('process-not-found', 'O aplicativo selecionado foi fechado.')
-  if (text.includes('discord-multiple-process-trees')) return new NativeCaptureError('discord-multiple-process-trees', 'Feche as outras instâncias do Discord antes de compartilhar o áudio do computador.')
   if (text.includes('capture')) return new NativeCaptureError('capture-failed', 'Não foi possível iniciar a captura de áudio do sistema.')
   return new NativeCaptureError('native-unavailable', 'A captura de áudio nativa não está disponível.')
 }
