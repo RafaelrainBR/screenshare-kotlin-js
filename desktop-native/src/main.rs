@@ -406,6 +406,10 @@ fn tray_action(app: &mut App, action: tray::Action) -> Task<Message> {
         tray::Action::Screen => show_window(app).chain(update(app, Message::OpenWizard)),
         tray::Action::Leave => update(app, Message::Leave),
         tray::Action::Update => update(app, Message::Update),
+        tray::Action::Logs => {
+            telemetry::open_logs();
+            Task::none()
+        }
         tray::Action::Quit => {
             app.running = None;
             iced::exit()
@@ -514,8 +518,11 @@ fn update(app: &mut App, message: Message) -> Task<Message> {
         _ => None,
     };
     if let Some(action) = action {
-        sentry::add_breadcrumb(sentry::Breadcrumb { category: Some("ui".into()), message: Some(action.into()), ..Default::default() });
-        sentry::logger_info!("{}", action);
+        let breadcrumb = sentry::Breadcrumb { category: Some("ui".into()), message: Some(action.into()), ..Default::default() };
+        // The crash reporter process keeps its own copy, for the steps before a C++ crash.
+        sentry::with_integration(|minidump: &sentry::integrations::minidump::MinidumpIntegration, _| minidump.add_breadcrumb(breadcrumb.clone()));
+        sentry::add_breadcrumb(breadcrumb);
+        telemetry::info(action);
     }
     match message {
         Message::Room(value) => app.room = value,
@@ -586,7 +593,7 @@ fn update(app: &mut App, message: Message) -> Task<Message> {
                 return Task::none();
             }
             app.updating = true;
-            sentry::logger_info!("update: installing {}", release.label().as_str());
+            telemetry::info(&format!("update: installing {}", release.label()));
             return Task::perform(updater::install(release), Message::UpdateStarted);
         }
         Message::UpdateStarted(Ok(())) => {
@@ -595,7 +602,7 @@ fn update(app: &mut App, message: Message) -> Task<Message> {
         }
         Message::UpdateStarted(Err(error)) => {
             app.updating = false;
-            sentry::logger_warn!("update failed: {}", error.as_str());
+            telemetry::warn(&format!("update failed: {error}"));
             app.notice = Some((format!("Não foi possível atualizar: {error}"), Instant::now()));
             // The page still has the setup to run by hand.
             if let Some(release) = &app.update {
@@ -947,7 +954,7 @@ fn tick(app: &mut App) -> Task<Message> {
         if !errors.is_empty() {
             app.notice = Some((errors.clone(), Instant::now()));
             // What the user saw go wrong (camera, audio, share, connection), with the session around it.
-            sentry::logger_warn!("toast: {}", errors.as_str());
+            telemetry::warn(&format!("toast: {errors}"));
         }
         app.shown_errors = errors;
     }
@@ -1123,7 +1130,7 @@ pub fn speaking(app: &App, peer: &str) -> f32 {
 /// Something is still moving, so the window redraws at 60 Hz (ui::motion).
 fn animating(app: &App) -> bool {
     use ui::motion::{ENTER, ICON, LEAVE, POP, ROOM, SLIDE, running};
-    let moving = app.flips.running() || running(app.entered, ROOM) || app.dock_icons.iter().any(|(_, at)| running(*at, ICON)) || app.wizard.as_ref().is_some_and(Wizard::animating);
+    let moving = app.flips.running() || ui::motion::hovers_running() || running(app.entered, ROOM) || app.dock_icons.iter().any(|(_, at)| running(*at, ICON)) || app.wizard.as_ref().is_some_and(Wizard::animating);
     if moving {
         return true;
     }
@@ -1178,7 +1185,7 @@ fn start(room: String, name: String) -> Running {
         let result = runtime.block_on(run_controlled_with_ui(
             &endpoint, &room, &name, &config, 24 * 3600, thread_stop, None, Some(ui),
         ));
-        eprintln!("session ended: {result:?}");
+        telemetry::info(&format!("session ended: {result:?}"));
         if let Err(error) = result {
             sentry::capture_message(&format!("session ended: {error}"), sentry::Level::Error);
         }
@@ -1232,7 +1239,9 @@ fn subscription(app: &App) -> Subscription<Message> {
 
 fn main() -> iced::Result {
     // Flushes what is queued when main returns.
+    telemetry::redirect_stderr();
     let _telemetry = telemetry::init();
+    telemetry::info(concat!("started ", env!("CARGO_PKG_VERSION")));
     updater::wait_for_replaced();
     if !startup::first_instance() {
         return Ok(());

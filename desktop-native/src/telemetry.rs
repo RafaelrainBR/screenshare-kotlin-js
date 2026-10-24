@@ -12,6 +12,9 @@ pub fn init() -> Option<sentry::ClientInitGuard> {
     // Crash-free sessions per release: one per launch.
     options.auto_session_tracking = true;
     options.session_mode = sentry::SessionMode::Application;
+    // A crash in C++ (libwebrtc) kills the process before Rust can report it: a second copy of this
+    // exe, started inside sentry::init and never returning from it, writes the minidump and sends it.
+    options.integrations.push(Arc::new(sentry::integrations::minidump::MinidumpIntegration::new()));
     options.before_send = Some(Arc::new(|mut event| {
         // The PC's name and anything user-like never leave the machine.
         event.server_name = None;
@@ -20,4 +23,66 @@ pub fn init() -> Option<sentry::ClientInitGuard> {
     }));
     let guard = sentry::init((dsn, options));
     guard.is_enabled().then_some(guard)
+}
+
+/// Local log for when the network or Sentry is down: the release exe has no console, so stderr
+/// (every eprintln!, panic message and engine line) goes to logs/screenshare.log in the data dir.
+/// Debug builds keep their console.
+pub fn redirect_stderr() {
+    if cfg!(debug_assertions) {
+        return;
+    }
+    let Some(dir) = logs_dir() else { return };
+    let file = dir.join("screenshare.log");
+    // shortcut: rotates only at launch (1 MB, one old file); rotate while running if a long call fills it.
+    if std::fs::metadata(&file).is_ok_and(|meta| meta.len() > 1 << 20) {
+        let _ = std::fs::rename(&file, dir.join("screenshare.old.log"));
+    }
+    let Ok(file) = std::fs::OpenOptions::new().create(true).append(true).open(file) else { return };
+    #[cfg(windows)]
+    {
+        use std::os::windows::io::IntoRawHandle;
+        use windows::Win32::{Foundation::HANDLE, System::Console::{STD_ERROR_HANDLE, SetStdHandle}};
+        // SAFETY: the handle is leaked on purpose and stays valid for the life of the process.
+        let _ = unsafe { SetStdHandle(STD_ERROR_HANDLE, HANDLE(file.into_raw_handle())) };
+    }
+    #[cfg(target_os = "macos")]
+    {
+        use std::os::fd::IntoRawFd;
+        // SAFETY: dup2 onto fd 2; the original fd is leaked and stays open for the life of the process.
+        unsafe { libc::dup2(file.into_raw_fd(), 2) };
+    }
+}
+
+pub fn logs_dir() -> Option<std::path::PathBuf> {
+    let dir = crate::startup::data_dir()?.join("logs");
+    std::fs::create_dir_all(&dir).ok()?;
+    Some(dir)
+}
+
+/// "Abrir pasta de logs" in the tray.
+pub fn open_logs() {
+    let Some(dir) = logs_dir() else { return };
+    #[cfg(windows)]
+    let opener = "explorer";
+    #[cfg(not(windows))]
+    let opener = "open";
+    let _ = std::process::Command::new(opener).arg(dir).spawn();
+}
+
+/// A line in the local log and in Sentry's logs.
+pub fn info(line: &str) {
+    stamp("INFO", line);
+    sentry::logger_info!("{}", line);
+}
+
+pub fn warn(line: &str) {
+    stamp("WARN", line);
+    sentry::logger_warn!("{}", line);
+}
+
+fn stamp(level: &str, line: &str) {
+    let now = time::OffsetDateTime::now_utc();
+    let now = now.format(&time::format_description::well_known::Rfc3339).unwrap_or_default();
+    eprintln!("{now} {level} {line}");
 }

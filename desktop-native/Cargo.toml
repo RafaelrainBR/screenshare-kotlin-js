@@ -24,13 +24,16 @@ iced = { version = "0.14", features = ["advanced", "image", "svg", "tokio"] }
 desktop-capture = { path = "../desktop-capture" }
 tray-icon = "0.21"
 image = { version = "0.25", default-features = false, features = ["png"] }
-sentry = "0.49.3"
+# minidump: crashes in the C++ side (libwebrtc) through a crash reporter process (src/telemetry.rs).
+sentry = { version = "0.49.3", features = ["minidump"] }
+# Timestamps in the local log (src/telemetry.rs); already in the tree through sentry.
+time = { version = "0.3", features = ["formatting"] }
 # Updates (src/updater.rs): the reqwest and ring already in the tree through sentry and rustls.
 reqwest = { version = "0.13", default-features = false, features = ["native-tls", "json"] }
 ring = "0.17"
 
 [target.'cfg(windows)'.dependencies]
-windows = { version = "0.62", features = ["Win32_Foundation", "Win32_System_Time", "Win32_Media_Audio", "Win32_Media_MediaFoundation", "Win32_System_Com", "Win32_System_Registry", "Win32_System_Threading", "Win32_Security", "Win32_Graphics_Gdi", "Win32_UI_WindowsAndMessaging", "Win32_UI_Shell"] }
+windows = { version = "0.62", features = ["Win32_Foundation", "Win32_System_Time", "Win32_Media_Audio", "Win32_Media_MediaFoundation", "Win32_System_Com", "Win32_System_Console", "Win32_System_Registry", "Win32_System_Threading", "Win32_Security", "Win32_Graphics_Gdi", "Win32_UI_WindowsAndMessaging", "Win32_UI_Shell"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 libc = "0.2"

@@ -20,6 +20,8 @@ pub enum Action {
     Leave,
     /// "Atualizar para a versão …": install it, or open its page.
     Update,
+    /// "Abrir pasta de logs".
+    Logs,
     Quit,
 }
 
@@ -70,13 +72,14 @@ pub fn install() -> bool {
     let build = || -> Result<Tray, Box<dyn std::error::Error>> {
         let (rgba, width, height) = icon_rgba().ok_or("icon")?;
         let item = |id: &str, text: &str, enabled: bool| MenuItem::with_id(id, text, enabled, None);
-        let (open, mic, camera, output, screen, leave, quit) = (
+        let (open, mic, camera, output, screen, leave, logs, quit) = (
             item("open", "Abrir sala", true),
             item("mic", "Microfone silenciado · Ativar", false),
             item("camera", "Câmera desligada · Ligar", false),
             item("output", "Silenciar áudio", true),
             item("screen", "Compartilhar tela ou janela…", false),
             item("leave", "Sair da sala", false),
+            item("logs", "Abrir pasta de logs", true),
             item("quit", "Encerrar app", true),
         );
         let menu = Menu::new();
@@ -90,6 +93,7 @@ pub fn install() -> bool {
             &PredefinedMenuItem::separator(),
             &leave,
             &PredefinedMenuItem::separator(),
+            &logs,
             &quit,
         ])?;
         let icon = TrayIconBuilder::new()
@@ -129,6 +133,7 @@ pub fn actions() -> Vec<Action> {
             "screen" => Some(Action::Screen),
             "leave" => Some(Action::Leave),
             "update" => Some(Action::Update),
+            "logs" => Some(Action::Logs),
             "quit" => Some(Action::Quit),
             _ => None,
         });
