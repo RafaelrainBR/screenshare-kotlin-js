@@ -160,12 +160,11 @@ impl Wizard {
     }
 
     /// updateSourceState in InterfaceHandlers.kt.
-    fn state(&self, profile: ShareProfile) -> &'static str {
+    fn state(&self) -> &'static str {
         match (&self.sources, &self.selected) {
             (None, _) => "Carregando telas e janelas…",
             (Some(sources), _) if sources.is_empty() => "Nenhuma tela ou janela disponível agora.",
             (_, None) => "Escolha o que você quer compartilhar.",
-            (_, Some(s)) if s.kind == SourceKind::Window && profile.fps > 30 => "Janelas são enviadas a até 30 fps.",
             _ => "",
         }
     }
@@ -263,7 +262,7 @@ impl Wizard {
             ]
             .align_y(Alignment::Center),
             scrollable(list).height(Length::Fill),
-            text(self.state(profile)).size(12).color(theme::DIM),
+            text(self.state()).size(12).color(theme::DIM),
             text("O que você vai mostrar").size(12).font(theme::BOLD),
             preset,
             quality,

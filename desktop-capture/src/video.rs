@@ -1,5 +1,6 @@
 //! Native video capture without the WebView picker, sharing bar or capture border:
-//! DXGI Desktop Duplication for screens and PrintWindow for windows (Windows 10 path).
+//! DXGI Desktop Duplication for screens, Windows.Graphics.Capture for windows, and
+//! PrintWindow for windows where WGC is missing (older Windows 10 builds).
 //! Frames are BGRA, top-down, tightly packed (stride = width * 4) and paced to the
 //! requested frame rate; a busy consumer drops frames instead of queueing them.
 use std::mem::ManuallyDrop;
@@ -7,6 +8,13 @@ use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use windows::core::{Interface, BOOL};
+use windows::Graphics::Capture::{
+    Direct3D11CaptureFrame, Direct3D11CaptureFramePool, GraphicsCaptureAccess,
+    GraphicsCaptureAccessKind, GraphicsCaptureItem, GraphicsCaptureSession,
+};
+use windows::Graphics::DirectX::Direct3D11::IDirect3DDevice;
+use windows::Graphics::DirectX::DirectXPixelFormat;
+use windows::Graphics::SizeInt32;
 use windows::Win32::Foundation::{HMODULE, HWND, RECT};
 use windows::Win32::Graphics::Direct3D::D3D_DRIVER_TYPE_UNKNOWN;
 use windows::Win32::Graphics::Direct3D11::{
@@ -27,7 +35,7 @@ use windows::Win32::Graphics::Dxgi::Common::{
     DXGI_FORMAT_B8G8R8A8_UNORM, DXGI_RATIONAL, DXGI_SAMPLE_DESC,
 };
 use windows::Win32::Graphics::Dxgi::{
-    CreateDXGIFactory1, IDXGIAdapter1, IDXGIFactory1, IDXGIOutput1, IDXGIOutputDuplication,
+    CreateDXGIFactory1, IDXGIAdapter1, IDXGIDevice, IDXGIFactory1, IDXGIOutput1, IDXGIOutputDuplication,
     IDXGIResource, DXGI_ERROR_ACCESS_LOST, DXGI_ERROR_WAIT_TIMEOUT, DXGI_OUTDUPL_FRAME_INFO,
     DXGI_OUTDUPL_POINTER_SHAPE_INFO, DXGI_OUTDUPL_POINTER_SHAPE_TYPE_COLOR,
     DXGI_OUTDUPL_POINTER_SHAPE_TYPE_MASKED_COLOR, DXGI_OUTDUPL_POINTER_SHAPE_TYPE_MONOCHROME,
@@ -37,6 +45,11 @@ use windows::Win32::Graphics::Gdi::{
     SelectObject, SetBrushOrgEx, SetStretchBltMode, StretchBlt, BITMAPINFO, BITMAPINFOHEADER,
     BI_RGB, DIB_RGB_COLORS, HALFTONE, HBITMAP, HDC, HGDIOBJ, SRCCOPY,
 };
+use windows::Win32::System::Com::CoIncrementMTAUsage;
+use windows::Win32::System::WinRT::Direct3D11::{
+    CreateDirect3D11DeviceFromDXGIDevice, IDirect3DDxgiInterfaceAccess,
+};
+use windows::Win32::System::WinRT::Graphics::Capture::IGraphicsCaptureItemInterop;
 use windows::Win32::UI::WindowsAndMessaging::{GetWindowRect, IsIconic, IsWindow};
 
 #[link(name = "user32")]
@@ -100,12 +113,16 @@ pub fn capture_video_loop(
             width,
             height,
         } => Box::new(DxgiGrabber::new(left, top, even(width), even(height))?),
-        VideoSource::Window(hwnd) => Box::new(WindowGrabber::new(hwnd)),
+        // PrintWindow covers Windows 10 builds without WGC and windows WGC refuses.
+        VideoSource::Window(hwnd) => match WgcGrabber::new(hwnd) {
+            Ok(grabber) => Box::new(grabber),
+            Err(_) => Box::new(WindowGrabber::new(hwnd)),
+        },
     };
     let start = Instant::now();
     let mut next = start;
     while running.load(Ordering::Acquire) {
-        let interval = frame_interval(source, fps.load(Ordering::Relaxed));
+        let interval = frame_interval(fps.load(Ordering::Relaxed), grabber.max_fps());
         let now = Instant::now();
         if now < next {
             std::thread::sleep(next - now);
@@ -143,13 +160,8 @@ pub fn capture_video_loop(
     Ok(())
 }
 
-fn frame_interval(source: VideoSource, fps: u32) -> Duration {
-    // PrintWindow costs ~25 ms per capture and saturates near 35 fps on Windows 10.
-    let fps = match source {
-        VideoSource::Window(_) => fps.min(WINDOW_MAX_FPS),
-        VideoSource::Screen { .. } => fps,
-    };
-    Duration::from_micros(1_000_000 / u64::from(fps.clamp(1, 120)))
+fn frame_interval(fps: u32, max_fps: u32) -> Duration {
+    Duration::from_micros(1_000_000 / u64::from(fps.min(max_fps).clamp(1, 120)))
 }
 
 fn even(value: u32) -> u32 {
@@ -172,28 +184,154 @@ trait Grabber {
     /// Returns the latest image no taller than `max_height` (repeating the previous one
     /// when nothing changed), or None when there is nothing to send yet.
     fn grab(&mut self, metrics: &VideoMetrics, max_height: u32) -> Grab<'_>;
+
+    /// Highest rate this grabber keeps up with.
+    fn max_fps(&self) -> u32 {
+        u32::MAX
+    }
 }
 
-struct DxgiGrabber {
+/// GPU half shared by screens and WGC windows: crops the captured texture, scales it to
+/// `max_height` and reads it back without waiting on the GPU.
+struct Readback {
     device: ID3D11Device,
     context: ID3D11DeviceContext,
-    output: IDXGIOutput1,
-    duplication: Option<IDXGIOutputDuplication>,
-    // Two crop-sized readback textures: the CPU maps the one copied a tick ago, so it
-    // never waits for the GPU to finish this tick's copy (which would stall on the game).
+    // Two readback textures: the CPU maps the one copied a tick ago, so it never waits
+    // for the GPU to finish this tick's copy (which would stall on the game).
     staging: [Option<ID3D11Texture2D>; 2],
     // Slot the next copy goes to; the other one holds the copy not read yet, if any.
     next: usize,
     unread: bool,
-    // Crop inside the output, in output pixels.
+    // Crop inside the captured texture.
     crop: (u32, u32, u32, u32),
     // Size of the delivered image: the crop, or the crop scaled down by `scaler`.
     size: (u32, u32),
     scaler: Option<Scaler>,
-    // The limit `size` was computed for; None until the first tick.
+    // The limit `size` was computed for; None until the first configure.
     max_height: Option<u32>,
-    // Desktop image without the pointer, which DXGI reports separately.
-    desktop: Vec<u8>,
+    // Latest image read back, `size` big.
+    image: Vec<u8>,
+}
+
+impl Readback {
+    fn new(device: ID3D11Device, context: ID3D11DeviceContext) -> Self {
+        Self {
+            device,
+            context,
+            staging: [None, None],
+            next: 0,
+            unread: false,
+            crop: (0, 0, 0, 0),
+            size: (0, 0),
+            scaler: None,
+            max_height: None,
+            image: Vec::new(),
+        }
+    }
+
+    /// Points the pipeline at `crop` scaled to `max_height`. Returns true when that changed
+    /// anything, which drops the pending copy and clears `image`. Without a GPU video
+    /// processor the crop goes out unscaled, as before scaling existed.
+    fn configure(&mut self, crop: (u32, u32, u32, u32), max_height: u32) -> bool {
+        if self.crop == crop && self.max_height == Some(max_height) {
+            return false;
+        }
+        self.crop = crop;
+        self.max_height = Some(max_height);
+        let (_, _, w, h) = crop;
+        let mut size = scaled(w, h, max_height);
+        self.scaler = None;
+        if size != (w, h) {
+            match unsafe { Scaler::new(&self.device, &self.context, (w, h), size) } {
+                Ok(scaler) => self.scaler = Some(scaler),
+                Err(_) => size = (w, h),
+            }
+        }
+        self.size = size;
+        self.staging = [None, None];
+        self.unread = false;
+        self.image = vec![0; (size.0 * size.1 * 4) as usize];
+        true
+    }
+
+    /// Queues this tick's copy of the crop of `texture`, scaled, into a staging texture.
+    unsafe fn copy(&mut self, texture: &ID3D11Texture2D) -> Result<(), String> {
+        let (x, y, w, h) = self.crop;
+        let slot = &mut self.staging[self.next];
+        if slot.is_none() {
+            let mut desc = D3D11_TEXTURE2D_DESC::default();
+            texture.GetDesc(&mut desc);
+            (desc.Width, desc.Height) = self.size;
+            desc.MipLevels = 1;
+            desc.ArraySize = 1;
+            desc.Usage = D3D11_USAGE_STAGING;
+            desc.BindFlags = 0;
+            desc.CPUAccessFlags = D3D11_CPU_ACCESS_READ.0 as u32;
+            desc.MiscFlags = 0;
+            self.device
+                .CreateTexture2D(&desc, None, Some(slot))
+                .map_err(|_| "dxgi-capture-failed")?;
+        }
+        let crop = D3D11_BOX {
+            left: x,
+            top: y,
+            front: 0,
+            right: x + w,
+            bottom: y + h,
+            back: 1,
+        };
+        let slot = slot.as_ref().unwrap();
+        match &self.scaler {
+            Some(scaler) => scaler.run(&self.context, texture, &crop, slot)?,
+            None => self
+                .context
+                .CopySubresourceRegion(slot, 0, 0, 0, 0, texture, 0, Some(&crop)),
+        }
+        Ok(())
+    }
+
+    /// Reads last tick's copy, which the GPU has finished, into `image`; this tick's copy
+    /// (`copied`) waits for the next tick, so a still source shows its last change one
+    /// interval later. Returns whether `image` changed.
+    fn finish(&mut self, copied: bool) -> Result<bool, String> {
+        let image_changed = std::mem::replace(&mut self.unread, copied);
+        if image_changed {
+            self.read_staging(self.next ^ 1)?;
+        }
+        if copied {
+            self.next ^= 1;
+        }
+        Ok(image_changed)
+    }
+
+    fn read_staging(&mut self, slot: usize) -> Result<(), String> {
+        let Some(staging) = &self.staging[slot] else {
+            return Ok(());
+        };
+        unsafe {
+            let mut mapped = D3D11_MAPPED_SUBRESOURCE::default();
+            self.context
+                .Map(staging, 0, D3D11_MAP_READ, 0, Some(&mut mapped))
+                .map_err(|_| "dxgi-capture-failed")?;
+            let (w, h) = self.size;
+            let row = (w * 4) as usize;
+            for line in 0..h as usize {
+                let src = (mapped.pData as *const u8).add(line * mapped.RowPitch as usize);
+                std::ptr::copy_nonoverlapping(src, self.image[line * row..].as_mut_ptr(), row);
+            }
+            self.context.Unmap(staging, 0);
+        }
+        Ok(())
+    }
+}
+
+struct DxgiGrabber {
+    output: IDXGIOutput1,
+    duplication: Option<IDXGIOutputDuplication>,
+    // Crop inside the output, in output pixels.
+    crop: (u32, u32, u32, u32),
+    // Its `image` is the desktop without the pointer, which DXGI reports separately.
+    readback: Readback,
     buffer: Vec<u8>,
     has_frame: bool,
     pointer: Option<PointerShape>,
@@ -224,19 +362,11 @@ impl DxgiGrabber {
                     let output: IDXGIOutput1 =
                         output.cast().map_err(|_| "dxgi-duplication-unsupported")?;
                     return Ok(Self {
-                        device,
-                        context,
                         output,
                         duplication: None,
-                        staging: [None, None],
-                        next: 0,
-                        unread: false,
                         crop: (crop_x, crop_y, width, height),
-                        size: (width, height),
-                        scaler: None,
-                        max_height: None,
-                        desktop: vec![0; (width * height * 4) as usize],
-                        buffer: vec![0; (width * height * 4) as usize],
+                        readback: Readback::new(device, context),
+                        buffer: Vec::new(),
                         has_frame: false,
                         pointer: None,
                         pointer_at: None,
@@ -247,33 +377,12 @@ impl DxgiGrabber {
         }
     }
 
-    /// Switches the delivered size to the crop scaled to `max_height`. Without a GPU video
-    /// processor the crop goes out unscaled, as before scaling existed.
-    fn resize(&mut self, max_height: u32) {
-        self.max_height = Some(max_height);
-        let (_, _, w, h) = self.crop;
-        let mut size = scaled(w, h, max_height);
-        self.scaler = None;
-        if size != (w, h) {
-            match unsafe { Scaler::new(&self.device, &self.context, (w, h), size) } {
-                Ok(scaler) => self.scaler = Some(scaler),
-                Err(_) => size = (w, h),
-            }
-        }
-        self.size = size;
-        self.staging = [None, None];
-        self.unread = false;
-        self.has_frame = false;
-        self.desktop = vec![0; (size.0 * size.1 * 4) as usize];
-        self.buffer = vec![0; (size.0 * size.1 * 4) as usize];
-    }
-
-    /// Returns (desktop image changed, pointer changed).
+    /// Returns (desktop image copied, pointer changed).
     fn acquire(&mut self) -> Result<(bool, bool), String> {
         unsafe {
             if self.duplication.is_none() {
                 // Fails transiently on the secure desktop (UAC, lock screen): retry next tick.
-                self.duplication = self.output.DuplicateOutput(&self.device).ok();
+                self.duplication = self.output.DuplicateOutput(&self.readback.device).ok();
             }
             let Some(duplication) = &self.duplication else {
                 return Ok((false, false));
@@ -344,94 +453,35 @@ impl DxgiGrabber {
                     .ok_or("dxgi-capture-failed")?
                     .cast()
                     .map_err(|_| "dxgi-capture-failed")?;
-                let (x, y, w, h) = self.crop;
-                let slot = &mut self.staging[self.next];
-                if slot.is_none() {
-                    let mut desc = D3D11_TEXTURE2D_DESC::default();
-                    texture.GetDesc(&mut desc);
-                    (desc.Width, desc.Height) = self.size;
-                    desc.Usage = D3D11_USAGE_STAGING;
-                    desc.BindFlags = 0;
-                    desc.CPUAccessFlags = D3D11_CPU_ACCESS_READ.0 as u32;
-                    desc.MiscFlags = 0;
-                    self.device
-                        .CreateTexture2D(&desc, None, Some(slot))
-                        .map_err(|_| "dxgi-capture-failed")?;
-                }
-                let crop = D3D11_BOX {
-                    left: x,
-                    top: y,
-                    front: 0,
-                    right: x + w,
-                    bottom: y + h,
-                    back: 1,
-                };
-                let slot = slot.as_ref().unwrap();
-                match &self.scaler {
-                    Some(scaler) => scaler.run(&self.context, &texture, &crop, slot)?,
-                    None => self.context.CopySubresourceRegion(
-                        slot,
-                        0,
-                        0,
-                        0,
-                        0,
-                        &texture,
-                        0,
-                        Some(&crop),
-                    ),
-                }
+                self.readback.copy(&texture)?;
                 Ok::<bool, String>(true)
             })();
             let _ = duplication.ReleaseFrame();
             Ok((result?, pointer_changed))
         }
     }
-
-    fn read_staging(&mut self, slot: usize) -> Result<(), String> {
-        let Some(staging) = &self.staging[slot] else {
-            return Ok(());
-        };
-        unsafe {
-            let mut mapped = D3D11_MAPPED_SUBRESOURCE::default();
-            self.context
-                .Map(staging, 0, D3D11_MAP_READ, 0, Some(&mut mapped))
-                .map_err(|_| "dxgi-capture-failed")?;
-            let (w, h) = self.size;
-            let row = (w * 4) as usize;
-            for line in 0..h as usize {
-                let src = (mapped.pData as *const u8).add(line * mapped.RowPitch as usize);
-                std::ptr::copy_nonoverlapping(src, self.desktop[line * row..].as_mut_ptr(), row);
-            }
-            self.context.Unmap(staging, 0);
-        }
-        Ok(())
-    }
 }
 
 impl Grabber for DxgiGrabber {
     fn grab(&mut self, metrics: &VideoMetrics, max_height: u32) -> Grab<'_> {
-        if self.max_height != Some(max_height) {
-            self.resize(max_height);
+        if self.readback.configure(self.crop, max_height) {
+            let (w, h) = self.readback.size;
+            self.has_frame = false;
+            self.buffer = vec![0; (w * h * 4) as usize];
         }
         let (copied, pointer_changed) = self.acquire()?;
-        // Read last tick's copy, which the GPU has finished; this tick's copy waits for the
-        // next tick, so a still screen shows its last change one interval later.
-        let image_changed = std::mem::replace(&mut self.unread, copied);
-        if image_changed {
-            self.read_staging(self.next ^ 1)?;
-        }
+        let image_changed = self.readback.finish(copied)?;
         if copied {
             metrics.new_frames.fetch_add(1, Ordering::Relaxed);
-            self.next ^= 1;
         }
         if !self.has_frame && !image_changed {
             return Ok(None);
         }
         let (x, y, crop_w, crop_h) = self.crop;
-        let (w, h) = self.size;
+        let (w, h) = self.readback.size;
         if image_changed || pointer_changed {
             self.has_frame = true;
-            self.buffer.copy_from_slice(&self.desktop);
+            self.buffer.copy_from_slice(&self.readback.image);
             if let (Some(shape), Some((px, py))) = (&self.pointer, self.pointer_at) {
                 // shortcut: the pointer shape is not scaled, so it looks bigger on a scaled
                 // image; scale it too if anyone notices.
@@ -449,7 +499,7 @@ impl Grabber for DxgiGrabber {
 struct Scaler {
     video: ID3D11VideoContext,
     processor: ID3D11VideoProcessor,
-    // The crop lands here first: the duplication texture can't back a processor input view.
+    // The crop lands here first: captured textures can't back a processor input view.
     input: ID3D11Texture2D,
     input_view: ID3D11VideoProcessorInputView,
     output: ID3D11Texture2D,
@@ -494,7 +544,7 @@ impl Scaler {
                 Height: height,
                 MipLevels: 1,
                 ArraySize: 1,
-                // DuplicateOutput always hands out BGRA8.
+                // DuplicateOutput and the WGC frame pool both hand out BGRA8.
                 Format: DXGI_FORMAT_B8G8R8A8_UNORM,
                 SampleDesc: DXGI_SAMPLE_DESC {
                     Count: 1,
@@ -601,6 +651,158 @@ fn create_device(adapter: &IDXGIAdapter1) -> Result<(ID3D11Device, ID3D11DeviceC
     ))
 }
 
+const WGC_FORMAT: DirectXPixelFormat = DirectXPixelFormat::B8G8R8A8UIntNormalized;
+const WGC_BUFFERS: i32 = 2;
+
+/// Windows.Graphics.Capture: DWM hands over the window's surface as a texture, so a game in
+/// a window costs a GPU copy instead of PrintWindow's ~25 ms redraw.
+struct WgcGrabber {
+    hwnd: HWND,
+    device: IDirect3DDevice,
+    pool: Direct3D11CaptureFramePool,
+    session: GraphicsCaptureSession,
+    // Size the pool's buffers were created for.
+    pool_size: SizeInt32,
+    readback: Readback,
+    has_frame: bool,
+}
+
+impl WgcGrabber {
+    fn new(hwnd: HWND) -> Result<Self, String> {
+        const FAILED: &str = "wgc-unavailable";
+        unsafe {
+            // WGC lives in the MTA. Pin it for the process instead of joining it from this
+            // thread: a thread that leaves the MTA on exit (this one, or a WASAPI one) could
+            // otherwise tear it down under WGC and crash the next capture.
+            static MTA: std::sync::Once = std::sync::Once::new();
+            MTA.call_once(|| {
+                let _ = CoIncrementMTAUsage();
+            });
+            if !GraphicsCaptureSession::IsSupported().unwrap_or(false) {
+                return Err(FAILED.into());
+            }
+            // shortcut: the first adapter, not the one drawing the window; a hybrid-GPU laptop
+            // pays a cross-adapter copy, pick the window's adapter if that shows up.
+            let factory: IDXGIFactory1 = CreateDXGIFactory1().map_err(|_| FAILED)?;
+            let adapter = factory.EnumAdapters1(0).map_err(|_| FAILED)?;
+            let (d3d, context) = create_device(&adapter)?;
+            let dxgi: IDXGIDevice = d3d.cast().map_err(|_| FAILED)?;
+            let device: IDirect3DDevice = CreateDirect3D11DeviceFromDXGIDevice(&dxgi)
+                .and_then(|d| d.cast())
+                .map_err(|_| FAILED)?;
+            let item: GraphicsCaptureItem =
+                windows::core::factory::<GraphicsCaptureItem, IGraphicsCaptureItemInterop>()
+                    .and_then(|interop| interop.CreateForWindow(hwnd))
+                    .map_err(|_| FAILED)?;
+            let pool_size = item.Size().map_err(|_| FAILED)?;
+            let pool = Direct3D11CaptureFramePool::CreateFreeThreaded(
+                &device,
+                WGC_FORMAT,
+                WGC_BUFFERS,
+                pool_size,
+            )
+            .map_err(|_| FAILED)?;
+            let session = pool.CreateCaptureSession(&item).map_err(|_| FAILED)?;
+            // No pointer, as with PrintWindow, and no yellow border around the shared window;
+            // both setters fail on builds that predate them (the border one needs Windows 11).
+            let _ = session.SetIsCursorCaptureEnabled(false);
+            if let Ok(access) = GraphicsCaptureAccess::RequestAccessAsync(
+                GraphicsCaptureAccessKind::Borderless,
+            ) {
+                let _ = access.join();
+            }
+            let _ = session.SetIsBorderRequired(false);
+            session.StartCapture().map_err(|_| FAILED)?;
+            Ok(Self {
+                hwnd,
+                device,
+                pool,
+                session,
+                pool_size,
+                readback: Readback::new(d3d, context),
+                has_frame: false,
+            })
+        }
+    }
+
+    /// Queues the readback of `frame`; returns false when it had to be skipped.
+    fn copy(&mut self, frame: &Direct3D11CaptureFrame, max_height: u32) -> Result<bool, String> {
+        const FAILED: &str = "window-capture-failed";
+        let size = frame.ContentSize().map_err(|_| FAILED)?;
+        if size != self.pool_size {
+            // The window was resized: frames come at the new size once the pool matches it.
+            self.pool
+                .Recreate(&self.device, WGC_FORMAT, WGC_BUFFERS, size)
+                .map_err(|_| FAILED)?;
+            self.pool_size = size;
+            return Ok(false);
+        }
+        unsafe {
+            let texture: ID3D11Texture2D = frame
+                .Surface()
+                .and_then(|s| s.cast::<IDirect3DDxgiInterfaceAccess>())
+                .and_then(|access| access.GetInterface())
+                .map_err(|_| FAILED)?;
+            let mut desc = D3D11_TEXTURE2D_DESC::default();
+            texture.GetDesc(&mut desc);
+            let w = (size.Width.max(0) as u32).min(desc.Width);
+            let h = (size.Height.max(0) as u32).min(desc.Height);
+            if w < 2 || h < 2 {
+                return Ok(false);
+            }
+            if self.readback.configure((0, 0, even(w), even(h)), max_height) {
+                self.has_frame = false;
+            }
+            self.readback.copy(&texture)?;
+        }
+        Ok(true)
+    }
+}
+
+impl Drop for WgcGrabber {
+    fn drop(&mut self) {
+        let _ = self.session.Close();
+        let _ = self.pool.Close();
+    }
+}
+
+impl Grabber for WgcGrabber {
+    fn grab(&mut self, metrics: &VideoMetrics, max_height: u32) -> Grab<'_> {
+        unsafe {
+            if !IsWindow(Some(self.hwnd)).as_bool() {
+                return Err("window-closed".into());
+            }
+            if IsIconic(self.hwnd).as_bool() {
+                // No frames arrive while minimized: the last image keeps going out.
+                metrics.minimized_ticks.fetch_add(1, Ordering::Relaxed);
+            }
+        }
+        // Only the newest frame matters; the older ones go back to the pool unread.
+        let mut latest = None;
+        while let Ok(frame) = self.pool.TryGetNextFrame() {
+            latest = Some(frame);
+        }
+        let copied = match latest {
+            Some(frame) => {
+                let copied = self.copy(&frame, max_height);
+                let _ = frame.Close();
+                copied?
+            }
+            None => false,
+        };
+        let image_changed = self.readback.finish(copied)?;
+        if copied {
+            metrics.new_frames.fetch_add(1, Ordering::Relaxed);
+        }
+        self.has_frame |= image_changed;
+        if !self.has_frame {
+            return Ok(None);
+        }
+        let (w, h) = self.readback.size;
+        Ok(Some((w, h, &self.readback.image)))
+    }
+}
+
 struct WindowGrabber {
     hwnd: HWND,
     dib: Option<Dib>,
@@ -695,6 +897,11 @@ fn ensure_dib(slot: &mut Option<Dib>, hwnd: HWND, width: u32, height: u32) -> Re
 }
 
 impl Grabber for WindowGrabber {
+    fn max_fps(&self) -> u32 {
+        // PrintWindow costs ~25 ms per capture and saturates near 35 fps on Windows 10.
+        WINDOW_MAX_FPS
+    }
+
     fn grab(&mut self, metrics: &VideoMetrics, max_height: u32) -> Grab<'_> {
         unsafe {
             if !IsWindow(Some(self.hwnd)).as_bool() {
@@ -847,29 +1054,29 @@ mod tests {
     use super::*;
 
     #[test]
-    fn frame_interval_caps_windows_and_clamps_rates() {
-        let screen = VideoSource::Screen {
-            left: 0,
-            top: 0,
-            width: 2,
-            height: 2,
-        };
-        let window = VideoSource::Window(HWND(std::ptr::null_mut()));
-        assert_eq!(frame_interval(screen, 10), Duration::from_millis(100));
-        assert_eq!(frame_interval(screen, 60), Duration::from_micros(16_666));
-        assert_eq!(frame_interval(window, 60), Duration::from_micros(33_333));
-        assert_eq!(frame_interval(screen, 0), Duration::from_secs(1));
+    fn frame_interval_caps_printwindow_and_clamps_rates() {
+        let window = WindowGrabber::new(HWND(std::ptr::null_mut()));
+        assert_eq!(frame_interval(10, u32::MAX), Duration::from_millis(100));
+        assert_eq!(frame_interval(60, u32::MAX), Duration::from_micros(16_666));
+        assert_eq!(
+            frame_interval(60, window.max_fps()),
+            Duration::from_micros(33_333)
+        );
+        assert_eq!(frame_interval(0, u32::MAX), Duration::from_secs(1));
     }
 
-    /// Captures a 640x480 crop of the real primary screen for a second at 30 fps.
+    // DXGI allows one duplication of an output per process, and one real capture at a time
+    // keeps the frame counts honest.
+    static SCREEN: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    /// Captures a 640x480 crop of the real primary screen for two seconds at 30 fps; device
+    /// creation (up to ~0.5 s, more under load) comes out of that time.
     fn capture_crop(max_height: u32, expected: (u32, u32)) {
-        // DXGI allows one duplication of an output per process.
-        static SCREEN: std::sync::Mutex<()> = std::sync::Mutex::new(());
         let _screen = SCREEN.lock().unwrap_or_else(|e| e.into_inner());
         let running = Arc::new(AtomicBool::new(true));
         let stop = running.clone();
         std::thread::spawn(move || {
-            std::thread::sleep(Duration::from_secs(1));
+            std::thread::sleep(Duration::from_secs(2));
             stop.store(false, Ordering::Release);
         });
         let (mut frames, mut lit) = (0, false);
@@ -912,6 +1119,81 @@ mod tests {
     #[ignore = "captures the real primary screen"]
     fn scales_a_crop_of_the_primary_screen_on_the_gpu() {
         capture_crop(240, (320, 240));
+    }
+
+    /// Captures a real window for two seconds at 60 fps; returns (frames, largest frame size).
+    fn capture_window(hwnd: HWND, max_height: u32) -> (u32, (u32, u32)) {
+        let _screen = SCREEN.lock().unwrap_or_else(|e| e.into_inner());
+        let running = Arc::new(AtomicBool::new(true));
+        let stop = running.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_secs(2));
+            stop.store(false, Ordering::Release);
+        });
+        let (mut frames, mut lit, mut largest) = (0, false, (0, 0));
+        capture_video_loop(
+            VideoSource::Window(hwnd),
+            Arc::new(AtomicU32::new(60)),
+            Arc::new(AtomicU32::new(max_height)),
+            running,
+            Arc::new(VideoMetrics::default()),
+            |f| {
+                assert_eq!(f.data.len(), (f.width * f.height * 4) as usize);
+                assert_eq!((f.width % 2, f.height % 2), (0, 0), "odd size");
+                assert!(f.height <= max_height, "{} tall", f.height);
+                frames += 1;
+                lit |= f.data.chunks(4).any(|px| px[..3] != [0, 0, 0]);
+                largest = largest.max((f.width, f.height));
+                true
+            },
+        )
+        .unwrap();
+        assert!(lit, "all black");
+        (frames, largest)
+    }
+
+    fn open_window() -> HWND {
+        crate::sources::enumerate_sources()
+            .into_iter()
+            .filter(|s| s.kind == crate::sources::SourceKind::Window)
+            .map(|s| HWND(s.hwnd as usize as *mut _))
+            .find(|&hwnd| unsafe { !IsIconic(hwnd).as_bool() })
+            .expect("no open window to capture")
+    }
+
+    #[test]
+    #[ignore = "captures a real window and the primary screen"]
+    fn a_cancelled_window_share_then_a_screen_share_on_new_threads() {
+        // As in the app: each share runs on its own thread, which exits when it stops. A window
+        // share stopped before its first tick used to crash the next capture.
+        let source = VideoSource::Window(open_window());
+        std::thread::spawn(move || {
+            let stopped = Arc::new(AtomicBool::new(false));
+            let limit = || Arc::new(AtomicU32::new(60));
+            let metrics = Arc::new(VideoMetrics::default());
+            capture_video_loop(source, limit(), limit(), stopped, metrics, |_| true)
+        })
+        .join()
+        .unwrap()
+        .unwrap();
+        std::thread::spawn(|| capture_crop(240, (320, 240)))
+            .join()
+            .unwrap();
+    }
+
+    #[test]
+    #[ignore = "captures a real window"]
+    fn captures_a_real_window_through_wgc() {
+        let hwnd = open_window();
+        // capture_video_loop falls back to PrintWindow silently; make sure it won't, uncapped.
+        let wgc = WgcGrabber::new(hwnd).expect("WGC refused the window");
+        assert_eq!(wgc.max_fps(), u32::MAX);
+        drop(wgc);
+        let (frames, (w, h)) = capture_window(hwnd, u32::MAX);
+        assert!(frames > 10, "{frames} frames");
+        assert!(w > 2 && h > 2, "{w}x{h}");
+        let (_, (_, scaled_h)) = capture_window(hwnd, 120);
+        assert!(scaled_h <= 120 && scaled_h < h, "scaled to {scaled_h}");
     }
 
     #[test]
