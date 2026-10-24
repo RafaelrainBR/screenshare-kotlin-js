@@ -5,6 +5,7 @@ mod startup;
 mod telemetry;
 mod tray;
 mod ui;
+mod updater;
 
 use std::{
     collections::{HashMap, HashSet},
@@ -98,6 +99,13 @@ pub enum Message {
     ToggleAutostart(bool),
     /// Reads the tray clicks and refreshes its menu.
     TrayPoll,
+    /// At launch and every 6 h: a newer native release on GitHub.
+    CheckUpdate,
+    UpdateFound(Option<updater::Release>),
+    /// The tray item or the join screen's link: install it, or open its page.
+    Update,
+    /// The setup was downloaded, checked and started: quit so it can replace the exe.
+    UpdateStarted(Result<(), String>),
 }
 
 struct Running {
@@ -244,6 +252,9 @@ pub struct App {
     visible: bool,
     panel_shown: Option<Instant>,
     panel_blurred: Option<Instant>,
+    /// A release newer than this build, and whether its setup is downloading.
+    update: Option<updater::Release>,
+    updating: bool,
 }
 
 pub const NAME_INPUT: &str = "name-input";
@@ -265,7 +276,7 @@ fn boot() -> (App, Task<Message>) {
     };
     // Like the desktop web client: with autostart on and a saved room, every launch rejoins it.
     let rejoin = app.autostart && !app.room.trim().is_empty();
-    let mut tasks = vec![operation::focus(NAME_INPUT)];
+    let mut tasks = vec![operation::focus(NAME_INPUT), Task::done(Message::CheckUpdate)];
     if rejoin {
         tasks.push(Task::done(Message::Join));
     } else if startup::launched_at_login() {
@@ -393,11 +404,22 @@ fn tray_action(app: &mut App, action: tray::Action) -> Task<Message> {
         // Forms open in the full window, as in the Tauri app.
         tray::Action::Screen => show_window(app).chain(update(app, Message::OpenWizard)),
         tray::Action::Leave => update(app, Message::Leave),
+        tray::Action::Update => update(app, Message::Update),
         tray::Action::Quit => {
             app.running = None;
             iced::exit()
         }
     }
+}
+
+/// The update's tray item and join screen link.
+pub fn update_label(app: &App) -> Option<String> {
+    let release = app.update.as_ref()?;
+    Some(match (app.updating, updater::can_install(release)) {
+        (true, _) => format!("Baixando a versão {}…", release.label()),
+        (false, true) => format!("Atualizar para a versão {}", release.label()),
+        (false, false) => format!("Baixar a versão {}", release.label()),
+    })
 }
 
 fn tray_state(app: &App) -> tray::State {
@@ -412,6 +434,7 @@ fn tray_state(app: &App) -> tray::State {
         sharing: sharing(view),
         participants: view.participants.len(),
         remote_sharing: view.screen_sharers.iter().chain(&view.camera_sharers).any(|id| Some(id.as_str()) != local),
+        update: update_label(app),
     }
 }
 
@@ -538,8 +561,8 @@ fn update(app: &mut App, message: Message) -> Task<Message> {
             }
             // Dropping Running joins the session thread: the engine stops the share and closes peers.
             let windowed = set_fullscreen(app, None);
-            let App { name, mic_device, output_device, output_muted, camera_device, profile, advanced, has_tray, notice, chat_hidden, rail_hidden, compact, visible, voice_volumes, .. } = std::mem::take(app);
-            *app = App { name, mic_device, output_device, output_muted, camera_device, profile, advanced, has_tray, notice, chat_hidden, rail_hidden, compact, visible, voice_volumes, ..Default::default() };
+            let App { name, mic_device, output_device, output_muted, camera_device, profile, advanced, has_tray, notice, chat_hidden, rail_hidden, compact, visible, voice_volumes, update, updating, .. } = std::mem::take(app);
+            *app = App { name, mic_device, output_device, output_muted, camera_device, profile, advanced, has_tray, notice, chat_hidden, rail_hidden, compact, visible, voice_volumes, update, updating, ..Default::default() };
             tray::update(tray_state(app));
             return windowed.chain(operation::focus(NAME_INPUT));
         }
@@ -547,6 +570,37 @@ fn update(app: &mut App, message: Message) -> Task<Message> {
             Ok(()) => app.autostart = enabled,
             Err(error) => app.notice = Some((error, Instant::now())),
         },
+        Message::CheckUpdate => return Task::perform(updater::check(), Message::UpdateFound),
+        Message::UpdateFound(Some(release)) => {
+            if app.update.as_ref().map(|known| known.version) != Some(release.version) {
+                app.notice = Some((format!("Nova versão {} disponível no menu da bandeja", release.label()), Instant::now()));
+                app.update = Some(release);
+            }
+        }
+        Message::UpdateFound(None) => {}
+        Message::Update => {
+            let Some(release) = app.update.clone().filter(|_| !app.updating) else { return Task::none() };
+            if !updater::can_install(&release) {
+                updater::open_page(&release);
+                return Task::none();
+            }
+            app.updating = true;
+            sentry::logger_info!("update: installing {}", release.label().as_str());
+            return Task::perform(updater::install(release), Message::UpdateStarted);
+        }
+        Message::UpdateStarted(Ok(())) => {
+            app.running = None;
+            return iced::exit();
+        }
+        Message::UpdateStarted(Err(error)) => {
+            app.updating = false;
+            sentry::logger_warn!("update failed: {}", error.as_str());
+            app.notice = Some((format!("Não foi possível atualizar: {error}"), Instant::now()));
+            // The page still has the setup to run by hand.
+            if let Some(release) = &app.update {
+                updater::open_page(release);
+            }
+        }
         Message::TrayPoll => {
             let mut tasks: Vec<_> = tray::actions().into_iter().map(|action| tray_action(app, action)).collect();
             if startup::show_requested() {
@@ -1158,6 +1212,7 @@ fn subscription(app: &App) -> Subscription<Message> {
     }
     // Tray clicks and a second launch's "show" request.
     subscriptions.push(iced::time::every(Duration::from_millis(100)).map(|_| Message::TrayPoll));
+    subscriptions.push(iced::time::every(Duration::from_secs(6 * 3600)).map(|_| Message::CheckUpdate));
     if app.compact && app.visible {
         subscriptions.push(window::events().filter_map(|(_, event)| matches!(event, window::Event::Unfocused).then_some(Message::PanelBlur)));
     }

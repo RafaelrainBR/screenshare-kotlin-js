@@ -53,6 +53,8 @@ Name: "{autodesktop}\Screenshare nativo"; Filename: "{app}\Screenshare-native.ex
 
 [Run]
 Filename: "{app}\Screenshare-native.exe"; Description: "Abrir o Screenshare nativo"; Flags: nowait postinstall skipifsilent
+; The app's updater (src/updater.rs) runs this setup with /VERYSILENT and quits: open it again.
+Filename: "{app}\Screenshare-native.exe"; Flags: nowait; Check: WizardSilent
 
 [Code]
 const

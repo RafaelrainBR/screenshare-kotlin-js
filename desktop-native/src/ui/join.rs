@@ -51,7 +51,11 @@ pub fn view(app: &App) -> Element<'_, Message> {
         border: Border { color: theme::LINE, width: 1.0, radius: 14.0.into() },
         ..Default::default()
     });
-    container(card).center(Length::Fill).padding(24).into()
+    // A newer release: the same action as the tray's update item.
+    let update = crate::update_label(app).map(|label| {
+        button(text(label).size(13).color(theme::ACCENT)).padding([6, 10]).style(|_, _| button::Style::default()).on_press_maybe((!app.updating).then_some(Message::Update))
+    });
+    container(column![card].push(update).spacing(12).align_x(Alignment::Center)).center(Length::Fill).padding(24).into()
 }
 
 /// .input-icon: the glyph at 12 px inside a 43 px input padded to 40 px.
