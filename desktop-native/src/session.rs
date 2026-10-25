@@ -194,6 +194,9 @@ pub struct SessionView {
     pub audio_error: Option<String>,
     /// Socket ids speaking now, the local one included (web setUserSpeaking).
     pub speaking: BTreeSet<String>,
+    /// The latest `screenQuality` peers (quality::samples) and how many arrived, for the UI to read once.
+    pub screen_quality: Value,
+    pub screen_quality_count: u64,
 }
 
 impl SessionView {
@@ -817,6 +820,7 @@ async fn run_inner(
         let mut outgoing = VecDeque::new();
         let mut last_stats = Instant::now();
         let mut last_levels = Instant::now();
+        let mut last_quality = Instant::now();
         let mut screen_request = None;
         let mut camera_request = None;
         let mut devices_request = None;
@@ -941,6 +945,14 @@ async fn run_inner(
                         engine.submit(json!({"command":"getAudioLevels"}))?;
                         last_levels = Instant::now();
                     }
+                    // "Por que está travando?" only while a screen is on, ours or someone else's.
+                    if let Some(ui) = &ui {
+                        let sharing = { let view = ui.view.lock().unwrap(); view.screen_state == "active" || !view.screen_sharers.is_empty() };
+                        if sharing && session.identity().is_some() && last_quality.elapsed() >= Duration::from_millis(crate::quality::WINDOW_MS) {
+                            engine.submit(json!({"command":"getScreenQuality"}))?;
+                            last_quality = Instant::now();
+                        }
+                    }
                     if session.identity().is_some() && last_stats.elapsed() >= Duration::from_secs(5) {
                         engine.submit(json!({"command":"getStats"}))?;
                         last_stats = Instant::now();
@@ -958,6 +970,10 @@ async fn run_inner(
                             let mut view = ui.view.lock().unwrap();
                             if kind == "audioLevels" {
                                 view.speaking = speaking(&event, session.identity(), view.microphone_enabled);
+                            }
+                            if kind == "screenQuality" {
+                                view.screen_quality = event.get("peers").cloned().unwrap_or_default();
+                                view.screen_quality_count += 1;
                             }
                             if let Some(enabled) = event.get("enabled").and_then(Value::as_bool) {
                                 match kind {

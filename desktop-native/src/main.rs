@@ -20,6 +20,7 @@ use std::{
 
 use desktop_native::{
     LOCAL_CAMERA, LOCAL_SCREEN, VideoSurface,
+    quality,
     session::{AudioControl, ScreenOptions, SessionView, UiConnection, run_controlled_with_ui},
     share::{SharePreset, ShareProfile},
 };
@@ -68,6 +69,8 @@ pub enum Message {
     /// The ⋯ menu of a participant (and of the clicked video, if any), or None to close it.
     PeerOptions(Option<(String, Option<bool>)>),
     Cursor(Point),
+    /// A click on a tile's quality chip: its explanation in the notice.
+    Explain(String),
     /// "Silenciar áudio para você": volume to 0 and back; true for the audio of that peer's screen.
     TogglePeerMute(String, bool),
     /// "Volume para você", 0..=100: (peer, screen audio, percent).
@@ -192,6 +195,8 @@ pub struct App {
     devices_requested: bool,
     /// Toast like the web ui-notice: the text and when it appeared; it hides after 6 s.
     notice: Option<(String, Instant)>,
+    /// "Por que está travando?": what each screen tile shows (desktop_native::quality).
+    quality: Quality,
     /// Errors already toasted, so the same ones do not come back every tick.
     shown_errors: String,
     /// Joined at least once: losing the socket id after that means reconnecting.
@@ -736,6 +741,7 @@ fn update(app: &mut App, message: Message) -> Task<Message> {
             app.peer_options = target;
         }
         Message::Cursor(position) => app.cursor = position,
+        Message::Explain(text) => app.notice = Some((text, Instant::now())),
         Message::TogglePeerMute(peer, screen) => {
             let current = volume(app, &peer, screen);
             let next = if current > 0 {
@@ -1081,6 +1087,10 @@ fn tick(app: &mut App) -> Task<Message> {
     if app.focused.as_ref().is_some_and(|key| !is_shared(view, key)) {
         app.focused = None;
     }
+    if app.quality.seen != view.screen_quality_count {
+        app.quality.seen = view.screen_quality_count;
+        app.quality.read(view, &running.surface.lock().unwrap());
+    }
     // Like the browser leaving fullscreen when the video element goes away.
     let windowed = if app.fullscreen.as_ref().is_some_and(|key| !is_shared(view, key)) { set_fullscreen(app, None) } else { Task::none() };
     // Only the newest frame per tile is kept; the window uploads it when it draws.
@@ -1103,6 +1113,74 @@ fn set_fullscreen(app: &mut App, key: Option<TileKey>) -> Task<Message> {
         return Task::none();
     }
     window::oldest().then(move |id| id.map_or_else(Task::none, |id| window::set_mode(id, mode)))
+}
+
+/// The web's ConnectionQuality: counters from the last `screenQuality`, and what each screen tile shows.
+#[derive(Default)]
+struct Quality {
+    seen: u64,
+    /// Keyed by peer: our screen's encoder toward it.
+    sends: HashMap<String, quality::SendSample>,
+    /// Keyed by (peer, track), so a new receiver starts from fresh counters.
+    receives: HashMap<(String, String), quality::ReceiveSample>,
+    signals: HashMap<TileKey, quality::Signal>,
+    /// The problem a tile shows and the explanation its chip gives.
+    shown: HashMap<TileKey, (quality::Problem, String)>,
+    started: Option<Instant>,
+}
+
+impl Quality {
+    fn read(&mut self, view: &SessionView, surface: &desktop_native::VideoFrames) {
+        let at_ms = self.started.get_or_insert_with(Instant::now).elapsed().as_secs_f64() * 1000.0;
+        let empty = serde_json::Map::new();
+        let peers = view.screen_quality.as_object().unwrap_or(&empty);
+        let mut measured: HashMap<TileKey, (Option<quality::Problem>, String)> = HashMap::new();
+        let mut sends = HashMap::new();
+        let mut receives = HashMap::new();
+        for (peer, value) in peers {
+            if let Some(sample) = value.get("send").and_then(|send| quality::send_sample(send, at_ms)) {
+                sends.insert(peer.clone(), sample);
+            }
+            let name = view.participants.iter().find(|p| &p.socket_id == peer).map_or(peer.as_str(), |p| p.username.as_str());
+            for inbound in value.get("receive").and_then(serde_json::Value::as_array).into_iter().flatten() {
+                let (Some(track), Some(sample)) = (inbound.get("track").and_then(serde_json::Value::as_str), quality::receive_sample(inbound)) else { continue };
+                if surface.kind(peer, track, view.screen_sharers.contains(peer), view.camera_sharers.contains(peer)) != Some(false) {
+                    continue;
+                }
+                let key = (peer.clone(), track.to_owned());
+                let problem = self.receives.get(&key).and_then(|previous| quality::receive_problem(*previous, sample));
+                receives.insert(key, sample);
+                // A re-share leaves the old receiver idle next to the new one: the worst counts.
+                let entry = measured.entry((peer.clone(), false)).or_insert((None, name.to_owned()));
+                entry.0 = [entry.0, problem].into_iter().flatten().min();
+            }
+        }
+        if let Some(local) = view.local_socket_id.clone().filter(|_| view.screen_state == "active") {
+            let worst = sends.iter().filter_map(|(peer, sample)| quality::send_problem(*self.sends.get(peer)?, *sample)).min();
+            measured.insert((local, false), (worst, String::new()));
+        } else {
+            sends.clear();
+        }
+        let viewers = sends.len();
+        self.sends = sends;
+        self.receives = receives;
+        // A tile that stopped reporting must not keep a stale chip.
+        self.signals.retain(|key, _| measured.contains_key(key));
+        self.shown.retain(|key, _| measured.contains_key(key));
+        for (key, (problem, name)) in measured {
+            match self.signals.entry(key.clone()).or_default().update(problem) {
+                Some(shown) if self.shown.get(&key).is_none_or(|(was, _)| *was != shown) => {
+                    // Sentry keeps these as logs: which problem, never who or where.
+                    telemetry::warn(&format!("Qualidade da tela: {shown:?}"));
+                    self.shown.insert(key, (shown, shown.explanation(&name, viewers)));
+                }
+                Some(_) => {}
+                None => {
+                    self.shown.remove(&key);
+                }
+            }
+        }
+    }
 }
 
 /// Screens and cameras that are on, like the web .screen-tile list, ours (isLocal) included.

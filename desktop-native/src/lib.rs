@@ -27,6 +27,7 @@ pub use render::{VideoFrameSnapshot, VideoFrames, VideoSurface};
 /// Surface peer ids of this client's own screen and camera, the web's isLocal tiles.
 pub const LOCAL_SCREEN: &str = "local:screen";
 pub const LOCAL_CAMERA: &str = "local:camera";
+pub mod quality;
 pub mod session;
 pub mod share;
 pub mod sources;
@@ -165,6 +166,8 @@ enum Command {
     ListCameras,
     /// Emits `audioLevels`: each peer's loudest voice and the local microphone, 0..1.
     GetAudioLevels,
+    /// Emits `screenQuality`: per peer, our screen's encoder limits and every inbound video's loss (quality.rs).
+    GetScreenQuality,
     /// "Silenciar áudio para você": only this client stops playing that peer's voice.
     SetPeerMuted {
         peer_id: String,
@@ -1418,6 +1421,19 @@ fn run_worker(
                                 local = local.max(microphone);
                             }
                             event(&output, json!({ "event": "audioLevels", "peers": remote, "local": local }));
+                        });
+                        Ok(())
+                    }
+                    Command::GetScreenQuality => {
+                        let targets: Vec<_> = peers.iter().map(|(peer_id, peer)| (peer_id.clone(), peer.clone())).collect();
+                        let output = output.clone();
+                        runtime.spawn(async move {
+                            let mut samples = serde_json::Map::new();
+                            for (peer_id, peer) in targets {
+                                let stats = peer.get_stats().await.unwrap_or_default();
+                                samples.insert(peer_id, quality::samples(&stats, "screen"));
+                            }
+                            event(&output, json!({ "event": "screenQuality", "peers": samples }));
                         });
                         Ok(())
                     }
@@ -2700,6 +2716,12 @@ mod tests {
                 (received.buffer.width(), received.buffer.height()),
                 (320, 180)
             );
+            // quality::samples finds our screen's encoder by its track id, and the viewer's inbound video.
+            let sent = crate::quality::samples(&alice.get_stats().await.unwrap(), "synthetic");
+            assert!(crate::quality::send_sample(&sent["send"], 0.0).is_some(), "{sent}");
+            let seen = crate::quality::samples(&bob.get_stats().await.unwrap(), "synthetic");
+            let decoded = seen["receive"].as_array().unwrap().iter().filter_map(crate::quality::receive_sample).any(|sample| sample.frames_decoded > 0.0);
+            assert!(decoded, "{seen}");
             alice.close();
             bob.close();
         });

@@ -19,6 +19,8 @@ const DOTS: &str = r#"<circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1
 // The web .screen-tile-controls glyph, and the same corners pointing in to leave.
 const FULLSCREEN: &str = r#"<path d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4"/>"#;
 const EXIT_FULLSCREEN: &str = r#"<path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5"/>"#;
+// The web .quality-chip triangle.
+const WARNING: &str = r#"<path d="M12 3 2 20h20L12 3z"/><path d="M12 10v4M12 17h.01"/>"#;
 
 /// pick_list entry; "Padrão" (the system default) is None.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -344,6 +346,13 @@ fn video_tile<'a>(app: &'a App, key: &TileKey, small: bool) -> Element<'a, Messa
     if small {
         let chip = container(text(name).size(11)).padding([1, 6]).style(theme::name_chip);
         layers = layers.push(container(chip).padding(6).align_bottom(Length::Fill));
+    }
+    // "Por que está travando?" (crate::Quality): the label, or only the triangle in the rail; a click explains.
+    if let Some((problem, explanation)) = app.quality.shown.get(key) {
+        let glyph = dock::icon(WARNING, if small { 13.0 } else { 16.0 }, theme::AMBER);
+        let content: Element<'a, Message> = if small { glyph } else { row![glyph, text(problem.label()).size(13).font(theme::BOLD)].spacing(6).align_y(Alignment::Center).into() };
+        let chip = button(content).padding(if small { [3, 5] } else { [6, 10] }).style(theme::quality_chip).on_press(Message::Explain(explanation.clone()));
+        layers = layers.push(container(chip).padding(if small { 5 } else { 12 }));
     }
     // .screen-tile-controls: the ⋯ options in the corner.
     let mut controls = row![].spacing(6);
