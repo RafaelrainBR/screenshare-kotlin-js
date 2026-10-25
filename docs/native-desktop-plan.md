@@ -344,16 +344,20 @@ O PostHog fica como opção futura, só para análise de produto (duração dos 
 - Variáveis de DSN criadas no repositório.
 - O DSN do nativo tem limite de 100 eventos/hora.
 - Nativo instrumentado em `desktop-native/src/telemetry.rs`: panics, sessões por release, breadcrumbs e logs das ações, erros do engine e avisos mostrados ao usuário. Um panic de teste chegou ao Sentry.
+- Log local (#94, native-v0.2.3): no release, o stderr vai para `logs/screenshare.log` na pasta de dados. Isso inclui `eprintln!`, panics e as linhas do engine, além das ações com horário UTC. Na abertura, um arquivo acima de 1 MB vira `screenshare.old.log`. A bandeja tem "Abrir pasta de logs".
+- Minidump do C++ (#94): a feature `minidump` do `sentry` abre uma segunda cópia do exe, que grava o crash e o envia com os breadcrumbs da UI. Um access violation de teste chegou ao Sentry como minidump (SCREENSHARE-NATIVE-2, resolvida); sem os PDBs, o nome de função sai errado.
+- Site (#95): `@sentry/browser` só em `screen-share.fly.dev`, com erros, `console.warn`/`error` como logs e replays mascarados de 10% das sessões com erro. O usuário e o `?roomId=` não saem. No ar desde o deploy de 24/10/2026.
+- Servidor (#95): `sentry-logback`, só eventos ERROR e sem breadcrumbs, porque os logs INFO têm IP, nome e sala. O `SENTRY_DSN` está no `[env]` do `server-java/fly.toml`.
 
 **Depende do usuário:**
 - o secret `SENTRY_AUTH_TOKEN`, para o upload dos PDBs. O passo já está no `release-native.yml` (`sentry-cli debug-files upload`) e só roda quando o secret existe. Em 24/10/2026 o secret ainda não existia;
 - ligar "Prevent Storing of IP Addresses" nas configurações da org, porque o Sentry deduz a cidade pelo IP.
 
-**Falta:** minidump do C++, site, servidor e log local.
+**Falta:** só as duas pendências do usuário, acima.
 
 ## Próximos passos (ordem combinada em 23/10/2026, revisada em 24/10/2026)
 
-1. **F7 — Observabilidade com Sentry** (acima). O nativo está feito. Faltam o minidump do C++, o site, o servidor e o log local, mais as duas pendências do usuário.
+1. **F7 — Observabilidade com Sentry** (acima): feita, menos as duas pendências do usuário.
 2. **Atualização automática do nativo** (feita em 24/10/2026, `desktop-native/src/updater.rs`). É pré-requisito da F6.
    - Ao abrir e a cada 6 h, lista as releases e pega a maior tag `native-vX.Y.Z` (sem sufixo), porque as do nativo nunca são `latest`. A versão do build é a tag, via `SENTRY_RELEASE`; builds locais não checam.
    - Avisa com um toast, um item no topo do menu da bandeja e um link na tela de entrada.
@@ -369,10 +373,14 @@ O PostHog fica como opção futura, só para análise de produto (duração dos 
 4. **Validar à mão:**
    - o áudio do PC, que o #76 refez: cada app é mixado e ficam de fora os apps de chamada e o próprio Screenshare. O teste ao vivo do `live_mix` passou no Windows 10, mas nenhum share real foi feito de ponta a ponta;
    - o share pelo assistente usando o mouse.
-5. **Encoder por hardware no Windows:** ainda só CPU no Windows. O libwebrtc da LiveKit não compila NVENC/AMF/QSV para Windows. A mitigação atual é preferir H264 nos presets de jogo e vídeo (`share.rs`). No macOS, o H264 já sai pelo VideoToolbox. Falta medir o custo em jogo e decidir se vale compilar o encoder.
-6. **Polimento pequeno:**
-   - ler "reduzir movimento" no macOS. O Windows já respeita a opção "Efeitos de animação"; o macOS ainda anima sempre (`shortcut:` em `ui/motion.rs`);
-   - transição de cor no hover do dock: hoje a cor troca de uma vez.
+5. **Encoder por hardware no Windows:** ainda só CPU. A mitigação atual é preferir H264 nos presets de jogo e vídeo (`share.rs`); no macOS, o H264 já sai pelo VideoToolbox.
+   - O `webrtc-sys` do fork (`RafaelrainBR/rust-sdks`, rev `81434ab`) já traz o NVENC: `src/nvidia/`, com H264, H265 e AV1. Só que ele só compila no Linux, dentro do bloco `"linux"` do `build.rs` e com `CUDA_HOME`. O VAAPI do Windows está comentado.
+   - Para ligar no Windows:
+     - compilar as fontes de `src/nvidia/` também no bloco `"windows"`;
+     - trocar `dlopen`/`dlsym` por `LoadLibrary`/`GetProcAddress` em `nvidia_encoder_factory.cpp` (`nvEncodeAPI64.dll`), `nvidia_decoder_factory.cpp` e `NvEncoder.cpp`. O `cuda_context.cpp` já tem o ramo `nvcuda.dll`;
+     - pôr os headers do CUDA (`cuda.h`) no runner do CI.
+   - Vale testar: a máquina de desenvolvimento tem uma RTX 3060. Falta medir a CPU do share num jogo, antes e depois.
+6. **Polimento pequeno** (feito em 24/10/2026, #94): o macOS respeita "Reduzir movimento" (`defaults read com.apple.universalaccess reduceMotion`; não testado num Mac). O hover do dock troca de cor em 150 ms, como no site (`motion::hover`).
 
 ## Riscos
 
@@ -384,4 +392,4 @@ O PostHog fica como opção futura, só para análise de produto (duração dos 
 
 ## Estado (24/10/2026)
 
-F-1 a F5 feitos. A native-v0.1.13 tem as animações dos lotes 1 e 2; a native-v0.1.14 tira o console no Windows. A native-v0.2.x traz o Sentry, a atualização automática e o bundle do macOS com assinatura fixa. A ordem do que vem agora está em "Próximos passos", acima dos riscos.
+F-1 a F5 feitos. A native-v0.1.13 tem as animações dos lotes 1 e 2; a native-v0.1.14 tira o console no Windows. A native-v0.2.x traz o Sentry, a atualização automática e o bundle do macOS com assinatura fixa. A native-v0.2.3 completa a F7 no nativo: log local e minidump do C++. A ordem do que vem agora está em "Próximos passos", acima dos riscos.
