@@ -6,6 +6,8 @@ import platform.DesktopEnvironment
 import screenshare.common.ChatMessage
 import screenshare.common.Packet
 import ui.InterfaceMutations
+import ui.RoomSound
+import ui.RoomSounds
 import ui.mutations.UserListMutations
 import kotlin.js.Date
 import kotlin.js.json
@@ -120,6 +122,7 @@ private fun handleUserConnected(
             }
         }
     } else {
+        RoomSounds.play(RoomSound.JOIN)
         InterfaceMutations.addMessageToChat(
             message =
                 ChatMessage(
@@ -156,6 +159,7 @@ private fun handleUserDisconnected(
     session: Session,
     packet: Packet.UserDisconnected,
 ) {
+    RoomSounds.play(RoomSound.LEAVE)
     InterfaceMutations.addMessageToChat(
         message =
             ChatMessage(
@@ -269,6 +273,7 @@ private fun handleScreenShareStarted(
     UserListMutations.setUserMediaSharing(packet.senderId, camera = false, active = true)
     updateRemoteTrayState(session)
     if (wasSharing) return
+    if (packet.senderId != session.localSocketId) RoomSounds.play(RoomSound.SHARE)
 
     InterfaceMutations.addMessageToChat(
         message =

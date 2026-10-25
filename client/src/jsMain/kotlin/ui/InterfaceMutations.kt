@@ -109,6 +109,8 @@ object InterfaceMutations {
     var selectedOutputDeviceId: String? = null
     private var focusedTileId: String? = null
     private var outputMuted = window.localStorage.getItem("screenshare.outputMuted") == "true"
+    val isOutputMuted: Boolean
+        get() = outputMuted
     private var noticeTimeout: Int? = null
     private var retryMediaKind = ""
 
