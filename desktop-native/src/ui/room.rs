@@ -350,11 +350,18 @@ fn video_tile<'a>(app: &'a App, key: &TileKey, small: bool) -> Element<'a, Messa
         layers = layers.push(container(chip).padding(6).align_bottom(Length::Fill));
     }
     // "Por que está travando?" (crate::Quality): the label, or only the triangle in the rail; a click explains.
-    if let Some((_, label, explanation)) = app.quality.shown.get(key) {
+    if let Some((problem, label, explanation)) = app.quality.shown.get(key) {
         let glyph = dock::icon(WARNING, if small { 13.0 } else { 16.0 }, theme::AMBER);
         let content: Element<'a, Message> = if small { glyph } else { row![glyph, text(label.as_str()).size(13).font(theme::BOLD)].spacing(6).align_y(Alignment::Center).into() };
         let chip = button(content).padding(if small { [3, 5] } else { [6, 10] }).style(theme::quality_chip).on_press(Message::Explain(explanation.clone()));
-        layers = layers.push(container(chip).padding(if small { 5 } else { 12 }));
+        let mut bar = row![chip].spacing(6).align_y(Alignment::Center);
+        // The web's .quality-action: our own encoder at its limit, one frame-rate step lighter, live.
+        let sending = matches!(problem, desktop_native::quality::Problem::SenderCpu | desktop_native::quality::Problem::SenderBandwidth);
+        if let Some(fps) = [30, 15, 10].into_iter().find(|fps| *fps < app.profile.fps).filter(|_| sending && !small) {
+            let lighter = crate::ShareProfile { fps, ..app.profile };
+            bar = bar.push(button(text(format!("Usar {fps} qps")).size(13)).padding([6, 10]).style(|_, status| theme::glass(status)).on_press(Message::SetProfile(lighter)));
+        }
+        layers = layers.push(container(bar).padding(if small { 5 } else { 12 }));
     }
     // .screen-tile-controls: the ⋯ options in the corner.
     let mut controls = row![].spacing(6);
