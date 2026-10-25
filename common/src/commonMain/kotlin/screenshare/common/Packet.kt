@@ -109,6 +109,15 @@ sealed class Packet {
         val roomId: String,
     ) : Packet()
 
+    /** The sharer's encoder limit (a [ShareProblem]; none clears it). Sent only after [ShareQualities] arrived. */
+    @Serializable
+    @SerialName("send-share-quality")
+    data class SendShareQuality(
+        @SerialName("rid")
+        val roomId: String,
+        val problem: String? = null,
+    ) : Packet()
+
     // Server messages
     @Serializable
     @SerialName("user-connected")
@@ -136,6 +145,29 @@ sealed class Packet {
         @SerialName("rid")
         val roomId: String,
         val iceServers: List<IceServer>,
+    ) : Packet()
+
+    /**
+     * Sent after RoomJoined to clientVersion 4+: each sharer's current limit by socket id. It also tells
+     * the client this server relays [SendShareQuality], which older servers reject.
+     */
+    @Serializable
+    @SerialName("share-qualities")
+    data class ShareQualities(
+        @SerialName("rid")
+        val roomId: String,
+        val qualities: Map<String, String>,
+    ) : Packet()
+
+    /** One sharer's limit changed (none: cleared); to clientVersion 4+ only. */
+    @Serializable
+    @SerialName("share-quality")
+    data class ShareQuality(
+        @SerialName("rid")
+        val roomId: String,
+        @SerialName("sid")
+        val socketId: String,
+        val problem: String? = null,
     ) : Packet()
 
     @Serializable
@@ -267,6 +299,7 @@ sealed class Packet {
             is SendUnmuted,
             is StartCameraShare,
             is StopCameraShare,
+            is SendShareQuality,
             -> CLIENT
 
             is RoomJoined,
@@ -284,6 +317,8 @@ sealed class Packet {
             is UserUnmuted,
             is CameraShareStarted,
             is CameraShareStopped,
+            is ShareQualities,
+            is ShareQuality,
             -> SERVER
         }
 }
@@ -302,3 +337,10 @@ data class IceServer(
     val username: String = "",
     val credential: String = "",
 )
+
+/** What limits a sharer's encoder, as [Packet.SendShareQuality] carries it. */
+object ShareProblem {
+    const val CPU = "cpu"
+    const val BANDWIDTH = "bandwidth"
+    val ALL = setOf(CPU, BANDWIDTH)
+}

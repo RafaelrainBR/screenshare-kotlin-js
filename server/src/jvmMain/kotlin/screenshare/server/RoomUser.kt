@@ -17,6 +17,8 @@ data class RoomUser(
     var isMuted: Boolean = true,
     var isScreenSharing: Boolean = false,
     var isCameraSharing: Boolean = false,
+    /** What limits this user's share encoder (a ShareProblem), as its client last reported it. */
+    var shareProblem: String? = null,
 ) {
     private val outgoing = Channel<Packet>(capacity = Channel.UNLIMITED)
 

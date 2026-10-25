@@ -410,21 +410,22 @@ object InterfaceMutations {
         return tile
     }
 
-    /** Shows [label] on the tile's quality chip, or hides it; a click shows [explanation]. */
+    /** Shows [label] on the tile's quality chip, or hides it; a click shows [explanation]. False: no such tile. */
     fun setTileQuality(
         tileId: String,
         label: String?,
         explanation: String?,
-    ) {
-        val chip = findTile(tileId)?.querySelector(".quality-chip") as? HTMLElement ?: return
+    ): Boolean {
+        val chip = findTile(tileId)?.querySelector(".quality-chip") as? HTMLElement ?: return false
         chip.classList.toggle("hidden", label == null)
-        if (label == null || explanation == null) return
+        if (label == null || explanation == null) return true
         chip.title = explanation
         chip.setAttribute("aria-label", "$label. $explanation")
         chip.setAttribute("data-explanation", explanation)
         chip.innerHTML =
             """<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 2 20h20L12 3z"/><path d="M12 10v4M12 17h.01"/></svg>"""
         chip.appendChild((document.createElement("span") as HTMLElement).apply { textContent = label })
+        return true
     }
 
     fun removeScreenTile(tileId: String) {

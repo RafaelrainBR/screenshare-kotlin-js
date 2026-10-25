@@ -27,6 +27,7 @@ import screenshare.common.Packet.UserConnected
 import screenshare.common.Packet.UserDisconnected
 import screenshare.common.Packet.UserList
 import screenshare.common.PacketSide.CLIENT
+import screenshare.common.ShareProblem
 import screenshare.common.SocketUser
 import java.util.concurrent.ConcurrentHashMap
 
@@ -54,6 +55,16 @@ class Room(
         users[user.id] = user
         if (user.clientVersion >= 2) user.sendPacket(Packet.RoomJoined(id, user.id))
         if (user.clientVersion >= 3 && iceServers.isNotEmpty()) user.sendPacket(Packet.IceServers(id, iceServers))
+        if (user.clientVersion >= 4) {
+            val qualities =
+                allUsers.filter { it.id != user.id }.mapNotNull { other ->
+                    other.shareProblem?.let {
+                        other.id to
+                            it
+                    }
+                }
+            user.sendPacket(Packet.ShareQualities(id, qualities.toMap()))
+        }
         sendMessageHistory(user)
         notifyUserJoin(user)
     }
@@ -128,7 +139,15 @@ class Room(
 
             is Packet.StopScreenShare -> {
                 user.isScreenSharing = false
+                setShareProblem(user, null)
                 broadcast(ScreenShareStopped(roomId = id, senderId = user.id))
+            }
+
+            is Packet.SendShareQuality -> {
+                // Only known values. Not tied to isScreenSharing: on a rejoin the report can beat start-screen-share.
+                val problem = packet.problem
+                if (problem != null && problem !in ShareProblem.ALL) return
+                setShareProblem(user, problem)
             }
 
             is Packet.SendMuted -> {
@@ -165,6 +184,18 @@ class Room(
         broadcast(UserDisconnected(roomId = id, socketId = user.id, username = user.username))
         broadcast(createUserListPacket())
         logger.info("Room [$id] user left: ${user.username}")
+    }
+
+    /** Older clients decode packets strictly, so only clientVersion 4+ hears of it. */
+    private suspend fun setShareProblem(
+        user: RoomUser,
+        problem: String?,
+    ) {
+        if (user.shareProblem == problem) return
+        user.shareProblem = problem
+        users.values
+            .filter { it.id != user.id && it.clientVersion >= 4 }
+            .forEach { it.sendPacket(Packet.ShareQuality(id, user.id, problem)) }
     }
 
     private suspend fun broadcast(packet: Packet) {

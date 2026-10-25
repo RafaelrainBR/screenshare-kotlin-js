@@ -6,21 +6,36 @@ import kotlinx.coroutines.await
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import screenshare.common.ShareProblem
 import ui.InterfaceMutations
 import kotlin.js.Date
 
 /**
- * "Por que está travando?": what holds a screen's quality back, as far as this side can measure.
- * The sharer sees why its encoder backed off; a viewer sees loss and its own skipped frames.
+ * "Por que está travando?": what holds a screen's quality back. The sharer sees why its encoder
+ * backed off and, through the server (Packet.ShareQuality), so does whoever watches it; a viewer
+ * also sees loss and its own skipped frames.
  */
-enum class QualityProblem(
-    val label: String,
-) {
-    SENDER_CPU("Seu PC no limite"),
-    SENDER_BANDWIDTH("Sua internet no limite"),
-    UNSTABLE_CONNECTION("Conexão instável"),
-    VIEWER_DECODE("Seu PC no limite"),
+enum class QualityProblem {
+    // The sharer's own report: it explains a remote screen first.
+    PEER_CPU,
+    PEER_BANDWIDTH,
+    SENDER_CPU,
+    SENDER_BANDWIDTH,
+    UNSTABLE_CONNECTION,
+    VIEWER_DECODE,
 }
+
+fun qualityLabel(
+    problem: QualityProblem,
+    peerName: String,
+): String =
+    when (problem) {
+        QualityProblem.PEER_CPU -> "PC de $peerName no limite"
+        QualityProblem.PEER_BANDWIDTH -> "Internet de $peerName no limite"
+        QualityProblem.SENDER_CPU, QualityProblem.VIEWER_DECODE -> "Seu PC no limite"
+        QualityProblem.SENDER_BANDWIDTH -> "Sua internet no limite"
+        QualityProblem.UNSTABLE_CONNECTION -> "Conexão instável"
+    }
 
 fun qualityExplanation(
     problem: QualityProblem,
@@ -28,6 +43,15 @@ fun qualityExplanation(
     viewers: Int,
 ): String =
     when (problem) {
+        QualityProblem.PEER_CPU -> {
+            "O PC de $peerName não está dando conta de codificar o vídeo, então a qualidade da tela caiu. " +
+                "Não é a sua conexão."
+        }
+
+        QualityProblem.PEER_BANDWIDTH -> {
+            "A internet de $peerName não está dando conta de enviar nessa qualidade, então a qualidade da tela caiu."
+        }
+
         QualityProblem.SENDER_CPU -> {
             "Seu PC não está dando conta de codificar o vídeo, então a qualidade da sua tela caiu. " +
                 "Feche programas pesados ou escolha um preset mais leve."
@@ -47,6 +71,22 @@ fun qualityExplanation(
         QualityProblem.VIEWER_DECODE -> {
             "Seu PC não está dando conta de mostrar o vídeo e está pulando quadros. Feche programas pesados."
         }
+    }
+
+/** What our shown problem tells the room; only the encoder's limits are the sharer's to report. */
+internal fun shareProblemOf(problem: QualityProblem?): String? =
+    when (problem) {
+        QualityProblem.SENDER_CPU -> ShareProblem.CPU
+        QualityProblem.SENDER_BANDWIDTH -> ShareProblem.BANDWIDTH
+        else -> null
+    }
+
+/** A sharer's report; a value this version does not know shows nothing. */
+internal fun peerProblemOf(problem: String?): QualityProblem? =
+    when (problem) {
+        ShareProblem.CPU -> QualityProblem.PEER_CPU
+        ShareProblem.BANDWIDTH -> QualityProblem.PEER_BANDWIDTH
+        else -> null
     }
 
 /** Cumulative outbound video counters: seconds the encoder was limited by the CPU and by bandwidth. */
@@ -159,11 +199,21 @@ class ConnectionQuality(
     private val peerConnections: PeerConnections,
     private val screenSharing: ScreenSharing,
     private val resolveUsername: (String) -> String,
+    /** Sends what limits our share (a ShareProblem, or null); called only while the server relays it. */
+    private val reportShare: (String?) -> Unit,
 ) {
     // Keyed by "peer:track", so a new share or a reconnection starts from fresh counters.
     private val sendSamples = mutableMapOf<String, SendSample>()
     private val receiveSamples = mutableMapOf<String, ReceiveSample>()
     private val signals = mutableMapOf<String, QualitySignal>()
+
+    // What each sharer reported, and what each tile shows now.
+    private val peerReports = mutableMapOf<String, QualityProblem>()
+    private val displayed = mutableMapOf<String, QualityProblem>()
+
+    // Servers before ShareQualities reject the packet, so nothing is sent until it arrives.
+    private var relayAvailable = false
+    private var reported: String? = null
     private var job: Job? = null
 
     fun start(scope: CoroutineScope) {
@@ -183,11 +233,42 @@ class ConnectionQuality(
         sendSamples.clear()
         receiveSamples.clear()
         signals.clear()
+        displayed.clear()
+        relayLost()
+    }
+
+    /** Packet.ShareQualities, on each join: every sharer's limit, and this server relays ours. */
+    fun setPeerReports(qualities: Map<String, String>) {
+        relayAvailable = true
+        // A rejoin starts the server from nothing, so our limit goes again.
+        reported = null
+        peerReports.clear()
+        qualities.forEach { (peer, problem) -> peerProblemOf(problem)?.let { peerReports[peer] = it } }
+        screenSharing.remoteScreenStreams.keys
+            .toList()
+            .forEach(::show)
+    }
+
+    /** Packet.ShareQuality, or null when that peer stops sharing or leaves. */
+    fun setPeerReport(
+        peer: String,
+        problem: String?,
+    ) {
+        val known = peerProblemOf(problem)
+        if (known == null) peerReports.remove(peer) else peerReports[peer] = known
+        show(peer)
+    }
+
+    /** The socket dropped: the next join's ShareQualities brings everything back. */
+    fun relayLost() {
+        relayAvailable = false
+        reported = null
+        peerReports.clear()
     }
 
     private suspend fun tick() {
         val now = Date.now()
-        val tiles = mutableMapOf<String, Pair<QualityProblem?, (QualityProblem) -> String>>()
+        val tiles = mutableMapOf<String, QualityProblem?>()
 
         val localTrack = screenSharing.localScreenStream?.getVideoTracks()?.firstOrNull()
         val seenSends = mutableSetOf<String>()
@@ -202,9 +283,7 @@ class ConnectionQuality(
                     sendSamples.put(key, sample)?.let { sendProblem(it, sample) }
                 }
             // The CPU holds every viewer back, so it explains more than one slow link.
-            val worst = problems.minByOrNull { it.ordinal }
-            val viewers = peerConnections.peers.size
-            tiles[ScreenSharing.LOCAL_TILE_ID] = worst to { p: QualityProblem -> qualityExplanation(p, "", viewers) }
+            tiles[ScreenSharing.LOCAL_TILE_ID] = problems.minByOrNull { it.ordinal }
         }
         sendSamples.keys.retainAll(seenSends)
 
@@ -215,24 +294,51 @@ class ConnectionQuality(
             val sample = receiveSample(stats) ?: return@forEach
             val key = "$peerId:${track.id}"
             seenReceives += key
-            val problem = receiveSamples.put(key, sample)?.let { receiveProblem(it, sample) }
-            tiles[peerId] = problem to { p: QualityProblem -> qualityExplanation(p, resolveUsername(peerId), 0) }
+            tiles[peerId] = receiveSamples.put(key, sample)?.let { receiveProblem(it, sample) }
         }
         receiveSamples.keys.retainAll(seenReceives)
 
-        // A tile that stopped reporting must not keep a stale chip.
-        signals.keys.filter { it !in tiles }.forEach { tileId ->
-            if (signals.remove(tileId)?.shown != null) InterfaceMutations.setTileQuality(tileId, null, null)
-        }
+        signals.keys.retainAll(tiles.keys)
         tiles.forEach { (tileId, measured) ->
             val signal = signals.getOrPut(tileId) { QualitySignal() }
             val before = signal.shown
-            val shown = signal.update(measured.first)
-            if (shown == before) return@forEach
+            val shown = signal.update(measured)
             // Sentry keeps these as logs: which problem, never who or where.
-            if (shown != null) console.warn("Qualidade da tela: ${shown.name}")
-            InterfaceMutations.setTileQuality(tileId, shown?.label, shown?.let(measured.second))
+            if (shown != before && shown != null) console.warn("Qualidade da tela: ${shown.name}")
         }
+        // A tile that stopped reporting must not keep a stale chip; a sharer's report still holds.
+        (displayed.keys + tiles.keys + peerReports.keys).forEach(::show)
+
+        if (localTrack == null) {
+            // The server already forgot it with stop-screen-share.
+            reported = null
+        } else {
+            report(shareProblemOf(signals[ScreenSharing.LOCAL_TILE_ID]?.shown))
+        }
+    }
+
+    private fun report(problem: String?) {
+        if (!relayAvailable || problem == reported) return
+        reported = problem
+        reportShare(problem)
+    }
+
+    private fun show(tileId: String) {
+        val remote = tileId != ScreenSharing.LOCAL_TILE_ID
+        val problem =
+            peerReports[tileId]?.takeIf { remote && tileId in screenSharing.remoteScreenStreams }
+                ?: signals[tileId]?.shown
+        if (displayed[tileId] == problem) return
+        val name = if (remote) resolveUsername(tileId) else ""
+        val applied =
+            InterfaceMutations.setTileQuality(
+                tileId,
+                problem?.let { qualityLabel(it, name) },
+                problem?.let { qualityExplanation(it, name, peerConnections.peers.size) },
+            )
+        // A tile not on the stage yet gets its chip on a later tick.
+        if (!applied) return
+        if (problem == null) displayed.remove(tileId) else displayed[tileId] = problem
     }
 }
 

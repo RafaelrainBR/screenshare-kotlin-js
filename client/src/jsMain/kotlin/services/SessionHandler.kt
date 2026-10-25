@@ -76,6 +76,16 @@ fun handlePacket(
                 handleUserMuted(packet)
             }
 
+            is Packet.ShareQualities -> {
+                if (packet.roomId == session.localRoomId) session.connectionQuality.setPeerReports(packet.qualities)
+            }
+
+            is Packet.ShareQuality -> {
+                if (packet.roomId == session.localRoomId) {
+                    session.connectionQuality.setPeerReport(packet.socketId, packet.problem)
+                }
+            }
+
             else -> {
                 Unit
             }
@@ -158,6 +168,7 @@ private fun handleUserDisconnected(
 
     session.peerConnections.closePeerConnection(packet.socketId)
     session.voiceChat.stopRemoteAudio(packet.socketId)
+    session.connectionQuality.setPeerReport(packet.socketId, null)
     UserListMutations.setUserMediaSharing(packet.socketId, camera = false, active = false)
     UserListMutations.setUserMediaSharing(packet.socketId, camera = true, active = false)
     updateRemoteTrayState(session)
@@ -275,6 +286,7 @@ private fun handleScreenShareStopped(
     packet: Packet.ScreenShareStopped,
 ) {
     session.peerConnections.markScreenSharing(packet.senderId, false)
+    session.connectionQuality.setPeerReport(packet.senderId, null)
     UserListMutations.setUserMediaSharing(packet.senderId, camera = false, active = false)
     updateRemoteTrayState(session)
     session.screenSharing.stopRemoteScreen(packet.senderId)
