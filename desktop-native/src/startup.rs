@@ -64,6 +64,9 @@ pub struct LastRoom {
 pub struct AudioPrefs {
     pub output_muted: bool,
     pub output_device: Option<String>,
+    /// Off rather than on, so a missing field or file keeps the room tones on.
+    #[serde(default)]
+    pub room_sounds_off: bool,
 }
 
 /// %APPDATA%\Screenshare-native on Windows, ~/Library/Application Support/Screenshare-native on macOS.

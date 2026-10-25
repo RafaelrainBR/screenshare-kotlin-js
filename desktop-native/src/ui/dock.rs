@@ -235,5 +235,18 @@ fn device_panel(app: &App, picker: Picker) -> Element<'_, Message> {
                 .on_press(pick),
         )
     });
+    // The web's .sound-option, under the outputs.
+    let rows = if matches!(picker, Picker::Output) {
+        let on = app.room_sounds;
+        rows.push(
+            button(row![text("Sons ao entrar, sair e compartilhar").size(13).width(Length::Fill), text(if on { "✓" } else { "" }).color(theme::ACCENT)])
+                .padding(8)
+                .width(Length::Fill)
+                .style(button::text)
+                .on_press(Message::ToggleRoomSounds),
+        )
+    } else {
+        rows
+    };
     container(rows).padding(10).width(260).style(theme::modal).into()
 }
