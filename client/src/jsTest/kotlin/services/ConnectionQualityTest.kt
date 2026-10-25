@@ -79,6 +79,20 @@ class ConnectionQualityTest {
     }
 
     @Test
+    fun onlyTheEncoderLimitsGoToTheRoomAndComeBackNamed() {
+        assertEquals("cpu", shareProblemOf(QualityProblem.SENDER_CPU))
+        assertEquals("bandwidth", shareProblemOf(QualityProblem.SENDER_BANDWIDTH))
+        assertNull(shareProblemOf(QualityProblem.UNSTABLE_CONNECTION))
+        assertNull(shareProblemOf(null))
+        assertEquals(QualityProblem.PEER_CPU, peerProblemOf("cpu"))
+        assertEquals(QualityProblem.PEER_BANDWIDTH, peerProblemOf("bandwidth"))
+        // A newer sharer's value this version does not know shows nothing.
+        assertNull(peerProblemOf("gpu"))
+        assertEquals("PC de Ana no limite", qualityLabel(QualityProblem.PEER_CPU, "Ana"))
+        assertTrue("Não é a sua conexão" in qualityExplanation(QualityProblem.PEER_CPU, "Ana", 0))
+    }
+
+    @Test
     fun aRealConnectionGivesBothSidesTheirCounters() =
         MainScope().promise {
             val sender = js("new RTCPeerConnection()")

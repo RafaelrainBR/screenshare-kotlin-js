@@ -48,10 +48,15 @@ class Session(
             localUsername = localUsername,
         )
     val peerConnections = PeerConnections(voiceChat, screenSharing, cameraSharing)
-    private val connectionQuality =
-        ConnectionQuality(peerConnections, screenSharing) { socketId ->
-            userList.firstOrNull { it.socketId == socketId }?.username ?: socketId.takeLast(6)
-        }
+    val connectionQuality =
+        ConnectionQuality(
+            peerConnections,
+            screenSharing,
+            resolveUsername = { socketId ->
+                userList.firstOrNull { it.socketId == socketId }?.username ?: socketId.takeLast(6)
+            },
+            reportShare = { problem -> launch { websocketService.sendShareQuality(localRoomId, problem) } },
+        )
 
     init {
         peerConnections.setVideoReception(
@@ -323,6 +328,7 @@ class Session(
      */
     fun prepareForReconnect() {
         mediaCaptureGate.setAvailable(false)
+        connectionQuality.relayLost()
         peerConnections.closeAll()
         screenSharing.remoteScreenStreams.keys
             .toList()

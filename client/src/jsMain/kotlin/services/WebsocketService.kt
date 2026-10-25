@@ -114,13 +114,18 @@ class WebsocketService(
         roomId: String,
         username: String,
     ) {
-        val join = Packet.JoinRoom(roomId, username, clientVersion = 3)
+        val join = Packet.JoinRoom(roomId, username, clientVersion = 4)
         lastJoin = join
         joinedRoomId = null
         session?.send(Text(Json.encodeToString<Packet>(join)))
     }
 
     suspend fun requestMediaState(roomId: String) = sendPacket(Packet.RequestMediaState(roomId))
+
+    suspend fun sendShareQuality(
+        roomId: String,
+        problem: String?,
+    ) = sendPacket(Packet.SendShareQuality(roomId, problem))
 
     fun leaveRoom() {
         lastJoin = null

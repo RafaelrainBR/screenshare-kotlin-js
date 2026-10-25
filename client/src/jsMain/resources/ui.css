@@ -226,6 +226,7 @@ button.glass-chip { width: 34px; justify-content: center; padding: 0; }
   background: rgba(16,19,24,.92); color: var(--amber); font-size: 13px; font-weight: 700;
 }
 .quality-chip svg { width: 16px; height: 16px; }
+.quality-chip span { max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .screens-rail .quality-chip { left: 5px; top: 5px; min-height: 22px; padding: 0 5px; }
 .screens-rail .quality-chip span { display: none; }
 .tile-name { display: none; }
