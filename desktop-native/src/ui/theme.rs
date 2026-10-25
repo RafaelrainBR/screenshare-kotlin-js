@@ -26,6 +26,8 @@ pub const RADIUS: f32 = 10.0;
 pub const ON_ACCENT: Color = color!(0x0c1022);
 pub const LINE_2: Color = color!(0x4a586c);
 pub const BG: Color = color!(0x101318);
+pub const AMBER: Color = color!(0xf2c46d);
+pub const AMBER_LINE: Color = color!(0x8a6d33);
 
 /// .glass-chip: rgba(16,19,24,.92) with a line-2 border.
 pub fn glass(status: button::Status) -> button::Style {
@@ -171,6 +173,16 @@ pub fn name_chip(_: &Theme) -> container::Style {
     container::Style {
         background: Some(Color { a: 0.85, ..color!(0x101318) }.into()),
         border: Border { radius: 6.0.into(), ..Default::default() },
+        ..Default::default()
+    }
+}
+
+/// .quality-chip: amber over the video, only while something holds the quality back.
+pub fn quality_chip(_: &Theme, _: button::Status) -> button::Style {
+    button::Style {
+        background: Some(Color { a: 0.92, ..BG }.into()),
+        text_color: AMBER,
+        border: Border { color: AMBER_LINE, width: 1.0, radius: 8.0.into() },
         ..Default::default()
     }
 }
