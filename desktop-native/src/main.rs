@@ -79,6 +79,9 @@ pub enum Message {
     Cursor(Point),
     /// A click on a tile's quality chip: its explanation in the notice.
     Explain(String),
+    /// "Algo deu errado?": opens the form (Some("")), edits it, or closes it (None).
+    Feedback(Option<String>),
+    SendFeedback,
     /// "Silenciar áudio para você": volume to 0 and back; true for the audio of that peer's screen.
     TogglePeerMute(String, bool),
     /// "Volume para você", 0..=100: (peer, screen audio, percent).
@@ -213,6 +216,8 @@ pub struct App {
     devices_requested: bool,
     /// Toast like the web ui-notice: the text and when it appeared; it hides after 6 s.
     notice: Option<(String, Instant)>,
+    /// The open "Algo deu errado?" form and its text.
+    feedback: Option<String>,
     /// "Por que está travando?": what each screen tile shows (desktop_native::quality).
     quality: Quality,
     /// Errors already toasted, so the same ones do not come back every tick.
@@ -441,6 +446,7 @@ fn tray_action(app: &mut App, action: tray::Action) -> Task<Message> {
             telemetry::open_logs();
             Task::none()
         }
+        tray::Action::Feedback => show_window(app).chain(update(app, Message::Feedback(Some(String::new())))),
         tray::Action::Quit => {
             app.running = None;
             iced::exit()
@@ -791,6 +797,19 @@ fn update(app: &mut App, message: Message) -> Task<Message> {
         }
         Message::Cursor(position) => app.cursor = position,
         Message::Explain(text) => app.notice = Some((text, Instant::now())),
+        Message::Feedback(draft) => {
+            let opening = app.feedback.is_none() && draft.is_some();
+            app.feedback = draft;
+            if opening {
+                return operation::focus(ui::feedback::INPUT);
+            }
+        }
+        Message::SendFeedback => {
+            let Some(text) = app.feedback.as_ref().map(|draft| draft.trim().to_owned()).filter(|text| !text.is_empty()) else { return operation::focus(ui::feedback::INPUT) };
+            app.feedback = None;
+            let sent = telemetry::send_feedback(&text);
+            app.notice = Some((if sent { "Obrigado! Recebemos seu relato." } else { "Esta versão não envia relatos. Use a pasta de logs." }.into(), Instant::now()));
+        }
         Message::TogglePeerMute(peer, screen) => {
             let current = volume(app, &peer, screen);
             let next = if current > 0 {
@@ -913,6 +932,7 @@ fn shortcut(app: &mut App, key: keyboard::Key, modifiers: keyboard::Modifiers) -
         (Key::Named(Named::Tab), _) if modifiers.shift() => return operation::focus_previous(),
         (Key::Named(Named::Tab), _) => return operation::focus_next(),
         (_, _) if app.running.is_none() => return Task::none(),
+        (Key::Named(Named::Escape), _) if app.feedback.is_some() => Message::Feedback(None),
         (Key::Named(Named::Escape), _) if app.confirm_leave => Message::CancelLeave,
         (Key::Named(Named::Escape), _) if app.permission.is_some() => Message::PermissionClose,
         (Key::Named(Named::Enter), _) if app.permission.is_some() => Message::PermissionRetry,
@@ -1374,12 +1394,17 @@ fn view(app: &App) -> Element<'_, Message> {
     if let Some(key) = app.floating.as_ref().filter(|_| app.running.is_some()) {
         return room::floating(app, key);
     }
-    if app.running.is_some() {
+    let screen = if app.running.is_some() {
         // Like the web #app-screen fade-in: the room comes up from the window's background.
         let veil = 1.0 - app.entered.map_or(1.0, |at| ui::motion::progress(at, ui::motion::ROOM));
-        return ui::motion::veil(room::view(app), ui::theme::BG, veil, 0.0);
+        ui::motion::veil(room::view(app), ui::theme::BG, veil, 0.0)
+    } else {
+        ui::join::view(app)
+    };
+    match &app.feedback {
+        Some(draft) => iced::widget::stack![screen, ui::feedback::view(draft)].into(),
+        None => screen,
     }
-    ui::join::view(app)
 }
 
 fn subscription(app: &App) -> Subscription<Message> {

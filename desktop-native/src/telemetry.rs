@@ -86,3 +86,23 @@ fn stamp(level: &str, line: &str) {
     let now = now.format(&time::format_description::well_known::Rfc3339).unwrap_or_default();
     eprintln!("{now} {level} {line}");
 }
+
+/// "Algo deu errado?": the user's words as an Info event, with the last 64 KB of screenshare.log.
+/// False when this build reports nothing (no DSN).
+pub fn send_feedback(text: &str) -> bool {
+    if sentry::Hub::current().client().is_none_or(|client| !client.is_enabled()) {
+        return false;
+    }
+    let log = logs_dir().and_then(|dir| std::fs::read(dir.join("screenshare.log")).ok()).map(|bytes| bytes[bytes.len().saturating_sub(64 * 1024)..].to_vec());
+    let text: String = text.chars().take(2_000).collect();
+    sentry::with_scope(
+        |scope| {
+            scope.set_tag("feedback", "user");
+            if let Some(buffer) = log {
+                scope.add_attachment(sentry::protocol::Attachment { buffer, filename: "screenshare.log".into(), content_type: Some("text/plain".into()), ty: None });
+            }
+        },
+        || sentry::capture_message(&format!("Feedback: {text}"), sentry::Level::Info),
+    );
+    true
+}

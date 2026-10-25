@@ -24,6 +24,8 @@ pub enum Action {
     Update,
     /// "Abrir pasta de logs".
     Logs,
+    /// "Algo deu errado?": a few words to Sentry.
+    Feedback,
     Quit,
 }
 
@@ -77,7 +79,7 @@ pub fn install() -> bool {
     let build = || -> Result<Tray, Box<dyn std::error::Error>> {
         let (rgba, width, height) = icon_rgba().ok_or("icon")?;
         let item = |id: &str, text: &str, enabled: bool| MenuItem::with_id(id, text, enabled, None);
-        let (open, mic, camera, output, screen, share_again, leave, logs, quit) = (
+        let (open, mic, camera, output, screen, share_again, leave, logs, feedback, quit) = (
             item("open", "Abrir sala", true),
             item("mic", "Microfone silenciado · Ativar", false),
             item("camera", "Câmera desligada · Ligar", false),
@@ -86,6 +88,7 @@ pub fn install() -> bool {
             item("share_again", "Compartilhar de novo", false),
             item("leave", "Sair da sala", false),
             item("logs", "Abrir pasta de logs", true),
+            item("feedback", "Algo deu errado?", true),
             item("quit", "Encerrar app", true),
         );
         let menu = Menu::new();
@@ -101,6 +104,7 @@ pub fn install() -> bool {
             &leave,
             &PredefinedMenuItem::separator(),
             &logs,
+            &feedback,
             &quit,
         ])?;
         let icon = TrayIconBuilder::new()
@@ -142,6 +146,7 @@ pub fn actions() -> Vec<Action> {
             "leave" => Some(Action::Leave),
             "update" => Some(Action::Update),
             "logs" => Some(Action::Logs),
+            "feedback" => Some(Action::Feedback),
             "quit" => Some(Action::Quit),
             _ => None,
         });
