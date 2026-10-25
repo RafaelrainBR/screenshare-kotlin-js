@@ -654,6 +654,11 @@ private fun setupDeviceHandlers(
         onOutputDeviceChange(Elements.outputDevices.value)
     })
 
+    (kotlinx.browser.document.getElementById("room-sounds") as? org.w3c.dom.HTMLInputElement)?.let { toggle ->
+        toggle.checked = RoomSounds.enabled
+        toggle.addEventListener("change", { RoomSounds.setEnabled(toggle.checked) })
+    }
+
     Elements.cameraDevices.addEventListener("change", {
         onCameraDeviceChange(Elements.cameraDevices.value)
     })
