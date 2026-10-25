@@ -209,7 +209,7 @@ class ConnectionQuality(
 
     // What each sharer reported, and what each tile shows now.
     private val peerReports = mutableMapOf<String, QualityProblem>()
-    private val displayed = mutableMapOf<String, QualityProblem>()
+    private val displayed = mutableMapOf<String, Pair<QualityProblem, String?>>()
 
     // Servers before ShareQualities reject the packet, so nothing is sent until it arrives.
     private var relayAvailable = false
@@ -328,17 +328,24 @@ class ConnectionQuality(
         val problem =
             peerReports[tileId]?.takeIf { remote && tileId in screenSharing.remoteScreenStreams }
                 ?: signals[tileId]?.shown
-        if (displayed[tileId] == problem) return
+        // Our own encoder at its limit: one step lighter, a click away.
+        val sending = problem == QualityProblem.SENDER_CPU || problem == QualityProblem.SENDER_BANDWIDTH
+        val action = if (!remote && sending) ui.lighterShareFps()?.let { "Usar $it qps" } else null
+        if (displayed[tileId]?.first == problem && displayed[tileId]?.second == action) return
         val name = if (remote) resolveUsername(tileId) else ""
         val applied =
             InterfaceMutations.setTileQuality(
                 tileId,
                 problem?.let { qualityLabel(it, name) },
                 problem?.let { qualityExplanation(it, name, peerConnections.peers.size) },
-            )
+                action,
+            ) {
+                ui.lightenShare()
+                show(tileId)
+            }
         // A tile not on the stage yet gets its chip on a later tick.
         if (!applied) return
-        if (problem == null) displayed.remove(tileId) else displayed[tileId] = problem
+        if (problem == null) displayed.remove(tileId) else displayed[tileId] = problem to action
     }
 }
 
