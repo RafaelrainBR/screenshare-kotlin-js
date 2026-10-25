@@ -1,4 +1,5 @@
 pub mod dock;
+pub mod feedback;
 pub mod join;
 pub mod motion;
 pub mod panel;
