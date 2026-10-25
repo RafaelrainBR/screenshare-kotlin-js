@@ -324,6 +324,29 @@ object InterfaceMutations {
         })
         controls.appendChild(fullscreenButton)
 
+        // A floating window over the game, only for someone else's screen and where the browser has it.
+        if (!isLocal && document.asDynamic().pictureInPictureEnabled == true) {
+            val floatButton = document.createElement("button") as HTMLButtonElement
+            floatButton.type = "button"
+            floatButton.className = "glass-chip"
+            floatButton.title = "Janela flutuante"
+            floatButton.setAttribute("aria-label", "Janela flutuante")
+            floatButton.innerHTML =
+                """<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><rect x="12" y="12" width="7" height="5" rx="1"/></svg>"""
+            floatButton.addEventListener("click", { e ->
+                e.preventDefault()
+                e.stopPropagation()
+                if (document.asDynamic().pictureInPictureElement === video) {
+                    document.asDynamic().exitPictureInPicture()
+                } else {
+                    video.asDynamic().requestPictureInPicture().catch { _: dynamic ->
+                        showError("Não foi possível abrir a janela flutuante.")
+                    }
+                }
+            })
+            controls.appendChild(floatButton)
+        }
+
         controls.appendChild(participantOptionsButton(username))
 
         val volumeChip = document.createElement("div") as HTMLElement
