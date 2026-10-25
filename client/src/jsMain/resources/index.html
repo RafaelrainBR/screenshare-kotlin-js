@@ -146,6 +146,7 @@
             <span class="room-code-label">SALA</span><span id="current-room-id"></span>
             <svg viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"/></svg>
           </button>
+          <button id="feedback-btn" class="chat-hide hidden" type="button" aria-label="Algo deu errado? Conte para a gente" title="Algo deu errado? Conte para a gente"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/><path d="M12 7v4M12 14h.01"/></svg></button>
           <button id="toggleSidebarBtn" class="chat-hide" type="button" aria-label="Ocultar conversa" title="Ocultar conversa"><svg viewBox="0 0 24 24"><path d="m9 5 7 7-7 7"/></svg></button>
         </header>
         <div class="chat-area">
@@ -193,6 +194,16 @@
       <button id="retry-media" type="button" class="btn btn-primary">Tentar novamente</button>
       <button id="open-privacy-settings" type="button" class="btn btn-ghost hidden">Abrir configurações</button>
       <button id="close-permission-help" type="button" class="btn btn-ghost">Depois</button>
+    </div>
+  </section>
+
+  <section id="feedback-dialog" class="permission-recovery hidden" role="dialog" aria-modal="true" aria-labelledby="feedback-title">
+    <h2 id="feedback-title">Algo deu errado?</h2>
+    <p>Conte o que aconteceu. Vai junto o tipo de navegador e os últimos avisos do app, sem seu nome nem a sala.</p>
+    <textarea id="feedback-text" class="input feedback-text" rows="4" maxlength="2000" aria-label="O que aconteceu"></textarea>
+    <div class="modal-actions">
+      <button id="send-feedback" type="button" class="btn btn-primary">Enviar</button>
+      <button id="close-feedback" type="button" class="btn btn-ghost">Cancelar</button>
     </div>
   </section>
 
