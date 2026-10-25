@@ -297,7 +297,15 @@ object InterfaceMutations {
             e.stopPropagation()
             quality.getAttribute("data-explanation")?.let { showError(it) }
         })
-        tile.appendChild(quality)
+        // Beside the chip on our own share: one step lighter, applied live.
+        val action = document.createElement("button") as HTMLButtonElement
+        action.type = "button"
+        action.className = "quality-action hidden"
+        val bar = document.createElement("div") as HTMLElement
+        bar.className = "quality-bar"
+        bar.appendChild(quality)
+        bar.appendChild(action)
+        tile.appendChild(bar)
 
         val controls = document.createElement("div") as HTMLElement
         controls.className = "screen-tile-controls"
@@ -440,9 +448,21 @@ object InterfaceMutations {
         tileId: String,
         label: String?,
         explanation: String?,
+        action: String? = null,
+        onAction: () -> Unit = {},
     ): Boolean {
-        val chip = findTile(tileId)?.querySelector(".quality-chip") as? HTMLElement ?: return false
+        val tile = findTile(tileId) ?: return false
+        val chip = tile.querySelector(".quality-chip") as? HTMLElement ?: return false
         chip.classList.toggle("hidden", label == null)
+        (tile.querySelector(".quality-action") as? HTMLElement)?.let { button ->
+            button.classList.toggle("hidden", label == null || action == null)
+            button.textContent = action.orEmpty()
+            button.onclick = { event ->
+                event.stopPropagation()
+                onAction()
+                null
+            }
+        }
         if (label == null || explanation == null) return true
         chip.title = explanation
         chip.setAttribute("aria-label", "$label. $explanation")

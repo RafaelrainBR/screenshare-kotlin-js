@@ -316,6 +316,16 @@ private fun choosePreset(preset: SharePreset) {
     renderShareSettings()
 }
 
+/** One step down from the share's frame rate (60, 30, 15, 10), or null at the floor. */
+fun lighterShareFps(): Int? = listOf(30, 15, 10).firstOrNull { it < shareProfile.fps }
+
+/** The quality chip's "Usar N qps": the next step down, applied live like the share menu. */
+fun lightenShare() {
+    val fps = lighterShareFps() ?: return
+    setShareProfile(shareProfile.copy(fps = fps))
+    renderShareSettings()
+}
+
 /** Also reaches a running share, which applies it live. */
 private fun setShareProfile(profile: ShareProfile) {
     shareProfile = profile
