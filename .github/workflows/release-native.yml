@@ -59,6 +59,14 @@ jobs:
       # A short target path: libwebrtc's abseil includes overflow MAX_PATH under the workspace.
       # (The runner context is not available in job-level env.)
       - run: echo "CARGO_TARGET_DIR=$(cygpath -m "$RUNNER_TEMP")/t" >> "$GITHUB_ENV"
+      # NVENC (webrtc-sys build.rs): cuda.h and cuda.lib from NVIDIA's cuda_cudart redist, not the
+      # whole toolkit. Without CUDA_PATH the app builds and shares in software only.
+      - name: CUDA headers for NVENC
+        run: |
+          curl -sSfL -o "$RUNNER_TEMP/cudart.zip" https://developer.download.nvidia.com/compute/cuda/redist/cuda_cudart/windows-x86_64/cuda_cudart-windows-x86_64-12.6.77-archive.zip
+          echo "7a313bc0c93b1a50bb03aa9783a199ae70c3b66e2d8084da65e8254a8577b925  $RUNNER_TEMP/cudart.zip" | sha256sum -c
+          unzip -q "$RUNNER_TEMP/cudart.zip" -d "$RUNNER_TEMP"
+          echo "CUDA_PATH=$(cygpath -m "$RUNNER_TEMP")/cuda_cudart-windows-x86_64-12.6.77-archive" >> "$GITHUB_ENV"
       - name: Check tag
         run: '[[ "$TAG" =~ ^native-v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z.]+)?$ ]]'
       - name: Install Rust

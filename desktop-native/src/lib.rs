@@ -2704,4 +2704,121 @@ mod tests {
             bob.close();
         });
     }
+
+    /// A 1080p60 H264 share between two local peers, as the game preset sends it: which encoder
+    /// libwebrtc picked and how much CPU the process spent. Ignored: it needs real hardware to mean
+    /// anything. `cargo test --release --lib h264_1080p60 -- --ignored --nocapture`, with and
+    /// without CUDA_PATH at build time, compares NVENC with OpenH264.
+    #[cfg(windows)]
+    #[test]
+    #[ignore]
+    fn h264_1080p60_encoder_and_cpu() {
+        use libwebrtc::{
+            MediaType,
+            rtp_parameters::RtpEncodingParameters,
+            rtp_transceiver::{RtpTransceiverDirection, RtpTransceiverInit},
+            stats::RtcStats,
+        };
+        use windows::Win32::{Foundation::FILETIME, System::Threading::{GetCurrentProcess, GetProcessTimes}};
+        let cpu = || {
+            let (mut created, mut exited, mut kernel, mut user) = (FILETIME::default(), FILETIME::default(), FILETIME::default(), FILETIME::default());
+            // SAFETY: four out-pointers to FILETIMEs on the stack.
+            unsafe { GetProcessTimes(GetCurrentProcess(), &mut created, &mut exited, &mut kernel, &mut user).unwrap() };
+            let ticks = |t: FILETIME| (u64::from(t.dwHighDateTime) << 32 | u64::from(t.dwLowDateTime)) as f64 / 1e7;
+            ticks(kernel) + ticks(user)
+        };
+        let (width, height) = (1920u32, 1080u32);
+        // Moving diagonal bars: every frame changes, like a game, so the encoder does real work.
+        let mut frames: Vec<_> = (0..60u32)
+            .map(|i| {
+                let mut buffer = I420Buffer::new(width, height);
+                let (y, u, v) = buffer.data_mut();
+                for (n, px) in y.iter_mut().enumerate() {
+                    let (x, row) = (n as u32 % width, n as u32 / width);
+                    *px = ((x + row + i * 16) % 256) as u8;
+                }
+                u.fill(100);
+                v.fill(160);
+                VideoFrame { rotation: VideoRotation::VideoRotation0, timestamp_us: 0, frame_metadata: None, buffer }
+            })
+            .collect();
+        Runtime::new().unwrap().block_on(async {
+            let factory = PeerConnectionFactory::default();
+            let alice = factory.create_peer_connection(RtcConfiguration::default()).unwrap();
+            let bob = factory.create_peer_connection(RtcConfiguration::default()).unwrap();
+            let source = NativeVideoSource::new(VideoResolution { width, height }, true);
+            let track = factory.create_video_track("game", source.clone());
+            let init = RtpTransceiverInit {
+                direction: RtpTransceiverDirection::SendOnly,
+                stream_ids: vec!["screen".into()],
+                send_encodings: vec![RtpEncodingParameters { max_bitrate: Some(8_000_000), max_framerate: Some(60.0), ..Default::default() }],
+            };
+            let transceiver = alice.add_transceiver(track.into(), init).unwrap();
+            let h264: Vec<_> = crate::share::preferred_video_codecs(factory.get_rtp_sender_capabilities(MediaType::Video).codecs, true)
+                .into_iter()
+                .filter(|codec| codec.mime_type.eq_ignore_ascii_case("video/H264") || codec.mime_type.eq_ignore_ascii_case("video/rtx"))
+                .collect();
+            transceiver.set_codec_preferences(h264).unwrap();
+            let (to_bob, from_alice) = mpsc::channel();
+            let (to_alice, from_bob) = mpsc::channel();
+            alice.on_ice_candidate(Some(Box::new(move |c| drop(to_bob.send((c.sdp_mid(), c.sdp_mline_index(), c.candidate()))))));
+            bob.on_ice_candidate(Some(Box::new(move |c| drop(to_alice.send((c.sdp_mid(), c.sdp_mline_index(), c.candidate()))))));
+            let offer = alice.create_offer(OfferOptions::default()).await.unwrap();
+            alice.set_local_description(offer.clone()).await.unwrap();
+            let offer = SessionDescription::parse(&crate::share::improve_video_startup_sdp(&offer.to_string()), SdpType::Offer).unwrap();
+            bob.set_remote_description(offer).await.unwrap();
+            let answer = bob.create_answer(Default::default()).await.unwrap();
+            bob.set_local_description(answer.clone()).await.unwrap();
+            let answer = SessionDescription::parse(&crate::share::improve_video_startup_sdp(&answer.to_string()), SdpType::Answer).unwrap();
+            alice.set_remote_description(answer).await.unwrap();
+
+            // Sleep's default 15.6 ms granularity would cap the pacing below at ~30 fps.
+            // SAFETY: plain call; the matching timeEndPeriod is the process exit.
+            unsafe { windows::Win32::Media::timeBeginPeriod(1) };
+            let start = Instant::now();
+            let (warmup, measured) = (Duration::from_secs(4), Duration::from_secs(12));
+            let mut cpu_at_warmup = None;
+            for n in 0u64.. {
+                let at = start + Duration::from_micros(n * 16_667);
+                if at > start + warmup + measured {
+                    break;
+                }
+                while let Ok((mid, index, c)) = from_alice.try_recv() {
+                    bob.add_ice_candidate(IceCandidate::parse(&mid, index, &c).unwrap()).await.unwrap();
+                }
+                while let Ok((mid, index, c)) = from_bob.try_recv() {
+                    alice.add_ice_candidate(IceCandidate::parse(&mid, index, &c).unwrap()).await.unwrap();
+                }
+                if cpu_at_warmup.is_none() && at >= start + warmup {
+                    cpu_at_warmup = Some((cpu(), Instant::now()));
+                }
+                let frame = &mut frames[(n % 60) as usize];
+                frame.timestamp_us = (n * 16_667) as i64;
+                source.capture_frame(frame);
+                if let Some(wait) = at.checked_duration_since(Instant::now()) {
+                    std::thread::sleep(wait);
+                }
+            }
+            let (cpu_start, wall_start) = cpu_at_warmup.unwrap();
+            let cores = (cpu() - cpu_start) / wall_start.elapsed().as_secs_f64();
+            let stats = alice.get_stats().await.unwrap();
+            let outbound = stats.iter().find_map(|s| match s { RtcStats::OutboundRtp(o) if o.stream.kind == "video" => Some(o.clone()), _ => None }).unwrap();
+            println!(
+                "encoder={} power_efficient={} sent {}x{} at {:.0} fps (limited by {:?}), {} frames encoded, {:.0} kbps; process CPU {:.2} cores ({:.0}% of one)",
+                outbound.outbound.encoder_implementation,
+                outbound.outbound.power_efficient_encoder,
+                outbound.outbound.frame_width,
+                outbound.outbound.frame_height,
+                outbound.outbound.frames_per_second,
+                outbound.outbound.quality_limitation_reason,
+                outbound.outbound.frames_encoded,
+                outbound.sent.bytes_sent as f64 * 8.0 / start.elapsed().as_secs_f64() / 1000.0,
+                cores,
+                cores * 100.0,
+            );
+            assert!(outbound.outbound.frames_encoded > 0);
+            alice.close();
+            bob.close();
+        });
+    }
 }

@@ -9,8 +9,8 @@ publish = false
 synthetic-test = []
 
 [dependencies]
-# Fork at livekit 2ff180e plus set_volume on remote audio tracks (branch screenshare/remote-audio-volume).
-libwebrtc = { git = "https://github.com/RafaelrainBR/rust-sdks.git", rev = "81434ab0f41ec1ebdae95881fb56a545acdaa4e7", package = "libwebrtc" }
+# Fork at livekit 2ff180e plus set_volume on remote audio tracks and NVENC on Windows (branch screenshare/nvenc-windows).
+libwebrtc = { git = "https://github.com/RafaelrainBR/rust-sdks.git", rev = "5f4f783db163835cc800676848f460d6bfc9909b", package = "libwebrtc" }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.149"
 tokio = { version = "1.49.0", features = ["macros", "rt-multi-thread", "time"] }
@@ -43,4 +43,3 @@ nokhwa = { version = "0.10.11", default-features = false, features = ["input-avf
 [profile.release]
 # File and line numbers in Sentry's stack traces: the PDB the release workflow uploads (docs/native-desktop-plan.md, F7).
 debug = "line-tables-only"
-
