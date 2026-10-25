@@ -13,6 +13,10 @@ jackson = "2.21.7"
 mocha = "12.0.3"
 ws = "8.22.0"
 qs = "6.16.0"
+bodyParser1 = "1.20.9"
+bodyParser2 = "2.4.0"
+fastUri = "3.1.9"
+serializeJavascript = "7.1.4"
 
 [libraries]
 jackson-bom = { group = "com.fasterxml.jackson", name = "jackson-bom", version.ref = "jackson" }
