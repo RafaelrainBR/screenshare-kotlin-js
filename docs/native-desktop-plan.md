@@ -307,6 +307,18 @@ Teclado e foco básicos entram no beta. UIA/IME completos são gate de promoçã
 
 Critérios mínimos: duas betas usadas de verdade sem bug grave; paridade com o Tauri nas features do dia a dia; teclado/IME ok; instalação e desinstalação limpas. Ao promover, avisar usuários Tauri por uma última release Tauri com notas apontando para o nativo. Updater próprio, se houver, começa nessa versão.
 
+**Estado dos critérios (25/10/2026):**
+
+| Critério | Estado |
+|---|---|
+| Duas betas usadas sem bug grave | Nenhum erro aberto no Sentry do nativo, mas o uso é baixo: de 0 a 6 downloads por versão do Windows. |
+| Paridade com o Tauri | Coberta: entrar e sair, chat, share com áudio, câmera, "falando", bandeja, iniciar com o sistema, voltar à sala, instância única e atualização. |
+| Teclado e IME | Teclado ok. Os três campos (nome, sala, chat) são o `text_input` do iced 0.14, que trata a composição do IME (preedit e commit). Falta digitar com um teclado real: acento morto no ABNT2 e um IME asiático. |
+| Instalação e desinstalação | Ok: instalador por usuário e desinstalação limpa. |
+| Fora dos critérios | Sem leitor de tela (o iced não tem). Nenhum download do macOS nas últimas dez betas. |
+
+Antes de decidir: os testes à mão (item 4 dos próximos passos), o NVENC num jogo, um teste num Mac e uma ou duas semanas de uso com outras pessoas.
+
 ### F7 — Observabilidade com Sentry (decidido em 23/10/2026)
 
 Desde a native-v0.1.14 o exe de release é um app GUI (`windows_subsystem`), sem console. Por isso os `eprintln!` não aparecem mais em lugar nenhum. O objetivo é ver erros, crashes e o comportamento de cada sessão, e não só as exceções.
@@ -349,15 +361,15 @@ O PostHog fica como opção futura, só para análise de produto (duração dos 
 - Site (#95): `@sentry/browser` só em `screen-share.fly.dev`, com erros, `console.warn`/`error` como logs e replays mascarados de 10% das sessões com erro. O usuário e o `?roomId=` não saem. No ar desde o deploy de 24/10/2026.
 - Servidor (#95): `sentry-logback`, só eventos ERROR e sem breadcrumbs, porque os logs INFO têm IP, nome e sala. O `SENTRY_DSN` está no `[env]` do `server-java/fly.toml`.
 
-**Depende do usuário:**
-- o secret `SENTRY_AUTH_TOKEN`, para o upload dos PDBs. O passo já está no `release-native.yml` (`sentry-cli debug-files upload`) e só roda quando o secret existe. Em 24/10/2026 o secret ainda não existia;
+**Feito pelo usuário em 25/10/2026:**
+- o secret `SENTRY_AUTH_TOKEN`, para o upload dos PDBs. O passo já está no `release-native.yml` (`sentry-cli debug-files upload`) e só roda quando o secret existe;
 - ligar "Prevent Storing of IP Addresses" nas configurações da org, porque o Sentry deduz a cidade pelo IP.
 
-**Falta:** só as duas pendências do usuário, acima.
+**Falta:** nada. O token tem o escopo `org:ci`, conferido no CI; os PDBs sobem a partir da próxima release.
 
 ## Próximos passos (ordem combinada em 23/10/2026, revisada em 24/10/2026)
 
-1. **F7 — Observabilidade com Sentry** (acima): feita, menos as duas pendências do usuário.
+1. **F7 — Observabilidade com Sentry** (acima): feita.
 2. **Atualização automática do nativo** (feita em 24/10/2026, `desktop-native/src/updater.rs`). É pré-requisito da F6.
    - Ao abrir e a cada 6 h, lista as releases e pega a maior tag `native-vX.Y.Z` (sem sufixo), porque as do nativo nunca são `latest`. A versão do build é a tag, via `SENTRY_RELEASE`; builds locais não checam.
    - Avisa com um toast, um item no topo do menu da bandeja e um link na tela de entrada.
