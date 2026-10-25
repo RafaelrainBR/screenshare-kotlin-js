@@ -652,6 +652,15 @@ private fun setupDeviceHandlers(
         onInputDeviceChange(Elements.inputDevices.value)
     })
 
+    // The same device again reopens a live microphone with the new processing.
+    (document.getElementById("noise-suppression") as? org.w3c.dom.HTMLInputElement)?.let { toggle ->
+        toggle.checked = services.noiseSuppressionChosen()
+        toggle.addEventListener("change", {
+            runCatching { window.localStorage.setItem(services.NOISE_SUPPRESSION_KEY, toggle.checked.toString()) }
+            onInputDeviceChange(Elements.inputDevices.value)
+        })
+    }
+
     Elements.outputDevices.addEventListener("change", {
         window.localStorage.setItem("screenshare.outputDeviceId", Elements.outputDevices.value)
         onOutputDeviceChange(Elements.outputDevices.value)
