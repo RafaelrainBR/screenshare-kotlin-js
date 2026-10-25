@@ -1,6 +1,7 @@
 // Screenshare native desktop: iced UI over the session and libwebrtc engine.
 // Release builds are a GUI app on Windows: no console window behind it. Debug builds keep it for the logs.
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
+mod sounds;
 mod startup;
 mod telemetry;
 mod tray;
@@ -66,6 +67,8 @@ pub enum Message {
     /// Opens the device list above a dock chevron, or closes it.
     DevicePicker(Option<ui::dock::Picker>),
     ToggleAdvanced,
+    /// "Sons ao entrar, sair e compartilhar" in the output picker.
+    ToggleRoomSounds,
     /// The ⋯ menu of a participant (and of the clicked video, if any), or None to close it.
     PeerOptions(Option<(String, Option<bool>)>),
     Cursor(Point),
@@ -190,6 +193,10 @@ pub struct App {
     output_restart: bool,
     /// The room sound was muted (saved like the web screenshare.outputMuted).
     output_muted: bool,
+    /// Room tones on (saved like the web screenshare.roomSounds), the last one heard and when.
+    room_sounds: bool,
+    heard_sound: u64,
+    sound_at: Option<Instant>,
     /// The session generation the saved sound preference was applied to.
     output_generation: u64,
     devices_requested: bool,
@@ -275,6 +282,7 @@ fn boot() -> (App, Task<Message>) {
         autostart: startup::autostart_enabled(),
         has_tray: tray::install(),
         output_muted: prefs.output_muted,
+        room_sounds: !prefs.room_sounds_off,
         voice_volumes: startup::voice_volumes(),
         output_device: prefs.output_device,
         ..Default::default()
@@ -574,8 +582,8 @@ fn update(app: &mut App, message: Message) -> Task<Message> {
             }
             // Dropping Running joins the session thread: the engine stops the share and closes peers.
             let windowed = set_fullscreen(app, None);
-            let App { name, mic_device, output_device, output_muted, camera_device, profile, advanced, has_tray, notice, chat_hidden, rail_hidden, compact, visible, voice_volumes, update, updating, .. } = std::mem::take(app);
-            *app = App { name, mic_device, output_device, output_muted, camera_device, profile, advanced, has_tray, notice, chat_hidden, rail_hidden, compact, visible, voice_volumes, update, updating, ..Default::default() };
+            let App { name, mic_device, output_device, output_muted, room_sounds, camera_device, profile, advanced, has_tray, notice, chat_hidden, rail_hidden, compact, visible, voice_volumes, update, updating, .. } = std::mem::take(app);
+            *app = App { name, mic_device, output_device, output_muted, room_sounds, camera_device, profile, advanced, has_tray, notice, chat_hidden, rail_hidden, compact, visible, voice_volumes, update, updating, ..Default::default() };
             tray::update(tray_state(app));
             return windowed.chain(operation::focus(NAME_INPUT));
         }
@@ -735,6 +743,10 @@ fn update(app: &mut App, message: Message) -> Task<Message> {
             app.share_menu = None;
         }
         Message::ToggleAdvanced => app.advanced = !app.advanced,
+        Message::ToggleRoomSounds => {
+            app.room_sounds = !app.room_sounds;
+            save_audio(app);
+        }
         Message::PeerOptions(target) => {
             app.menu_at = target.is_some().then_some(app.cursor);
             app.menu_opened = target.is_some().then(Instant::now);
@@ -893,7 +905,7 @@ pub fn sharing(view: &SessionView) -> bool {
 }
 
 fn save_audio(app: &App) {
-    startup::save_audio_prefs(&startup::AudioPrefs { output_muted: app.output_muted, output_device: app.output_device.clone() });
+    startup::save_audio_prefs(&startup::AudioPrefs { output_muted: app.output_muted, output_device: app.output_device.clone(), room_sounds_off: !app.room_sounds });
 }
 
 /// "Volume para você" as the engine has it: the saved one for voices, 100 when never set.
@@ -920,6 +932,15 @@ fn audio(app: &mut App, control: AudioControl) {
 fn tick(app: &mut App) -> Task<Message> {
     let Some(running) = &app.running else { return Task::none() };
     app.view = running.view.lock().unwrap().clone();
+    if app.view.room_sound.0 != app.heard_sound {
+        app.heard_sound = app.view.room_sound.0;
+        // After a server deploy everyone rejoins at once: one tone stands for the burst.
+        let quiet = app.sound_at.is_none_or(|at| at.elapsed() >= Duration::from_millis(1_500));
+        if let Some(sound) = app.view.room_sound.1.filter(|_| app.room_sounds && !app.output_muted && quiet) {
+            app.sound_at = Some(Instant::now());
+            sounds::play(sound);
+        }
+    }
     app.joined |= app.view.local_socket_id.is_some();
     // A new camera error, or an audio error right after turning the microphone on, opens the help.
     let had_dialog = app.permission.is_some();

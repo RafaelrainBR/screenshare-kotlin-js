@@ -164,6 +164,14 @@ impl AudioControl {
     }
 }
 
+/// Someone else joined, left or started sharing the screen (the web's ui/RoomSounds.kt).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RoomSound {
+    Join,
+    Leave,
+    Share,
+}
+
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct SessionView {
     pub generation: u64,
@@ -203,6 +211,8 @@ pub struct SessionView {
     pub share_snapshots: u64,
     /// Our share's limit as the room hears of it, and how many viewers' encoders were read.
     pub local_share: Option<(crate::quality::Problem, usize)>,
+    /// The latest room sound, with a count that changes with each one (the UI's sounds.rs plays it).
+    pub room_sound: (u64, Option<RoomSound>),
 }
 
 impl SessionView {
@@ -505,6 +515,7 @@ impl Session {
                         if !self.view.participants.iter().any(|p| p.socket_id == peer) {
                             if self.socket_id.as_ref() != Some(&peer) {
                                 self.system(format!("{username} entrou na sala"));
+                                self.sound(RoomSound::Join);
                             }
                             self.view.participants.push(Participant {
                                 socket_id: peer.clone(),
@@ -521,6 +532,7 @@ impl Session {
                     if let Some(p) = self.view.participants.iter().find(|p| p.socket_id == peer) {
                         let name = packet.username.clone().unwrap_or_else(|| p.username.clone());
                         self.system(format!("{name} saiu da sala"));
+                        self.sound(RoomSound::Leave);
                     }
                     self.view.participants.retain(|p| p.socket_id != peer);
                     self.view.screen_sharers.remove(&peer);
@@ -542,6 +554,7 @@ impl Session {
                         self.view.share_reports.remove(&peer);
                     }
                     let who = self.display_name(&peer);
+                    let ours = self.socket_id.as_deref() == Some(peer.as_str());
                     let sharers = if kind.starts_with("screen") {
                         &mut self.view.screen_sharers
                     } else {
@@ -554,6 +567,9 @@ impl Session {
                         sharers.remove(&peer)
                     };
                     if changed {
+                        if kind == "screen-share-started" && !ours {
+                            self.sound(RoomSound::Share);
+                        }
                         self.system(match kind {
                             "screen-share-started" => format!("{who} começou a compartilhar a tela"),
                             "screen-share-stopped" => format!("{who} parou de compartilhar a tela"),
@@ -643,6 +659,10 @@ impl Session {
         }
     }
     /// Local-only notices in the chat, with the same texts as SessionHandler.kt.
+    fn sound(&mut self, sound: RoomSound) {
+        self.view.room_sound = (self.view.room_sound.0 + 1, Some(sound));
+    }
+
     fn system(&mut self, content: String) {
         let timestamp = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -1312,6 +1332,27 @@ mod tests {
         assert!(crate::parse_command(&mute.to_string()).is_ok());
         assert!(crate::parse_command(r#"{"command":"getAudioLevels"}"#).is_ok());
     }
+    #[test]
+    fn room_sounds_are_for_what_others_do_and_only_real_changes() {
+        let mut s = Session::new("room".into(), "alice".into());
+        s.receive(r#"{"type":"room-joined","rid":"room","sid":"a"}"#, 1).unwrap();
+        s.receive(r#"{"type":"user-connected","rid":"room","sid":"a","username":"alice"}"#, 1).unwrap();
+        s.receive(r#"{"type":"screen-share-started","rid":"room","sid":"a"}"#, 1).unwrap();
+        assert_eq!(s.view.room_sound, (0, None));
+        let mut heard = vec![];
+        for packet in [
+            r#"{"type":"user-connected","rid":"room","sid":"b","username":"bob"}"#,
+            r#"{"type":"screen-share-started","rid":"room","sid":"b"}"#,
+            // Sharers repeat "started" for newcomers.
+            r#"{"type":"screen-share-started","rid":"room","sid":"b"}"#,
+            r#"{"type":"user-disconnected","rid":"room","sid":"b","username":"bob"}"#,
+        ] {
+            s.receive(packet, 1).unwrap();
+            heard.push(s.view.room_sound);
+        }
+        assert_eq!(heard, [(1, Some(RoomSound::Join)), (2, Some(RoomSound::Share)), (2, Some(RoomSound::Share)), (3, Some(RoomSound::Leave))]);
+    }
+
     #[test]
     fn share_reports_follow_the_server_and_clear_with_the_share() {
         let mut s = Session::new("room".into(), "alice".into());
