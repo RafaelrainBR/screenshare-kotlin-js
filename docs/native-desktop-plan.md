@@ -398,7 +398,8 @@ O PostHog fica como opção futura, só para análise de produto (duração dos 
      | OpenH264 | 30 fps (ele mesmo pula quadros) | 1,05 núcleo |
      | NVENC | 60 fps | 0,25 núcleo |
    - **Sem NVIDIA:** o runner Windows do CI não tem GPU, e na native-v0.2.4 os testes que criam a fábrica, listam os codecs e conectam peers com vídeo passaram com o NVENC compilado (o probe desliga o NVENC sozinho, e o exe só carrega o `nvcuda.dll` sob demanda).
-   - **Não testado:** um share real num jogo; AMD/Intel (AMF/QSV continuam sem suporte).
+   - **Intel e AMD** (25/10/2026, fork RafaelrainBR/rust-sdks#3): o H264 sai pelo encoder Media Foundation do driver (Quick Sync, AMF), só onde não há NVENC, com o OpenH264 assumindo se ele falhar. No MFT da NVIDIA: 1080p60 a 0,20 núcleo; forçado a falhar, cai no OpenH264.
+   - **Não testado:** um share real num jogo; placas Intel e AMD de verdade.
 6. **Polimento pequeno** (feito em 24/10/2026, #94): o macOS respeita "Reduzir movimento" (`defaults read com.apple.universalaccess reduceMotion`; não testado num Mac). O hover do dock troca de cor em 150 ms, como no site (`motion::hover`).
 
 ## Riscos
