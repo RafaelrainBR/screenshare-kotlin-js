@@ -1091,6 +1091,7 @@ fn tick(app: &mut App) -> Task<Message> {
         app.quality.seen = view.screen_quality_count;
         app.quality.read(view, &running.surface.lock().unwrap());
     }
+    app.quality.refresh(view);
     // Like the browser leaving fullscreen when the video element goes away.
     let windowed = if app.fullscreen.as_ref().is_some_and(|key| !is_shared(view, key)) { set_fullscreen(app, None) } else { Task::none() };
     // Only the newest frame per tile is kept; the window uploads it when it draws.
@@ -1115,33 +1116,27 @@ fn set_fullscreen(app: &mut App, key: Option<TileKey>) -> Task<Message> {
     window::oldest().then(move |id| id.map_or_else(Task::none, |id| window::set_mode(id, mode)))
 }
 
-/// The web's ConnectionQuality: counters from the last `screenQuality`, and what each screen tile shows.
+/// The web's ConnectionQuality: what each screen tile shows. Our own share's limit comes from the
+/// session (`local_share`, which the room hears of too); a remote screen shows its sharer's report
+/// (`share_reports`) or else what our inbound counters say.
 #[derive(Default)]
 struct Quality {
     seen: u64,
-    /// Keyed by peer: our screen's encoder toward it.
-    sends: HashMap<String, quality::SendSample>,
     /// Keyed by (peer, track), so a new receiver starts from fresh counters.
     receives: HashMap<(String, String), quality::ReceiveSample>,
     signals: HashMap<TileKey, quality::Signal>,
-    /// The problem a tile shows and the explanation its chip gives.
-    shown: HashMap<TileKey, (quality::Problem, String)>,
-    started: Option<Instant>,
+    /// The problem a tile shows, its label and the explanation its chip gives.
+    shown: HashMap<TileKey, (quality::Problem, String, String)>,
 }
 
 impl Quality {
+    /// A new `screenQuality`: our inbound counters move each remote screen's signal along.
     fn read(&mut self, view: &SessionView, surface: &desktop_native::VideoFrames) {
-        let at_ms = self.started.get_or_insert_with(Instant::now).elapsed().as_secs_f64() * 1000.0;
         let empty = serde_json::Map::new();
         let peers = view.screen_quality.as_object().unwrap_or(&empty);
-        let mut measured: HashMap<TileKey, (Option<quality::Problem>, String)> = HashMap::new();
-        let mut sends = HashMap::new();
+        let mut measured: HashMap<TileKey, Option<quality::Problem>> = HashMap::new();
         let mut receives = HashMap::new();
         for (peer, value) in peers {
-            if let Some(sample) = value.get("send").and_then(|send| quality::send_sample(send, at_ms)) {
-                sends.insert(peer.clone(), sample);
-            }
-            let name = view.participants.iter().find(|p| &p.socket_id == peer).map_or(peer.as_str(), |p| p.username.as_str());
             for inbound in value.get("receive").and_then(serde_json::Value::as_array).into_iter().flatten() {
                 let (Some(track), Some(sample)) = (inbound.get("track").and_then(serde_json::Value::as_str), quality::receive_sample(inbound)) else { continue };
                 if surface.kind(peer, track, view.screen_sharers.contains(peer), view.camera_sharers.contains(peer)) != Some(false) {
@@ -1151,34 +1146,38 @@ impl Quality {
                 let problem = self.receives.get(&key).and_then(|previous| quality::receive_problem(*previous, sample));
                 receives.insert(key, sample);
                 // A re-share leaves the old receiver idle next to the new one: the worst counts.
-                let entry = measured.entry((peer.clone(), false)).or_insert((None, name.to_owned()));
-                entry.0 = [entry.0, problem].into_iter().flatten().min();
+                let entry = measured.entry((peer.clone(), false)).or_default();
+                *entry = [*entry, problem].into_iter().flatten().min();
             }
         }
-        if let Some(local) = view.local_socket_id.clone().filter(|_| view.screen_state == "active") {
-            let worst = sends.iter().filter_map(|(peer, sample)| quality::send_problem(*self.sends.get(peer)?, *sample)).min();
-            measured.insert((local, false), (worst, String::new()));
-        } else {
-            sends.clear();
-        }
-        let viewers = sends.len();
-        self.sends = sends;
         self.receives = receives;
-        // A tile that stopped reporting must not keep a stale chip.
         self.signals.retain(|key, _| measured.contains_key(key));
-        self.shown.retain(|key, _| measured.contains_key(key));
-        for (key, (problem, name)) in measured {
-            match self.signals.entry(key.clone()).or_default().update(problem) {
-                Some(shown) if self.shown.get(&key).is_none_or(|(was, _)| *was != shown) => {
-                    // Sentry keeps these as logs: which problem, never who or where.
-                    telemetry::warn(&format!("Qualidade da tela: {shown:?}"));
-                    self.shown.insert(key, (shown, shown.explanation(&name, viewers)));
-                }
-                Some(_) => {}
-                None => {
-                    self.shown.remove(&key);
-                }
+        for (key, problem) in measured {
+            self.signals.entry(key).or_default().update(problem);
+        }
+    }
+
+    /// Every tick: a sharer's report or our own share's limit can change between reads.
+    fn refresh(&mut self, view: &SessionView) {
+        let mut wanted: HashMap<TileKey, (quality::Problem, String, usize)> = HashMap::new();
+        if let (Some(local), Some((problem, viewers))) = (&view.local_socket_id, view.local_share) {
+            wanted.insert((local.clone(), false), (problem, String::new(), viewers));
+        }
+        for peer in &view.screen_sharers {
+            let report = view.share_reports.get(peer).and_then(|problem| quality::Problem::from_peer(problem));
+            let Some(problem) = report.or_else(|| self.signals.get(&(peer.clone(), false)).and_then(|signal| signal.shown)) else { continue };
+            let name = view.participants.iter().find(|p| &p.socket_id == peer).map_or(peer.as_str(), |p| p.username.as_str());
+            wanted.insert((peer.clone(), false), (problem, name.to_owned(), 0));
+        }
+        // A tile that stopped reporting must not keep a stale chip.
+        self.shown.retain(|key, _| wanted.contains_key(key));
+        for (key, (problem, name, viewers)) in wanted {
+            if self.shown.get(&key).is_some_and(|(was, ..)| *was == problem) {
+                continue;
             }
+            // Sentry keeps these as logs: which problem, never who or where.
+            telemetry::warn(&format!("Qualidade da tela: {problem:?}"));
+            self.shown.insert(key, (problem, problem.label(&name), problem.explanation(&name, viewers)));
         }
     }
 }

@@ -14,9 +14,12 @@ const MIN_PACKETS: f64 = 60.0;
 const DROPPED_SHARE: f64 = 0.15;
 const MIN_FRAMES: f64 = 30.0;
 
-/// In priority order: the CPU holds every viewer back, so it explains more than one slow link.
+/// In priority order: the sharer's own report (send-share-quality) explains its screen first, and
+/// the CPU holds every viewer back, so it explains more than one slow link.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Problem {
+    PeerCpu,
+    PeerBandwidth,
     SenderCpu,
     SenderBandwidth,
     UnstableConnection,
@@ -24,16 +27,38 @@ pub enum Problem {
 }
 
 impl Problem {
-    pub fn label(self) -> &'static str {
+    pub fn label(self, peer: &str) -> String {
         match self {
-            Self::SenderCpu | Self::ViewerDecode => "Seu PC no limite",
-            Self::SenderBandwidth => "Sua internet no limite",
-            Self::UnstableConnection => "Conexão instável",
+            Self::PeerCpu => format!("PC de {peer} no limite"),
+            Self::PeerBandwidth => format!("Internet de {peer} no limite"),
+            Self::SenderCpu | Self::ViewerDecode => "Seu PC no limite".into(),
+            Self::SenderBandwidth => "Sua internet no limite".into(),
+            Self::UnstableConnection => "Conexão instável".into(),
+        }
+    }
+
+    /// What our shown problem tells the room; only the encoder's limits are the sharer's to report.
+    pub fn share_problem(self) -> Option<&'static str> {
+        match self {
+            Self::SenderCpu => Some("cpu"),
+            Self::SenderBandwidth => Some("bandwidth"),
+            _ => None,
+        }
+    }
+
+    /// A sharer's report; a value this version does not know shows nothing.
+    pub fn from_peer(problem: &str) -> Option<Self> {
+        match problem {
+            "cpu" => Some(Self::PeerCpu),
+            "bandwidth" => Some(Self::PeerBandwidth),
+            _ => None,
         }
     }
 
     pub fn explanation(self, peer: &str, viewers: usize) -> String {
         match self {
+            Self::PeerCpu => format!("O PC de {peer} não está dando conta de codificar o vídeo, então a qualidade da tela caiu. Não é a sua conexão."),
+            Self::PeerBandwidth => format!("A internet de {peer} não está dando conta de enviar nessa qualidade, então a qualidade da tela caiu."),
             Self::SenderCpu => "Seu PC não está dando conta de codificar o vídeo, então a qualidade da sua tela caiu. Feche programas pesados ou escolha um preset mais leve.".into(),
             Self::SenderBandwidth => format!(
                 "Sua internet não está dando conta de enviar nessa qualidade, então a qualidade da sua tela caiu. Escolha um preset mais leve.{}",
@@ -213,6 +238,18 @@ mod tests {
         assert!(unstable.contains("Ana") && unstable.contains("sua internet"));
         assert!(Problem::SenderBandwidth.explanation("", 2).contains("Cada pessoa"));
         assert!(!Problem::SenderBandwidth.explanation("", 1).contains("Cada pessoa"));
+    }
+
+    #[test]
+    fn only_the_encoder_limits_go_to_the_room_and_come_back_named() {
+        assert_eq!(Problem::SenderCpu.share_problem(), Some("cpu"));
+        assert_eq!(Problem::SenderBandwidth.share_problem(), Some("bandwidth"));
+        assert_eq!(Problem::UnstableConnection.share_problem(), None);
+        assert_eq!(Problem::from_peer("cpu"), Some(Problem::PeerCpu));
+        assert_eq!(Problem::from_peer("bandwidth"), Some(Problem::PeerBandwidth));
+        assert_eq!(Problem::from_peer("gpu"), None);
+        assert_eq!(Problem::PeerCpu.label("Ana"), "PC de Ana no limite");
+        assert!(Problem::PeerCpu.explanation("Ana", 0).contains("Não é a sua conexão"));
     }
 
     #[test]

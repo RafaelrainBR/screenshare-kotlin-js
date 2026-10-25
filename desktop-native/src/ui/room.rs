@@ -348,9 +348,9 @@ fn video_tile<'a>(app: &'a App, key: &TileKey, small: bool) -> Element<'a, Messa
         layers = layers.push(container(chip).padding(6).align_bottom(Length::Fill));
     }
     // "Por que está travando?" (crate::Quality): the label, or only the triangle in the rail; a click explains.
-    if let Some((problem, explanation)) = app.quality.shown.get(key) {
+    if let Some((_, label, explanation)) = app.quality.shown.get(key) {
         let glyph = dock::icon(WARNING, if small { 13.0 } else { 16.0 }, theme::AMBER);
-        let content: Element<'a, Message> = if small { glyph } else { row![glyph, text(problem.label()).size(13).font(theme::BOLD)].spacing(6).align_y(Alignment::Center).into() };
+        let content: Element<'a, Message> = if small { glyph } else { row![glyph, text(label.as_str()).size(13).font(theme::BOLD)].spacing(6).align_y(Alignment::Center).into() };
         let chip = button(content).padding(if small { [3, 5] } else { [6, 10] }).style(theme::quality_chip).on_press(Message::Explain(explanation.clone()));
         layers = layers.push(container(chip).padding(if small { 5 } else { 12 }));
     }
