@@ -19,6 +19,8 @@ const DOTS: &str = r#"<circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1
 // The web .screen-tile-controls glyph, and the same corners pointing in to leave.
 const FULLSCREEN: &str = r#"<path d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4"/>"#;
 const EXIT_FULLSCREEN: &str = r#"<path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5"/>"#;
+// The web .glass-chip "Janela flutuante": a small window in the corner of a big one.
+const FLOAT: &str = r#"<rect x="3" y="5" width="18" height="14" rx="2"/><rect x="12" y="12" width="7" height="5" rx="1"/>"#;
 // The web .quality-chip triangle.
 const WARNING: &str = r#"<path d="M12 3 2 20h20L12 3z"/><path d="M12 10v4M12 17h.01"/>"#;
 
@@ -360,6 +362,9 @@ fn video_tile<'a>(app: &'a App, key: &TileKey, small: bool) -> Element<'a, Messa
         let (paths, label) = if app.fullscreen.as_ref() == Some(key) { (EXIT_FULLSCREEN, "Sair da tela cheia") } else { (FULLSCREEN, "Tela cheia") };
         let target = (app.fullscreen.as_ref() != Some(key)).then(|| key.clone());
         controls = controls.push(glass_button(paths, 17.0, 34.0, label, Message::Fullscreen(target)));
+        if app.view.local_socket_id.as_deref() != Some(peer.as_str()) {
+            controls = controls.push(glass_button(FLOAT, 17.0, 34.0, "Janela flutuante", Message::Float(Some(key.clone()))));
+        }
     }
     // The screen's .glass-chip volume: a speaker that mutes and a 78 px slider, on someone else's large screen tile.
     if !small && !*camera && app.view.local_socket_id.as_deref() != Some(peer.as_str()) {
@@ -484,4 +489,15 @@ fn options_menu<'a>(app: &'a App, peer: &'a str, camera: Option<bool>) -> Elemen
 /// getUsernameInitials in Util.kt: the first letter of up to two words.
 pub fn initials(name: &str) -> String {
     name.split(' ').filter_map(|word| word.chars().next()).take(2).flat_map(char::to_uppercase).collect()
+}
+
+/// The floating window (crate::set_floating): only `key`'s video, and a way back to the room.
+pub fn floating<'a>(app: &'a App, key: &TileKey) -> Element<'a, Message> {
+    let video: Element<'a, Message> = match app.tiles.get(key).and_then(|tile| Some((tile.frame.clone()?, tile.version))) {
+        Some((frame, version)) => iced::widget::Shader::new(super::video::Video { key: key.clone(), frame, version }).width(Length::Fill).height(Length::Fill).into(),
+        None => container(text("Conectando…").size(12).color(theme::DIM)).center(Length::Fill).into(),
+    };
+    let back = glass_button(EXIT_FULLSCREEN, 15.0, 30.0, "Voltar para a sala", Message::Float(None));
+    let stage = stack![video, container(back).padding(8).align_right(Length::Fill)];
+    container(stage).style(|_| container::Style { background: Some(theme::VIDEO.into()), ..Default::default() }).width(Length::Fill).height(Length::Fill).into()
 }
