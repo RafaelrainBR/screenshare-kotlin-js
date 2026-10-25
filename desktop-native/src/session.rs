@@ -1,4 +1,4 @@
-use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
 use std::time::{Duration, Instant};
 
 use futures_util::{SinkExt, StreamExt};
@@ -197,6 +197,12 @@ pub struct SessionView {
     /// The latest `screenQuality` peers (quality::samples) and how many arrived, for the UI to read once.
     pub screen_quality: Value,
     pub screen_quality_count: u64,
+    /// Each sharer's reported limit (share-quality) by socket id, a quality::Problem::from_peer value.
+    pub share_reports: BTreeMap<String, String>,
+    /// share-qualities arrivals: this server relays our limit, and each join starts it from nothing.
+    pub share_snapshots: u64,
+    /// Our share's limit as the room hears of it, and how many viewers' encoders were read.
+    pub local_share: Option<(crate::quality::Problem, usize)>,
 }
 
 impl SessionView {
@@ -272,6 +278,10 @@ struct Packet {
     camera_sharers: Vec<String>,
     #[serde(default)]
     ice_servers: Option<Value>,
+    #[serde(default)]
+    qualities: Option<serde_json::Map<String, Value>>,
+    #[serde(default)]
+    problem: Option<String>,
 }
 
 #[derive(Debug, PartialEq)]
@@ -332,7 +342,15 @@ impl Session {
         self.socket_id.as_deref()
     }
     pub fn join(&self) -> Value {
-        json!({"type":"join-room","rid":self.room,"username":self.username,"clientVersion":3})
+        json!({"type":"join-room","rid":self.room,"username":self.username,"clientVersion":4})
+    }
+
+    /// What limits our share (quality::Problem::share_problem), or none to clear it.
+    pub fn share_quality(&self, problem: Option<&str>) -> Value {
+        match problem {
+            Some(problem) => json!({"type":"send-share-quality","rid":self.room,"problem":problem}),
+            None => json!({"type":"send-share-quality","rid":self.room}),
+        }
     }
     /// The packet to send and its `clientMessageId`; the server echoes the id back as a receipt.
     pub fn chat(&mut self, text: &str) -> Result<Value, String> {
@@ -432,6 +450,19 @@ impl Session {
                 }
             }
             "ice-servers" => actions.extend(packet.ice_servers.map(Action::SetIceServers)),
+            "share-qualities" => {
+                let qualities = packet.qualities.unwrap_or_default();
+                self.view.share_reports = qualities.into_iter().filter_map(|(sid, problem)| Some((sid, problem.as_str()?.to_owned()))).collect();
+                self.view.share_snapshots += 1;
+            }
+            "share-quality" => {
+                if let Some(sid) = packet.sid {
+                    match packet.problem {
+                        Some(problem) => self.view.share_reports.insert(sid, problem),
+                        None => self.view.share_reports.remove(&sid),
+                    };
+                }
+            }
             "user-list" => {
                 let local = self.socket_id.clone().unwrap();
                 let users: Vec<_> = packet
@@ -494,6 +525,7 @@ impl Session {
                     self.view.participants.retain(|p| p.socket_id != peer);
                     self.view.screen_sharers.remove(&peer);
                     self.view.camera_sharers.remove(&peer);
+                    self.view.share_reports.remove(&peer);
                     if self.peers.remove(&peer) {
                         actions.push(Action::RemovePeer(peer));
                     }
@@ -506,6 +538,9 @@ impl Session {
             kind @ ("screen-share-started" | "screen-share-stopped" | "camera-share-started"
             | "camera-share-stopped") => {
                 if let Some(peer) = packet.sid {
+                    if kind == "screen-share-stopped" {
+                        self.view.share_reports.remove(&peer);
+                    }
                     let who = self.display_name(&peer);
                     let sharers = if kind.starts_with("screen") {
                         &mut self.view.screen_sharers
@@ -821,6 +856,12 @@ async fn run_inner(
         let mut last_stats = Instant::now();
         let mut last_levels = Instant::now();
         let mut last_quality = Instant::now();
+        // Our share's limit (quality.rs), measured here so the room and the UI hear the same thing.
+        let quality_clock = Instant::now();
+        let mut share_sends: HashMap<String, crate::quality::SendSample> = HashMap::new();
+        let mut share_signal = crate::quality::Signal::default();
+        let mut share_reported: Option<&str> = None;
+        let mut share_snapshot = 0;
         let mut screen_request = None;
         let mut camera_request = None;
         let mut devices_request = None;
@@ -861,6 +902,9 @@ async fn run_inner(
                                         view.audio_pending = previous.audio_pending;
                                         view.audio_error.clone_from(&previous.audio_error);
                                         view.speaking.clone_from(&previous.speaking);
+                                        view.screen_quality.clone_from(&previous.screen_quality);
+                                        view.screen_quality_count = previous.screen_quality_count;
+                                        view.local_share = previous.local_share;
                                         drop(previous);
                                         *ui.view.lock().unwrap() = view;
                                     }
@@ -974,6 +1018,37 @@ async fn run_inner(
                             if kind == "screenQuality" {
                                 view.screen_quality = event.get("peers").cloned().unwrap_or_default();
                                 view.screen_quality_count += 1;
+                                // A new snapshot: this join's server starts from nothing.
+                                if view.share_snapshots != share_snapshot {
+                                    share_snapshot = view.share_snapshots;
+                                    share_reported = None;
+                                }
+                                let shown = if view.screen_state == "active" {
+                                    let at_ms = quality_clock.elapsed().as_secs_f64() * 1000.0;
+                                    let mut sends = HashMap::new();
+                                    let mut worst = None;
+                                    for (peer, value) in view.screen_quality.as_object().into_iter().flatten() {
+                                        let Some(sample) = value.get("send").and_then(|send| crate::quality::send_sample(send, at_ms)) else { continue };
+                                        let problem = share_sends.get(peer).and_then(|previous| crate::quality::send_problem(*previous, sample));
+                                        worst = [worst, problem].into_iter().flatten().min();
+                                        sends.insert(peer.clone(), sample);
+                                    }
+                                    share_sends = sends;
+                                    share_signal.update(worst)
+                                } else {
+                                    // The server forgot it with stop-screen-share.
+                                    share_sends.clear();
+                                    share_signal = crate::quality::Signal::default();
+                                    share_reported = None;
+                                    None
+                                };
+                                view.local_share = shown.map(|problem| (problem, share_sends.len()));
+                                let wanted = shown.and_then(crate::quality::Problem::share_problem);
+                                // Servers before share-qualities reject the packet.
+                                if view.screen_state == "active" && view.share_snapshots > 0 && wanted != share_reported && outgoing.len() < MAX_PENDING {
+                                    share_reported = wanted;
+                                    outgoing.push_back(session.share_quality(wanted));
+                                }
                             }
                             if let Some(enabled) = event.get("enabled").and_then(Value::as_bool) {
                                 match kind {
@@ -1175,7 +1250,7 @@ mod tests {
                 let join = socket.next().await.unwrap().unwrap().into_text().unwrap();
                 assert_eq!(
                     serde_json::from_str::<Value>(&join).unwrap(),
-                    json!({"type":"join-room","rid":"room","username":"alice","clientVersion":3})
+                    json!({"type":"join-room","rid":"room","username":"alice","clientVersion":4})
                 );
                 socket.send(Message::Text(r#"{"type":"room-joined","rid":"room","sid":"a"}"#.into())).await.unwrap();
                 socket.send(Message::Text(r#"{"type":"user-list","rid":"room","users":[{"socketId":"a","username":"alice","roomId":"room"}]}"#.into())).await.unwrap();
@@ -1237,6 +1312,22 @@ mod tests {
         assert!(crate::parse_command(&mute.to_string()).is_ok());
         assert!(crate::parse_command(r#"{"command":"getAudioLevels"}"#).is_ok());
     }
+    #[test]
+    fn share_reports_follow_the_server_and_clear_with_the_share() {
+        let mut s = Session::new("room".into(), "alice".into());
+        s.receive(r#"{"type":"room-joined","rid":"room","sid":"a"}"#, 1).unwrap();
+        // Fixtures from MessageSpec.kt.
+        s.receive(r#"{"type":"share-qualities","rid":"room","qualities":{"b":"bandwidth"}}"#, 1).unwrap();
+        assert_eq!((s.view.share_reports.get("b").map(String::as_str), s.view.share_snapshots), (Some("bandwidth"), 1));
+        s.receive(r#"{"type":"share-quality","rid":"room","sid":"b","problem":"cpu"}"#, 1).unwrap();
+        assert_eq!(s.view.share_reports.get("b").map(String::as_str), Some("cpu"));
+        s.receive(r#"{"type":"share-quality","rid":"room","sid":"b"}"#, 1).unwrap();
+        assert!(s.view.share_reports.is_empty());
+        s.receive(r#"{"type":"share-quality","rid":"room","sid":"b","problem":"cpu"}"#, 1).unwrap();
+        s.receive(r#"{"type":"screen-share-stopped","rid":"room","sid":"b"}"#, 1).unwrap();
+        assert!(s.view.share_reports.is_empty());
+    }
+
     #[test]
     fn room_events_become_system_messages_like_the_web_chat() {
         let mut s = Session::new("room".into(), "alice".into());
@@ -1815,7 +1906,9 @@ mod tests {
         assert!(endpoint_allowed("wss://example.org/"));
         let spec = |text: &str| serde_json::from_str::<Value>(text).unwrap();
         let mut s = Session::new("room".into(), "same".into());
-        assert_eq!(s.join(), spec(r#"{"type":"join-room","rid":"room","username":"same","clientVersion":3}"#));
+        assert_eq!(s.join(), spec(r#"{"type":"join-room","rid":"room","username":"same","clientVersion":4}"#));
+        assert_eq!(s.share_quality(Some("cpu")), spec(r#"{"type":"send-share-quality","rid":"room","problem":"cpu"}"#));
+        assert_eq!(s.share_quality(None), spec(r#"{"type":"send-share-quality","rid":"room"}"#));
         let mut chat = s.chat("Hello").unwrap();
         assert!(chat["clientMessageId"].as_str().is_some_and(|id| !id.is_empty()));
         chat["clientMessageId"] = json!("receipt");
