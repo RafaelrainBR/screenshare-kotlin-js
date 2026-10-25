@@ -122,7 +122,8 @@ class VoiceChat {
         val audio: dynamic =
             json(
                 "echoCancellation" to false,
-                "noiseSuppression" to false,
+                // Off unless asked ("Reduzir ruído do microfone"): it dulls voices and music.
+                "noiseSuppression" to noiseSuppressionChosen(),
                 "autoGainControl" to false,
                 "sampleRate" to 48000,
                 "sampleSize" to 16,
@@ -184,3 +185,12 @@ private fun monitorAudioLevel(
 
     checkAudioLevel()
 }
+
+internal const val NOISE_SUPPRESSION_KEY = "screenshare.noiseSuppression"
+
+/** "Reduzir ruído do microfone" in the microphone picker; off by default, as the mic always was. */
+fun noiseSuppressionChosen(): Boolean =
+    runCatching {
+        kotlinx.browser.window.localStorage
+            .getItem(NOISE_SUPPRESSION_KEY) == "true"
+    }.getOrDefault(false)
