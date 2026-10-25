@@ -92,6 +92,8 @@ pub enum Message {
     Focus(TileKey),
     /// The tile's "Tela cheia" button: that video alone over the whole monitor, or back.
     Fullscreen(Option<TileKey>),
+    /// "Janela flutuante": the window shrinks to that video, on top of the game; None goes back.
+    Float(Option<TileKey>),
     /// "Ocultar conversa" / "Mostrar conversa".
     ToggleChat,
     /// .strip-toggle: hide or show the rail under the stage.
@@ -256,6 +258,8 @@ pub struct App {
     volumes_generation: u64,
     hidden_videos: HashSet<TileKey>,
     fullscreen: Option<TileKey>,
+    /// The video the window floats with, small and on top (ui::room::floating).
+    floating: Option<TileKey>,
     chat_hidden: bool,
     rail_hidden: bool,
     /// "Há uma mensagem não enviada…" is open.
@@ -313,11 +317,12 @@ fn boot() -> (App, Task<Message>) {
 /// Brings the (possibly hidden) window back as the room window, out of the panel's mode, and focuses it.
 fn show_window(app: &mut App) -> Task<Message> {
     app.visible = true;
+    let unfloat = if app.compact { Task::none() } else { set_floating(app, None) };
     let was_compact = std::mem::take(&mut app.compact);
     // Tauri centers it on its monitor; the cursor is on the one the user just clicked.
     let (cx, cy) = ui::panel::cursor();
     let area = was_compact.then(|| ui::panel::work_area(cx, cy)).flatten();
-    with_window(move |id| {
+    unfloat.chain(with_window(move |id| {
         let full = if was_compact {
             let frame = window::toggle_decorations(id)
                 .chain(window::set_resizable(id, true))
@@ -334,7 +339,7 @@ fn show_window(app: &mut App) -> Task<Message> {
         };
         let button = if was_compact { taskbar(id, true) } else { Task::none() };
         full.chain(window::minimize(id, false)).chain(window::set_mode(id, window::Mode::Windowed)).chain(button).chain(window::gain_focus(id))
-    })
+    }))
 }
 
 /// Runs a window task on the app's only window.
@@ -344,6 +349,8 @@ fn with_window(task: impl Fn(window::Id) -> Task<Message> + Send + 'static) -> T
 
 /// Tauri's present_window(compact): frameless, fixed, on top, 430×660 by the tray icon.
 fn open_panel(app: &mut App, (x, y, w, h): (f64, f64, f64, f64)) -> Task<Message> {
+    // The panel sizes and lifts the window itself; leaving it restores the room window.
+    app.floating = None;
     let windowed = set_fullscreen(app, None);
     let framed = !app.compact;
     app.compact = true;
@@ -604,7 +611,7 @@ fn update(app: &mut App, message: Message) -> Task<Message> {
                 }
             }
             // Dropping Running joins the session thread: the engine stops the share and closes peers.
-            let windowed = set_fullscreen(app, None);
+            let windowed = set_floating(app, None);
             let App { name, rooms, last_share, mic_device, output_device, output_muted, room_sounds, camera_device, profile, advanced, has_tray, notice, chat_hidden, rail_hidden, compact, visible, voice_volumes, update, updating, .. } = std::mem::take(app);
             *app = App { name, rooms, last_share, mic_device, output_device, output_muted, room_sounds, camera_device, profile, advanced, has_tray, notice, chat_hidden, rail_hidden, compact, visible, voice_volumes, update, updating, ..Default::default() };
             tray::update(tray_state(app));
@@ -859,6 +866,7 @@ fn update(app: &mut App, message: Message) -> Task<Message> {
         Message::Tick => return tick(app),
         Message::Focus(key) => app.focused = (app.focused.as_ref() != Some(&key)).then_some(key),
         Message::Fullscreen(key) => return set_fullscreen(app, key),
+        Message::Float(key) => return set_floating(app, key),
         Message::ToggleChat => {
             app.chat_hidden = !app.chat_hidden;
             app.chat_toggled = Some(Instant::now());
@@ -912,6 +920,7 @@ fn shortcut(app: &mut App, key: keyboard::Key, modifiers: keyboard::Modifiers) -
         (Key::Named(Named::Escape), Some(_)) => Message::CloseWizard,
         (Key::Named(Named::Escape), None) if app.peer_options.is_some() => Message::PeerOptions(None),
         (Key::Named(Named::Escape), None) if app.fullscreen.is_some() => Message::Fullscreen(None),
+        (Key::Named(Named::Escape), None) if app.floating.is_some() => Message::Float(None),
         (Key::Named(Named::Escape), None) if app.device_picker.is_some() => Message::DevicePicker(None),
         // Like the web menu: Esc leaves a field's options first, then closes the menu.
         (Key::Named(Named::Escape), None) if app.share_menu.is_some() => {
@@ -1163,6 +1172,8 @@ fn tick(app: &mut App) -> Task<Message> {
     app.quality.refresh(view);
     // Like the browser leaving fullscreen when the video element goes away.
     let windowed = if app.fullscreen.as_ref().is_some_and(|key| !is_shared(view, key)) { set_fullscreen(app, None) } else { Task::none() };
+    // A share that ended takes its floating window back to the room.
+    let windowed = if app.floating.as_ref().is_some_and(|key| !is_shared(&app.view, key)) { windowed.chain(set_floating(app, None)) } else { windowed };
     // Only the newest frame per tile is kept; the window uploads it when it draws.
     for (key, snapshot) in frames {
         app.sent += 1;
@@ -1172,6 +1183,23 @@ fn tick(app: &mut App) -> Task<Message> {
         tile.version = app.sent;
     }
     unfocus.chain(windowed)
+}
+
+/// The web's Picture-in-Picture: the room window itself shrinks to `key`'s video, on top of other
+/// windows, and comes back to the room's size with None.
+fn set_floating(app: &mut App, key: Option<TileKey>) -> Task<Message> {
+    let was = app.floating.is_some();
+    let windowed = set_fullscreen(app, None);
+    app.floating = key;
+    match (was, app.floating.is_some()) {
+        (false, true) => windowed.chain(with_window(|id| {
+            window::set_level(id, window::Level::AlwaysOnTop).chain(window::resize(id, Size::new(480.0, 270.0)))
+        })),
+        (true, false) => windowed.chain(with_window(|id| {
+            window::set_level(id, window::Level::Normal).chain(window::resize(id, Size::new(1280.0, 780.0))).chain(window::gain_focus(id))
+        })),
+        _ => windowed,
+    }
 }
 
 /// The window follows `app.fullscreen`; leaving it only touches a window that was fullscreen.
@@ -1342,6 +1370,9 @@ fn start(room: String, name: String) -> Running {
 fn view(app: &App) -> Element<'_, Message> {
     if app.compact {
         return ui::panel::view(app);
+    }
+    if let Some(key) = app.floating.as_ref().filter(|_| app.running.is_some()) {
+        return room::floating(app, key);
     }
     if app.running.is_some() {
         // Like the web #app-screen fade-in: the room comes up from the window's background.
