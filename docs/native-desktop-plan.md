@@ -373,13 +373,19 @@ O PostHog fica como opção futura, só para análise de produto (duração dos 
 4. **Validar à mão:**
    - o áudio do PC, que o #76 refez: cada app é mixado e ficam de fora os apps de chamada e o próprio Screenshare. O teste ao vivo do `live_mix` passou no Windows 10, mas nenhum share real foi feito de ponta a ponta;
    - o share pelo assistente usando o mouse.
-5. **Encoder por hardware no Windows:** ainda só CPU. A mitigação atual é preferir H264 nos presets de jogo e vídeo (`share.rs`); no macOS, o H264 já sai pelo VideoToolbox.
-   - O `webrtc-sys` do fork (`RafaelrainBR/rust-sdks`, rev `81434ab`) já traz o NVENC: `src/nvidia/`, com H264, H265 e AV1. Só que ele só compila no Linux, dentro do bloco `"linux"` do `build.rs` e com `CUDA_HOME`. O VAAPI do Windows está comentado.
-   - Para ligar no Windows:
-     - compilar as fontes de `src/nvidia/` também no bloco `"windows"`;
-     - trocar `dlopen`/`dlsym` por `LoadLibrary`/`GetProcAddress` em `nvidia_encoder_factory.cpp` (`nvEncodeAPI64.dll`), `nvidia_decoder_factory.cpp` e `NvEncoder.cpp`. O `cuda_context.cpp` já tem o ramo `nvcuda.dll`;
-     - pôr os headers do CUDA (`cuda.h`) no runner do CI.
-   - Vale testar: a máquina de desenvolvimento tem uma RTX 3060. Falta medir a CPU do share num jogo, antes e depois.
+5. **Encoder por hardware no Windows** (feito em 24/10/2026, NVENC): numa GPU NVIDIA, o H264 dos presets de jogo e vídeo sai pelo NVENC. Sem NVIDIA, continua no software, e o macOS continua no VideoToolbox.
+   - **Fork** (`RafaelrainBR/rust-sdks`, branch `screenshare/nvenc-windows`, rev `5f4f783`, PR RafaelrainBR/rust-sdks#1). O `build.rs` compila o encoder de `src/nvidia/` no Windows quando há `CUDA_PATH/include/cuda.h`. O probe carrega o `nvEncodeAPI64.dll` por `LoadLibrary`. O `NvEncoder.h` inclui o `winsock2.h` antes do `windows.h`. O decoder ganhou a macro própria `USE_NVIDIA_VIDEO_DECODER`, só no Linux, porque no Windows precisaria do `nvcuvid.lib`. O NVENC escolhe o level do H264 sozinho: o `42e01f` é level 3.1, e 1080p60 preso a ele dava `NV_ENC_ERR_INVALID_PARAM`.
+   - **App:**
+     - o `desktop-native/build.rs` passa `/DELAYLOAD:nvcuda.dll`, então o exe abre sem driver NVIDIA (`dumpbin` confirma: só delay load);
+     - o `share::preferred_video_codecs` põe o H264 `42e01f` com `packetization-mode=1` primeiro entre os perfis H264, porque é o único que a fábrica NVENC anuncia. Antes, o WebRTC negociava outro perfil e caía no OpenH264.
+   - **CI:** o `release-native.yml` baixa o `cuda_cudart` 12.6.77 da NVIDIA (2,5 MB, SHA256 conferido) e define `CUDA_PATH`. Só o build Windows do release compila isso; o `native-check` é só macOS.
+   - **Medido** pelo teste ignorado `h264_1080p60_encoder_and_cpu` (`lib.rs`), na RTX 3060 com o Xeon E5-2640 v3. São dois peers locais, H264 1080p60 com quadros em movimento, e a CPU é a do processo inteiro, incluindo a decodificação no outro peer:
+
+     | Encoder | Entregue | CPU |
+     |---|---|---|
+     | OpenH264 | 30 fps (ele mesmo pula quadros) | 1,05 núcleo |
+     | NVENC | 60 fps | 0,25 núcleo |
+   - **Não testado:** um share real num jogo; máquinas sem NVIDIA (só pelo delay-load e pelo `LoadLibrary` antes de qualquer chamada CUDA); AMD/Intel (AMF/QSV continuam sem suporte).
 6. **Polimento pequeno** (feito em 24/10/2026, #94): o macOS respeita "Reduzir movimento" (`defaults read com.apple.universalaccess reduceMotion`; não testado num Mac). O hover do dock troca de cor em 150 ms, como no site (`motion::hover`).
 
 ## Riscos

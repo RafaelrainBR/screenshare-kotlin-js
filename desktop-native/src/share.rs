@@ -85,15 +85,19 @@ pub fn share_bitrate(profile: ShareProfile, height: u32) -> u64 {
 
 /// VP9 > H264 > VP8 > AV1, keeping RTX/RED/ULPFEC: without them fullscreen video corrupts
 /// as soon as packets are lost. `h264_first` (game and video shares) is this side's take on the
-/// web's hardware-first order: this libwebrtc has no GPU encoder on Windows, and H264 is the
-/// cheapest software codec there and the VideoToolbox one on macOS. Software VP9 at 60 fps
-/// takes cores from the game being shared.
+/// web's hardware-first order: H264 goes to NVENC on an NVIDIA GPU, to VideoToolbox on macOS,
+/// and is the cheapest software codec elsewhere. Software VP9 at 60 fps takes cores from the
+/// game being shared.
 pub fn preferred_video_codecs(capabilities: Vec<RtpCodecCapability>, h264_first: bool) -> Vec<RtpCodecCapability> {
     let ends = |codec: &RtpCodecCapability, id: &str| codec.mime_type.to_lowercase().ends_with(id);
     let mut preferred = Vec::new();
     let video = if h264_first { ["h264", "vp9", "vp8", "av1"] } else { ["vp9", "h264", "vp8", "av1"] };
     for id in video.into_iter().chain(["rtx", "red", "ulpfec"]) {
-        preferred.extend(capabilities.iter().filter(|codec| ends(codec, id)).cloned());
+        let mut group: Vec<_> = capabilities.iter().filter(|codec| ends(codec, id)).cloned().collect();
+        // NVENC only takes constrained baseline with packetization-mode 1; any other H264 profile
+        // listed first would be negotiated and land on OpenH264. Browsers decode it everywhere.
+        group.sort_by_key(|codec| !codec.sdp_fmtp_line.as_deref().is_some_and(|fmtp| fmtp.contains("profile-level-id=42e01f") && fmtp.contains("packetization-mode=1")));
+        preferred.extend(group);
     }
     preferred
 }
@@ -257,6 +261,21 @@ mod tests {
         let order = |h264_first| -> Vec<_> { preferred_video_codecs(caps.to_vec(), h264_first).into_iter().map(|c| c.mime_type).collect() };
         assert_eq!(order(false), ["video/VP9", "video/H264", "video/VP8", "video/AV1", "video/rtx", "video/red", "video/ulpfec"]);
         assert_eq!(order(true), ["video/H264", "video/VP9", "video/VP8", "video/AV1", "video/rtx", "video/red", "video/ulpfec"]);
+    }
+
+    #[test]
+    fn the_h264_profile_nvenc_takes_comes_first() {
+        let h264 = |fmtp: &str| RtpCodecCapability { channels: None, clock_rate: Some(90_000), mime_type: "video/H264".into(), sdp_fmtp_line: Some(fmtp.into()) };
+        let caps = vec![
+            h264("level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42001f"),
+            h264("level-asymmetry-allowed=1;packetization-mode=0;profile-level-id=42e01f"),
+            h264("level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42e01f"),
+            h264("level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=640c1f"),
+        ];
+        let order: Vec<_> = preferred_video_codecs(caps, true).into_iter().map(|c| c.sdp_fmtp_line.unwrap()).collect();
+        assert_eq!(order[0], "level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42e01f");
+        // The rest keep libwebrtc's order.
+        assert!(order[1].ends_with("42001f") && order[2].contains("packetization-mode=0") && order[3].ends_with("640c1f"));
     }
 
     #[test]
