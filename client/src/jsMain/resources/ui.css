@@ -127,6 +127,14 @@ body.compact-tray .tray-panel { display: flex; flex-direction: column; height: 1
 .input:focus, .select:focus { border-color: var(--accent); }
 .input[aria-invalid=true] { border-color: var(--red); }
 .field-hint { color: var(--faint); font-size: 11px; margin: -3px 0 9px; }
+/* Recent and favorite rooms: a click joins, the star keeps one at the front. */
+.recent-rooms { display: flex; flex-wrap: wrap; gap: 6px; margin: -3px 0 9px; }
+.recent-room { display: inline-flex; align-items: center; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--surface-2); }
+.recent-room button { border: 0; background: none; color: var(--text); min-height: 30px; }
+.recent-room-join { max-width: 180px; padding: 0 4px 0 10px; font: 13px var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.recent-room-star { width: 28px; padding: 0; color: var(--faint); font-size: 14px; }
+.recent-room-star[aria-pressed="true"] { color: var(--amber); }
+.recent-room:hover { border-color: var(--line-2); }
 .field-error { color: var(--red); font-size: 11px; }
 .join-fields .btn { width: 100%; margin-top: 5px; }
 

@@ -65,6 +65,7 @@ fun registerUIHandlers(
     onShareProfileChange: (ShareProfile) -> Unit,
 ) {
     setupJoinButtonHandler(joinRoom)
+    RecentRooms.render()
     setupSendMessageButtonHandler(sendChatMessage)
     setupMicToggleButtonHandler(onMicButtonToggle)
     shareProfileListener = onShareProfileChange
@@ -99,6 +100,7 @@ private fun setupJoinButtonHandler(joinRoom: (username: String, roomId: String) 
         Elements.currentRoomId.textContent = roomId
         window.localStorage.setItem("screenshare.lastUsername", username)
         window.localStorage.setItem("screenshare.lastRoomId", roomId)
+        RecentRooms.remember(roomId)
 
         joinRoom(username, roomId)
     })
