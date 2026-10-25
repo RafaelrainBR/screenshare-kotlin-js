@@ -59,6 +59,11 @@ impl std::fmt::Display for PresetChoice {
 
 /// Lists sources off the UI thread, skipping this app's own windows.
 pub fn load_sources() -> Task<Message> {
+    load_sources_into(Message::Sources)
+}
+
+/// A listing without our own windows, delivered as `message`.
+pub fn load_sources_into(message: fn(Vec<Source>) -> Message) -> Task<Message> {
     Task::perform(
         async {
             let own = std::process::id();
@@ -68,7 +73,7 @@ pub fn load_sources() -> Task<Message> {
             .await
             .unwrap_or_default()
         },
-        Message::Sources,
+        message,
     )
 }
 

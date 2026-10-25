@@ -11,6 +11,9 @@ const LOGO: &[u8] = include_bytes!("../../../client/src/jsMain/resources/brand/s
 const PERSON: &str = r#"<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/>"#;
 const HASH: &str = r#"<path d="M5 9h15M4 15h15M10 3 8 21M16 3l-2 18"/>"#;
 const ARROW: &str = r#"<path d="M5 12h14M13 6l6 6-6 6"/>"#;
+// The star, outlined or filled (the web uses ☆ and ★).
+const STAR: &str = r#"<path d="m12 3 2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1-4.4-4.3 6.1-.9L12 3z"/>"#;
+const STAR_FILLED: &str = r##"<path fill="#fff" d="m12 3 2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1-4.4-4.3 6.1-.9L12 3z"/>"##;
 
 pub fn view(app: &App) -> Element<'_, Message> {
     let ready = !app.name.trim().is_empty();
@@ -30,6 +33,7 @@ pub fn view(app: &App) -> Element<'_, Message> {
         text("Código da sala"),
         with_icon(HASH, room),
         text("Código opcional ao criar uma sala.").size(11).color(theme::FAINT),
+        recent_rooms(app),
         // .startup-option: shown in the desktop apps.
         checkbox(app.autostart).label("Iniciar com o sistema e voltar a esta sala").on_toggle(Message::ToggleAutostart).text_size(13).spacing(9),
         container(join).padding(iced::Padding { top: 5.0, ..iced::Padding::ZERO }),
@@ -73,4 +77,23 @@ fn primary(status: button::Status) -> button::Style {
         button::Status::Active => theme::ACCENT,
     };
     button::Style { background: Some(Background::Color(color)), text_color: theme::ON_ACCENT, border: Border { radius: 8.0.into(), ..Default::default() }, ..Default::default() }
+}
+
+/// .recent-rooms: up to five recent rooms and the favorites, a click joins, the star pins one.
+fn recent_rooms(app: &App) -> Element<'_, Message> {
+    let chips = app.rooms.iter().map(|room| {
+        let join = button(text(room.id.as_str()).size(13).font(iced::Font::MONOSPACE))
+            .padding(iced::Padding { top: 6.0, bottom: 6.0, left: 10.0, right: 4.0 })
+            .style(|_, _| button::Style { text_color: theme::TEXT, ..Default::default() })
+            .on_press(Message::PickRoom(room.id.clone()));
+        let (glyph, color, hint) = if room.favorite { (STAR_FILLED, theme::AMBER, "Tirar dos favoritos") } else { (STAR, theme::FAINT, "Favoritar") };
+        let star = button(dock::icon(glyph, 14.0, color)).padding([7, 8]).style(|_, _| button::Style::default()).on_press(Message::ToggleFavoriteRoom(room.id.clone()));
+        let chip = container(row![join, dock::hint_on(star.into(), hint.into())].align_y(Alignment::Center)).style(|_| container::Style {
+            background: Some(theme::SURFACE_2.into()),
+            border: Border { color: theme::LINE, width: 1.0, radius: 8.0.into() },
+            ..Default::default()
+        });
+        chip.into()
+    });
+    iced::widget::Row::with_children(chips).spacing(6).wrap().vertical_spacing(6).into()
 }
