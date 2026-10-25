@@ -75,6 +75,15 @@ class RTCPeerConnectionDecorator(
 
     fun hasTrack(track: MediaStreamTrack): Boolean = senderForTrack(track.id) != null
 
+    /** Stats of only the sender, or else the receiver, carrying [trackId]; null when neither does. */
+    fun trackStats(trackId: String): Promise<dynamic>? {
+        val sender = senderForTrack(trackId)
+        if (sender != null) return sender.getStats().unsafeCast<Promise<dynamic>>()
+        val receivers = windowRTCPeerConnection.getReceivers().unsafeCast<Array<dynamic>>()
+        val receiver = receivers.firstOrNull { it.track?.id == trackId } ?: return null
+        return receiver.getStats().unsafeCast<Promise<dynamic>>()
+    }
+
     // A stopped track left on its sender keeps the m-line "sendonly"; every renegotiation then
     // re-fires `track` on the viewer with that dead track.
     fun removeEndedSenders() {

@@ -21,6 +21,8 @@
   --red-line: #a8525e;
   --red-strong: #9b3845;
   --red-bg: #2a1a21;
+  --amber: #f2c46d;
+  --amber-line: #8a6d33;
   --radius: 10px;
   --radius-sm: 8px;
   --font: "Barlow", Arial, sans-serif;
@@ -216,6 +218,16 @@ button.glass-chip { width: 34px; justify-content: center; padding: 0; }
 .screen-tile.video-hidden video { visibility: hidden; }
 .screen-tile.video-hidden::after { content: "Vídeo oculto"; position: absolute; inset: 0; display: grid; place-items: center; color: var(--dim); }
 .screen-tile.video-hidden .screen-tile-controls { z-index: 3; }
+/* "Por que está travando?": only while something holds the quality back; a click explains it. */
+.quality-chip {
+  position: absolute; left: 12px; top: 12px; z-index: 2;
+  display: flex; align-items: center; gap: 6px; min-height: 30px; padding: 0 10px;
+  border: 1px solid var(--amber-line); border-radius: var(--radius-sm);
+  background: rgba(16,19,24,.92); color: var(--amber); font-size: 13px; font-weight: 700;
+}
+.quality-chip svg { width: 16px; height: 16px; }
+.screens-rail .quality-chip { left: 5px; top: 5px; min-height: 22px; padding: 0 5px; }
+.screens-rail .quality-chip span { display: none; }
 .tile-name { display: none; }
 .screens-rail .tile-name {
   position: absolute; left: 6px; bottom: 6px; z-index: 1; display: block; max-width: calc(100% - 12px);

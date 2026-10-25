@@ -286,6 +286,17 @@ object InterfaceMutations {
         tile.appendChild(video)
         tile.appendChild(tileName(username))
 
+        // "Por que está travando?" (services/ConnectionQuality.kt): hidden until a problem holds.
+        val quality = document.createElement("button") as HTMLButtonElement
+        quality.type = "button"
+        quality.className = "quality-chip hidden"
+        quality.addEventListener("click", { e ->
+            e.preventDefault()
+            e.stopPropagation()
+            quality.getAttribute("data-explanation")?.let { showError(it) }
+        })
+        tile.appendChild(quality)
+
         val controls = document.createElement("div") as HTMLElement
         controls.className = "screen-tile-controls"
 
@@ -397,6 +408,23 @@ object InterfaceMutations {
         })
 
         return tile
+    }
+
+    /** Shows [label] on the tile's quality chip, or hides it; a click shows [explanation]. */
+    fun setTileQuality(
+        tileId: String,
+        label: String?,
+        explanation: String?,
+    ) {
+        val chip = findTile(tileId)?.querySelector(".quality-chip") as? HTMLElement ?: return
+        chip.classList.toggle("hidden", label == null)
+        if (label == null || explanation == null) return
+        chip.title = explanation
+        chip.setAttribute("aria-label", "$label. $explanation")
+        chip.setAttribute("data-explanation", explanation)
+        chip.innerHTML =
+            """<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 2 20h20L12 3z"/><path d="M12 10v4M12 17h.01"/></svg>"""
+        chip.appendChild((document.createElement("span") as HTMLElement).apply { textContent = label })
     }
 
     fun removeScreenTile(tileId: String) {

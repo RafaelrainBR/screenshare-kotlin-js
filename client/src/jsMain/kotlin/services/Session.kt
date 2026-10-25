@@ -48,6 +48,10 @@ class Session(
             localUsername = localUsername,
         )
     val peerConnections = PeerConnections(voiceChat, screenSharing, cameraSharing)
+    private val connectionQuality =
+        ConnectionQuality(peerConnections, screenSharing) { socketId ->
+            userList.firstOrNull { it.socketId == socketId }?.username ?: socketId.takeLast(6)
+        }
 
     init {
         peerConnections.setVideoReception(
@@ -59,6 +63,7 @@ class Session(
                     .hidden as Boolean,
             ),
         )
+        connectionQuality.start(this)
         mediaCaptureGate.setAvailable(false)
         UserListMutations.clearUserMediaSharing()
         launch {
@@ -338,6 +343,7 @@ class Session(
     fun dispose() {
         if (disposed) return
         disposed = true
+        connectionQuality.stop()
         mediaCaptureGate.setAvailable(false)
         ++screenShareGeneration
         screenSharing.stopScreenSharing(recreatePeerConnections = {})
