@@ -325,6 +325,7 @@ button.participant-options { position: absolute; top: 5px; right: 5px; width: 28
 }
 .picker-panel label { display: block; margin-bottom: 6px; font-weight: 700; }
 .picker-panel .select { width: 100%; height: 36px; }
+.feedback-text { width: 100%; height: auto; min-height: 96px; margin: 4px 0 12px; padding: 8px 10px; resize: vertical; }
 .picker-panel .sound-option { display: flex; align-items: center; gap: 8px; margin: 10px 0 0; font-weight: 400; font-size: 13px; cursor: pointer; }
 .toolgroup.with-device:nth-child(3) .picker-panel { left: -42px; right: auto; }
 .share-picker .picker-panel { left: calc(-1 * var(--control-size)); right: auto; width: min(290px, calc(100vw - 24px)); padding: 6px; }

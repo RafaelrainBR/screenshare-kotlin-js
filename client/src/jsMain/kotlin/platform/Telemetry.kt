@@ -10,6 +10,8 @@ private external object Sentry {
     fun replayIntegration(options: dynamic): dynamic
 
     fun consoleLoggingIntegration(options: dynamic): dynamic
+
+    fun captureFeedback(params: dynamic): dynamic
 }
 
 // A DSN is public by design. Only the hosted site sends: local builds, self-hosts and the Tauri app don't.
@@ -19,6 +21,10 @@ private const val HOST = "screen-share.fly.dev"
 
 /** Errors, warnings and a few replays of sessions with an error (docs/native-desktop-plan.md, F7). */
 object Telemetry {
+    // Only where init ran: the feedback button stays hidden elsewhere.
+    var enabled = false
+        private set
+
     fun init() {
         if (window.location.hostname != HOST) return
         val options: dynamic = js("({})")
@@ -41,5 +47,14 @@ object Telemetry {
             event
         }
         Sentry.init(options)
+        enabled = true
     }
+}
+
+/** "Algo deu errado?": the user's words, with Sentry's usual breadcrumbs and no name or room. */
+fun sendFeedback(message: String) {
+    if (!Telemetry.enabled) return
+    val params: dynamic = js("({})")
+    params.message = message.take(2_000)
+    Sentry.captureFeedback(params)
 }

@@ -66,6 +66,7 @@ fun registerUIHandlers(
 ) {
     setupJoinButtonHandler(joinRoom)
     RecentRooms.render()
+    Feedback.setup()
     setupSendMessageButtonHandler(sendChatMessage)
     setupMicToggleButtonHandler(onMicButtonToggle)
     shareProfileListener = onShareProfileChange
