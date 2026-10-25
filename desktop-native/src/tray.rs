@@ -17,6 +17,8 @@ pub enum Action {
     Camera,
     Output,
     Screen,
+    /// "Compartilhar de novo: …", the last source of this run.
+    ShareAgain,
     Leave,
     /// "Atualizar para a versão …": install it, or open its page.
     Update,
@@ -38,6 +40,8 @@ pub struct State {
     pub remote_sharing: bool,
     /// The update item's text, once a newer release is known.
     pub update: Option<String>,
+    /// The last shared source's title, while it can be shared again.
+    pub share_again: Option<String>,
 }
 
 struct Tray {
@@ -49,6 +53,7 @@ struct Tray {
     camera: MenuItem,
     output: MenuItem,
     screen: MenuItem,
+    share_again: MenuItem,
     leave: MenuItem,
     shown: State,
 }
@@ -72,12 +77,13 @@ pub fn install() -> bool {
     let build = || -> Result<Tray, Box<dyn std::error::Error>> {
         let (rgba, width, height) = icon_rgba().ok_or("icon")?;
         let item = |id: &str, text: &str, enabled: bool| MenuItem::with_id(id, text, enabled, None);
-        let (open, mic, camera, output, screen, leave, logs, quit) = (
+        let (open, mic, camera, output, screen, share_again, leave, logs, quit) = (
             item("open", "Abrir sala", true),
             item("mic", "Microfone silenciado · Ativar", false),
             item("camera", "Câmera desligada · Ligar", false),
             item("output", "Silenciar áudio", true),
             item("screen", "Compartilhar tela ou janela…", false),
+            item("share_again", "Compartilhar de novo", false),
             item("leave", "Sair da sala", false),
             item("logs", "Abrir pasta de logs", true),
             item("quit", "Encerrar app", true),
@@ -90,6 +96,7 @@ pub fn install() -> bool {
             &camera,
             &output,
             &screen,
+            &share_again,
             &PredefinedMenuItem::separator(),
             &leave,
             &PredefinedMenuItem::separator(),
@@ -102,7 +109,7 @@ pub fn install() -> bool {
             .with_menu(Box::new(menu.clone()))
             .with_menu_on_left_click(false)
             .build()?;
-        Ok(Tray { icon, menu, update: None, mic, camera, output, screen, leave, shown: State::default() })
+        Ok(Tray { icon, menu, update: None, mic, camera, output, screen, share_again, leave, shown: State::default() })
     };
     match build() {
         Ok(tray) => {
@@ -131,6 +138,7 @@ pub fn actions() -> Vec<Action> {
             "camera" => Some(Action::Camera),
             "output" => Some(Action::Output),
             "screen" => Some(Action::Screen),
+            "share_again" => Some(Action::ShareAgain),
             "leave" => Some(Action::Leave),
             "update" => Some(Action::Update),
             "logs" => Some(Action::Logs),
@@ -158,6 +166,8 @@ pub fn update(state: State) {
         }
         tray.output.set_enabled(state.connected);
         tray.leave.set_enabled(state.in_room);
+        tray.share_again.set_text(share_again_label(state.share_again.as_deref()));
+        tray.share_again.set_enabled(state.share_again.is_some());
         match (&tray.update, &state.update) {
             (Some(item), Some(label)) => item.set_text(label),
             (None, Some(label)) => {
@@ -171,6 +181,15 @@ pub fn update(state: State) {
         let _ = tray.icon.set_tooltip(Some(tooltip(&state)));
         tray.shown = state;
     });
+}
+
+/// The title says what will go out; a long one is cut, as menus do not wrap.
+fn share_again_label(title: Option<&str>) -> String {
+    match title {
+        Some(title) if title.chars().count() > 40 => format!("Compartilhar de novo: {}…", title.chars().take(39).collect::<String>()),
+        Some(title) => format!("Compartilhar de novo: {title}"),
+        None => "Compartilhar de novo".into(),
+    }
 }
 
 fn tooltip(state: &State) -> String {
@@ -192,6 +211,9 @@ mod tests {
         assert_eq!(tooltip(&State { participants: 3, ..State::default() }), "Screenshare · 3 participantes");
         assert_eq!(tooltip(&State { participants: 2, remote_sharing: true, ..State::default() }), "Screenshare · 2 participantes · compartilhamento disponível");
         assert_eq!(tooltip(&State { participants: 2, sharing: true, remote_sharing: true, ..State::default() }), "Screenshare · 2 participantes · Compartilhando a tela");
+        assert_eq!(share_again_label(None), "Compartilhar de novo");
+        assert_eq!(share_again_label(Some("Valorant")), "Compartilhar de novo: Valorant");
+        assert_eq!(share_again_label(Some(&"a".repeat(50))).chars().count(), "Compartilhar de novo: ".len() + 40);
         let (rgba, width, height) = icon_rgba().unwrap();
         assert_eq!((width, height, rgba.len()), (32, 32, 32 * 32 * 4));
     }

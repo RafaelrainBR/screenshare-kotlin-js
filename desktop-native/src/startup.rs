@@ -198,3 +198,77 @@ pub fn set_autostart(enabled: bool) -> Result<(), String> {
     let _ = path.parent().map(std::fs::create_dir_all);
     std::fs::write(&path, plist).map_err(|error| format!("Não foi possível alterar o início automático do sistema ({error})."))
 }
+
+/// The join screen's recent and favorite rooms (the web's screenshare.recentRooms).
+#[derive(Clone, Debug, Default, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
+pub struct RecentRoom {
+    pub id: String,
+    #[serde(default)]
+    pub favorite: bool,
+}
+
+const MAX_RECENT: usize = 5;
+const MAX_ROOM_ID: usize = 64;
+
+pub fn recent_rooms() -> Vec<RecentRoom> {
+    read("rooms.json")
+}
+
+pub fn save_recent_rooms(rooms: &[RecentRoom]) {
+    write("rooms.json", &rooms);
+}
+
+/// `id` goes to the front of the recent ones; favorites keep their place and never age out.
+pub fn remember_room(rooms: &[RecentRoom], id: &str) -> Vec<RecentRoom> {
+    if id.trim().is_empty() || id.len() > MAX_ROOM_ID || rooms.iter().any(|room| room.id == id && room.favorite) {
+        return rooms.to_vec();
+    }
+    let others = rooms.iter().filter(|room| room.id != id);
+    let favorites = others.clone().filter(|room| room.favorite).cloned();
+    let recent = std::iter::once(RecentRoom { id: id.into(), favorite: false }).chain(others.filter(|room| !room.favorite).cloned()).take(MAX_RECENT);
+    favorites.chain(recent).collect()
+}
+
+/// Unstarring keeps the room as the newest recent one.
+pub fn toggle_favorite(rooms: &[RecentRoom], id: &str) -> Vec<RecentRoom> {
+    let Some(room) = rooms.iter().find(|room| room.id == id) else { return rooms.to_vec() };
+    let others: Vec<_> = rooms.iter().filter(|room| room.id != id).cloned().collect();
+    if room.favorite {
+        remember_room(&others, id)
+    } else {
+        let starred = RecentRoom { id: id.into(), favorite: true };
+        others.iter().filter(|room| room.favorite).cloned().chain([starred]).chain(others.iter().filter(|room| !room.favorite).cloned()).collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn ids(rooms: &[RecentRoom]) -> Vec<String> {
+        rooms.iter().map(|room| if room.favorite { format!("*{}", room.id) } else { room.id.clone() }).collect()
+    }
+
+    fn remember_all(rooms: Vec<RecentRoom>, ids: &[&str]) -> Vec<RecentRoom> {
+        ids.iter().fold(rooms, |rooms, id| remember_room(&rooms, id))
+    }
+
+    // The same cases as the web's RecentRoomsTest.
+    #[test]
+    fn the_newest_room_leads_the_recent_ones_and_only_five_stay() {
+        let rooms = remember_all(vec![], &["a", "b", "c", "d", "e", "f"]);
+        assert_eq!(ids(&rooms), ["f", "e", "d", "c", "b"]);
+        assert_eq!(ids(&remember_room(&rooms, "c")), ["c", "f", "e", "d", "b"]);
+        assert_eq!(ids(&remember_room(&rooms, " ")), ids(&rooms));
+        assert_eq!(ids(&remember_room(&rooms, &"x".repeat(65))), ids(&rooms));
+    }
+
+    #[test]
+    fn favorites_stay_at_the_front_and_never_age_out() {
+        let rooms = toggle_favorite(&remember_all(vec![], &["a", "b", "c"]), "a");
+        assert_eq!(ids(&rooms), ["*a", "c", "b"]);
+        let rooms = remember_all(rooms, &["d", "e", "f", "g", "h", "a"]);
+        assert_eq!(ids(&rooms), ["*a", "h", "g", "f", "e", "d"]);
+        assert_eq!(ids(&toggle_favorite(&rooms, "a")), ["a", "h", "g", "f", "e"]);
+    }
+}

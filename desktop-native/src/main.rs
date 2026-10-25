@@ -55,6 +55,11 @@ pub enum Message {
     OpenWizard,
     CloseWizard,
     Sources(Vec<desktop_native::sources::Source>),
+    /// A recent room on the join screen: fill it in and join.
+    PickRoom(String),
+    ToggleFavoriteRoom(String),
+    /// The tray's "Compartilhar de novo": a fresh listing, to find the same source again.
+    ShareAgain(Vec<desktop_native::sources::Source>),
     Thumbnail(String, Option<image::Handle>),
     Pick(String),
     ToggleShareAudio,
@@ -159,6 +164,10 @@ pub struct Tile {
 #[derive(Default)]
 pub struct App {
     room: String,
+    /// Recent and favorite rooms (rooms.json).
+    rooms: Vec<startup::RecentRoom>,
+    /// The source and audio choice of the last share, this run only: window ids change between runs.
+    last_share: Option<(desktop_native::sources::Source, bool)>,
     name: String,
     draft: String,
     running: Option<Running>,
@@ -278,6 +287,7 @@ fn boot() -> (App, Task<Message>) {
         visible: !startup::launched_at_login(),
         name: if last.name.trim().is_empty() { whoami() } else { last.name },
         room: last.room,
+        rooms: startup::recent_rooms(),
         profile: ui::profile::load(),
         autostart: startup::autostart_enabled(),
         has_tray: tray::install(),
@@ -417,6 +427,7 @@ fn tray_action(app: &mut App, action: tray::Action) -> Task<Message> {
         tray::Action::Screen if sharing(&app.view) => update(app, Message::StopShare),
         // Forms open in the full window, as in the Tauri app.
         tray::Action::Screen => show_window(app).chain(update(app, Message::OpenWizard)),
+        tray::Action::ShareAgain => ui::wizard::load_sources_into(Message::ShareAgain),
         tray::Action::Leave => update(app, Message::Leave),
         tray::Action::Update => update(app, Message::Update),
         tray::Action::Logs => {
@@ -452,6 +463,8 @@ fn tray_state(app: &App) -> tray::State {
         sharing: sharing(view),
         participants: view.participants.len(),
         remote_sharing: view.screen_sharers.iter().chain(&view.camera_sharers).any(|id| Some(id.as_str()) != local),
+        // Checked again on click against a fresh listing (Message::ShareAgain).
+        share_again: app.last_share.as_ref().filter(|_| local.is_some() && !sharing(view)).map(|(source, _)| source.title.clone()),
         update: update_label(app),
     }
 }
@@ -539,6 +552,14 @@ fn update(app: &mut App, message: Message) -> Task<Message> {
     }
     match message {
         Message::Room(value) => app.room = value,
+        Message::PickRoom(id) => {
+            app.room = id;
+            return update(app, Message::Join);
+        }
+        Message::ToggleFavoriteRoom(id) => {
+            app.rooms = startup::toggle_favorite(&app.rooms, &id);
+            startup::save_recent_rooms(&app.rooms);
+        }
         Message::Name(value) => app.name = value,
         Message::Join if app.running.is_none() && !app.name.trim().is_empty() => {
             // Empty code creates a room, like the web join form.
@@ -547,6 +568,8 @@ fn update(app: &mut App, message: Message) -> Task<Message> {
                 code => code.into(),
             };
             startup::save_last_room(app.name.trim(), &app.room);
+            app.rooms = startup::remember_room(&app.rooms, &app.room);
+            startup::save_recent_rooms(&app.rooms);
             app.running = Some(start(app.room.clone(), app.name.trim().into()));
             app.entered = Some(Instant::now());
             return operation::focus(room::CHAT_INPUT);
@@ -582,8 +605,8 @@ fn update(app: &mut App, message: Message) -> Task<Message> {
             }
             // Dropping Running joins the session thread: the engine stops the share and closes peers.
             let windowed = set_fullscreen(app, None);
-            let App { name, mic_device, output_device, output_muted, room_sounds, camera_device, profile, advanced, has_tray, notice, chat_hidden, rail_hidden, compact, visible, voice_volumes, update, updating, .. } = std::mem::take(app);
-            *app = App { name, mic_device, output_device, output_muted, room_sounds, camera_device, profile, advanced, has_tray, notice, chat_hidden, rail_hidden, compact, visible, voice_volumes, update, updating, ..Default::default() };
+            let App { name, rooms, last_share, mic_device, output_device, output_muted, room_sounds, camera_device, profile, advanced, has_tray, notice, chat_hidden, rail_hidden, compact, visible, voice_volumes, update, updating, .. } = std::mem::take(app);
+            *app = App { name, rooms, last_share, mic_device, output_device, output_muted, room_sounds, camera_device, profile, advanced, has_tray, notice, chat_hidden, rail_hidden, compact, visible, voice_volumes, update, updating, ..Default::default() };
             tray::update(tray_state(app));
             return windowed.chain(operation::focus(NAME_INPUT));
         }
@@ -678,7 +701,14 @@ fn update(app: &mut App, message: Message) -> Task<Message> {
         }
         Message::OpenWizard => {
             app.share_menu = None;
-            app.wizard = Some(Wizard::open());
+            let mut wizard = Wizard::open();
+            // The last source comes back selected, so Enter shares it again; a closed window drops out
+            // with the first listing (Wizard::set_sources).
+            if let Some((source, audio)) = &app.last_share {
+                wizard.selected = Some(source.clone());
+                wizard.audio = *audio;
+            }
+            app.wizard = Some(wizard);
             app.modal_at = Some(Instant::now());
             // Focusing an id nobody has unfocuses the chat behind the modal, so A, P and Enter reach the wizard.
             return Task::batch([ui::wizard::load_sources(), operation::focus("share-wizard")]);
@@ -781,6 +811,7 @@ fn update(app: &mut App, message: Message) -> Task<Message> {
         Message::StartShare => {
             if let (Some(running), Some(options)) = (&app.running, app.wizard.as_ref().and_then(|w| w.options(app.profile))) {
                 app.share_height = options.height;
+                app.last_share = app.wizard.as_ref().and_then(|wizard| Some((wizard.selected.clone()?, wizard.audio)));
                 if sharing(&app.view) {
                     // "Trocar tela ou janela": the engine takes one share at a time, so stop first
                     // and start the new source once it has ended (tick).
@@ -801,6 +832,23 @@ fn update(app: &mut App, message: Message) -> Task<Message> {
                 app.wizard = None;
                 return operation::focus(room::CHAT_INPUT);
             }
+        }
+        Message::ShareAgain(sources) => {
+            let Some((last, audio)) = app.last_share.clone() else { return Task::none() };
+            if app.running.is_none() || app.view.local_socket_id.is_none() || sharing(&app.view) {
+                return Task::none();
+            }
+            // Only that same window (id, process and title) still open: never a guess at what goes out.
+            let Some(source) = sources.into_iter().find(|s| s.id == last.id && s.pid == last.pid && s.title == last.title) else {
+                app.notice = Some(("A janela de antes não está mais aberta. Escolha o que compartilhar.".into(), Instant::now()));
+                return show_window(app).chain(update(app, Message::OpenWizard));
+            };
+            app.notice = Some((format!("Compartilhando de novo: {}", source.title), Instant::now()));
+            let mut wizard = Wizard::open();
+            wizard.selected = Some(source);
+            wizard.audio = audio;
+            app.wizard = Some(wizard);
+            return update(app, Message::StartShare);
         }
         Message::StopShare => {
             if let Some(running) = &app.running {
