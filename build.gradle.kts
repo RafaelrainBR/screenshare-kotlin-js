@@ -47,6 +47,11 @@ plugins.withType<YarnPlugin> {
     configure<YarnRootExtension> {
         resolution("ws", libs.versions.ws.get())
         resolution("qs", libs.versions.qs.get())
+        // karma uses body-parser 1.x and webpack-dev-server's express uses 2.x, so pin each by path.
+        resolution("**/karma/body-parser", libs.versions.bodyParser1.get())
+        resolution("**/express/body-parser", libs.versions.bodyParser2.get())
+        resolution("fast-uri", libs.versions.fastUri.get())
+        resolution("serialize-javascript", libs.versions.serializeJavascript.get())
     }
 }
 
