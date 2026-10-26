@@ -37,6 +37,16 @@ pub fn view(app: &App) -> Element<'_, Message> {
         // .startup-option: shown in the desktop apps.
         checkbox(app.autostart).label("Iniciar com o sistema e voltar a esta sala").on_toggle(Message::ToggleAutostart).text_size(13).spacing(9),
         container(join).padding(iced::Padding { top: 5.0, ..iced::Padding::ZERO }),
+        // .btn-ghost: a long code nobody guesses; only who gets the link comes in.
+        button(container(text("Criar sala privada").color(theme::DIM)).center_x(Length::Fill))
+            .padding([10, 12])
+            .width(Length::Fill)
+            .style(|_, status| button::Style {
+                background: matches!(status, button::Status::Hovered | button::Status::Pressed).then(|| Background::Color(theme::LINE)),
+                border: Border { radius: 8.0.into(), ..Default::default() },
+                ..Default::default()
+            })
+            .on_press_maybe(ready.then_some(Message::PrivateRoom)),
     ]
     .spacing(8);
     // The web's margins: 22 under the logo, 7 under the title, 24 under the description.

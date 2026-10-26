@@ -154,9 +154,11 @@ pub fn view(app: &App) -> Element<'_, Message> {
         list.push(if own { row![body, avatar] } else { row![avatar, body] }.spacing(8))
     });
     // .conversation-header: the room code chip copies, like #copyRoomBtn.
+    // A private room's 32 characters would push the header out, as #current-room-id's ellipsis.
+    let shown = if app.room.chars().count() > 12 { format!("{}…", app.room.chars().take(8).collect::<String>()) } else { app.room.clone() };
     let code = row![
         text("SALA").size(9).color(theme::FAINT),
-        text(&app.room).size(11).font(iced::Font::MONOSPACE).wrapping(text::Wrapping::None),
+        text(shown).size(11).font(iced::Font::MONOSPACE).wrapping(text::Wrapping::None),
         dock::icon(COPY, 13.0, theme::TEXT),
     ]
     .spacing(6)

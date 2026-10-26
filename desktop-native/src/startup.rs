@@ -34,6 +34,10 @@ pub fn first_instance() -> bool {
         return true;
     };
     if unsafe { GetLastError() } == ERROR_ALREADY_EXISTS {
+        // A room link for the running app: it reads it when it shows itself (take_link).
+        if let Some(link) = link_arg() {
+            write(LINK_FILE, &link);
+        }
         let _ = unsafe { SetEvent(event) };
         return false;
     }
@@ -47,6 +51,45 @@ pub fn show_requested() -> bool {
     use windows::Win32::{Foundation::{HANDLE, WAIT_OBJECT_0}, System::Threading::WaitForSingleObject};
     SHOW_EVENT.get().is_some_and(|event| unsafe { WaitForSingleObject(HANDLE(*event as *mut _), 0) } == WAIT_OBJECT_0)
 }
+
+/// The web's "Abrir no app" opens screenshare://join?roomId=…, which Windows passes as our argument.
+pub fn link_arg() -> Option<String> {
+    std::env::args().find(|arg| arg.starts_with("screenshare:"))
+}
+
+const LINK_FILE: &str = "open-link.json";
+
+/// The link a second launch handed over, once.
+pub fn take_link() -> Option<String> {
+    let link = read::<Option<String>>(LINK_FILE);
+    if link.is_some() {
+        let _ = path(LINK_FILE).map(std::fs::remove_file);
+    }
+    link
+}
+
+/// Registers the screenshare: protocol for this user, pointing at this exe; each launch refreshes the
+/// path, so the last copy opened (installed or portable) gets the links.
+/// shortcut: macOS has none yet; it needs CFBundleURLTypes in the bundle and an Apple Event handler.
+#[cfg(windows)]
+pub fn register_link_protocol() {
+    use windows::{Win32::System::Registry::RegSetKeyValueW, core::HSTRING};
+    let Ok(exe) = std::env::current_exe() else { return };
+    let command = format!("\"{}\" \"%1\"", exe.display());
+    let root = r"SoftwareClassesscreenshare";
+    let open = format!(r"{root}shellopencommand");
+    for (key, name, value) in [(root, None, "URL:Screenshare"), (root, Some("URL Protocol"), ""), (open.as_str(), None, command.as_str())] {
+        let data: Vec<u16> = value.encode_utf16().chain([0]).collect();
+        let name = name.map(HSTRING::from);
+        // SAFETY: the strings outlive the call; RegSetKeyValueW creates the key when missing.
+        let _ = unsafe {
+            RegSetKeyValueW(HKEY_CURRENT_USER, &HSTRING::from(key), name.as_ref().map_or(PCWSTR::null(), |name| PCWSTR(name.as_ptr())), REG_SZ.0, Some(data.as_ptr().cast()), (data.len() * 2) as u32)
+        };
+    }
+}
+
+#[cfg(target_os = "macos")]
+pub fn register_link_protocol() {}
 
 pub fn launched_at_login() -> bool {
     std::env::args().any(|arg| arg == AUTOSTART_ARG)

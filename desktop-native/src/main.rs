@@ -57,6 +57,8 @@ pub enum Message {
     Sources(Vec<desktop_native::sources::Source>),
     /// A recent room on the join screen: fill it in and join.
     PickRoom(String),
+    /// "Criar sala privada": a 128-bit code nobody guesses, only shared by link.
+    PrivateRoom,
     ToggleFavoriteRoom(String),
     /// The tray's "Compartilhar de novo": a fresh listing, to find the same source again.
     ShareAgain(Vec<desktop_native::sources::Source>),
@@ -320,8 +322,13 @@ fn boot() -> (App, Task<Message>) {
         ..Default::default()
     };
     desktop_native::metrics::set_enabled(app.metrics_on);
+    startup::register_link_protocol();
+    let link = startup::link_arg().map(|link| room_code(&link).to_owned()).filter(|code| !code.is_empty());
+    if let Some(code) = &link {
+        app.room = code.clone();
+    }
     // Like the desktop web client: with autostart on and a saved room, every launch rejoins it.
-    let rejoin = app.autostart && !app.room.trim().is_empty();
+    let rejoin = link.is_some() || app.autostart && !app.room.trim().is_empty();
     updater::clean_up();
     let mut tasks = vec![operation::focus(NAME_INPUT), Task::done(Message::CheckUpdate)];
     if rejoin {
@@ -496,6 +503,20 @@ fn tray_state(app: &App) -> tray::State {
     }
 }
 
+/// A room link opened while the app runs: join it, unless we are in another room already.
+fn open_link(app: &mut App, link: &str) -> Task<Message> {
+    let code = room_code(link).to_owned();
+    if code.is_empty() || app.running.is_some() && code == app.room {
+        return Task::none();
+    }
+    if app.running.is_some() {
+        app.notice = Some((format!("Saia da sala para entrar em {code}"), Instant::now()));
+        return Task::none();
+    }
+    app.room = code;
+    update(app, Message::Join)
+}
+
 /// A pasted room link (…/?roomId=abc) joins that room, as the web join form takes ?roomId=.
 fn room_code(input: &str) -> &str {
     let code = input.split_once("roomId=").map_or(input, |(_, rest)| rest.split(['&', '#']).next().unwrap_or_default());
@@ -508,6 +529,7 @@ fn a_room_link_joins_its_room() {
     assert_eq!(room_code("http://localhost:8080/?x=1&roomId=ab12&y=2#top"), "ab12");
     assert_eq!(room_code(" 4f8a2c1e "), "4f8a2c1e");
     assert_eq!(room_code("https://screen-share.fly.dev/?roomId="), "");
+    assert_eq!(room_code("screenshare://join?roomId=4f8a2c1e"), "4f8a2c1e");
 }
 
 #[test]
@@ -579,6 +601,10 @@ fn update(app: &mut App, message: Message) -> Task<Message> {
     }
     match message {
         Message::Room(value) => app.room = value,
+        Message::PrivateRoom => {
+            app.room = format!("{:032x}", rand::random::<u128>());
+            return update(app, Message::Join);
+        }
         Message::PickRoom(id) => {
             app.room = id;
             feature_used(app, "recent_room");
@@ -683,6 +709,9 @@ fn update(app: &mut App, message: Message) -> Task<Message> {
             let mut tasks: Vec<_> = tray::actions().into_iter().map(|action| tray_action(app, action)).collect();
             if startup::show_requested() {
                 tasks.push(show_window(app));
+                if let Some(link) = startup::take_link() {
+                    tasks.push(open_link(app, &link));
+                }
             }
             tray::update(tray_state(app));
             return Task::batch(tasks);
@@ -946,8 +975,9 @@ fn update(app: &mut App, message: Message) -> Task<Message> {
             return show_window(app);
         }
         Message::CopyRoom => {
-            app.notice = Some(("Código copiado".into(), Instant::now()));
-            return iced::clipboard::write(app.room.clone());
+            // The one link for the web and the app (the web's Abrir no app hands it over).
+            app.notice = Some(("Link da sala copiado".into(), Instant::now()));
+            return iced::clipboard::write(format!("https://screen-share.fly.dev/?roomId={}", app.room));
         }
         // Closing keeps the app in the tray, in the room, like the Tauri app; "Encerrar app" quits.
         Message::CloseRequested(id) if app.has_tray => {
