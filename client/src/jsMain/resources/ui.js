@@ -1,6 +1,19 @@
 // Visual shell interactions. Media and room state remain owned by Kotlin.
 const roomFromUrl = new URLSearchParams(location.search).get('roomId');
 if (roomFromUrl) document.getElementById('roomId').value = roomFromUrl;
+// One link for the web and the app: a room link on Windows offers the app (its screenshare: protocol).
+// Nothing tells a page whether the app is installed, so the link says "if you have it".
+const openInApp = document.getElementById('open-in-app');
+if (roomFromUrl && /Windows/.test(navigator.userAgent) && location.protocol.startsWith('http')) {
+  openInApp.href = 'screenshare://join?roomId=' + encodeURIComponent(roomFromUrl);
+  openInApp.classList.remove('hidden');
+}
+
+// The link everyone opens, on the web or in the app; the desktop shell has no web origin of its own.
+function roomLink(code) {
+  const origin = location.protocol.startsWith('http') ? location.origin : 'https://screen-share.fly.dev';
+  return origin + '/?roomId=' + encodeURIComponent(code);
+}
 document.getElementById('chat-form').addEventListener('submit', event => event.preventDefault());
 
 const roomCodeButton = document.getElementById('copyRoomBtn');
@@ -10,20 +23,20 @@ roomCodeButton.addEventListener('click', async () => {
   const code = document.getElementById('current-room-id').textContent.trim();
   if (!code) return;
   try {
-    await navigator.clipboard.writeText(code);
+    await navigator.clipboard.writeText(roomLink(code));
     roomCodeButton.classList.add('copied');
-    roomCodeButton.setAttribute('aria-label', 'Código copiado');
-    copyStatus.textContent = 'Código copiado';
+    roomCodeButton.setAttribute('aria-label', 'Link da sala copiado');
+    copyStatus.textContent = 'Link da sala copiado';
     clearTimeout(copyTimeout);
     copyTimeout = setTimeout(() => {
       roomCodeButton.classList.remove('copied');
-      roomCodeButton.setAttribute('aria-label', 'Copiar código da sala');
+      roomCodeButton.setAttribute('aria-label', 'Copiar link da sala');
       copyStatus.textContent = '';
     }, 1500);
   } catch {
     clearTimeout(copyTimeout);
     roomCodeButton.classList.remove('copied');
-    copyStatus.textContent = 'Não foi possível copiar. Código: ' + code;
+    copyStatus.textContent = 'Não foi possível copiar. Link: ' + roomLink(code);
   }
 });
 
