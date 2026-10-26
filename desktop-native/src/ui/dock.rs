@@ -248,5 +248,18 @@ fn device_panel(app: &App, picker: Picker) -> Element<'_, Message> {
     } else {
         rows
     };
+    // The web's #usage-metrics-option: only builds that report at all show it.
+    let rows = if matches!(picker, Picker::Output) && crate::telemetry::enabled() {
+        let on = app.metrics_on;
+        rows.push(
+            button(row![text("Enviar estatísticas de uso anônimas").size(13).width(Length::Fill), text(if on { "✓" } else { "" }).color(theme::ACCENT)])
+                .padding(8)
+                .width(Length::Fill)
+                .style(button::text)
+                .on_press(Message::ToggleMetrics),
+        )
+    } else {
+        rows
+    };
     container(rows).padding(10).width(260).style(theme::modal).into()
 }

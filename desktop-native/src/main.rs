@@ -74,6 +74,8 @@ pub enum Message {
     ToggleAdvanced,
     /// "Sons ao entrar, sair e compartilhar" in the output picker.
     ToggleRoomSounds,
+    /// "Enviar estatísticas de uso anônimas" in the output picker.
+    ToggleMetrics,
     /// The ⋯ menu of a participant (and of the clicked video, if any), or None to close it.
     PeerOptions(Option<(String, Option<bool>)>),
     Cursor(Point),
@@ -209,6 +211,14 @@ pub struct App {
     output_muted: bool,
     /// Room tones on (saved like the web screenshare.roomSounds), the last one heard and when.
     room_sounds: bool,
+    /// "Enviar estatísticas de uso anônimas" (desktop_native::metrics), saved in audio.json.
+    metrics_on: bool,
+    /// Usage metrics: when our share began, whether the stop button ended it, when the socket id
+    /// was lost (a reconnection when it comes back), and whether this room's size was sent.
+    share_started_at: Option<Instant>,
+    stop_requested: bool,
+    lost_at: Option<Instant>,
+    room_reported: bool,
     heard_sound: u64,
     sound_at: Option<Instant>,
     /// The session generation the saved sound preference was applied to.
@@ -302,10 +312,12 @@ fn boot() -> (App, Task<Message>) {
         has_tray: tray::install(),
         output_muted: prefs.output_muted,
         room_sounds: !prefs.room_sounds_off,
+        metrics_on: !prefs.usage_metrics_off,
         voice_volumes: startup::voice_volumes(),
         output_device: prefs.output_device,
         ..Default::default()
     };
+    desktop_native::metrics::set_enabled(app.metrics_on);
     // Like the desktop web client: with autostart on and a saved room, every launch rejoins it.
     let rejoin = app.autostart && !app.room.trim().is_empty();
     updater::clean_up();
@@ -616,10 +628,16 @@ fn update(app: &mut App, message: Message) -> Task<Message> {
                     app.notice = Some((error, Instant::now()));
                 }
             }
+            if let Some(at) = app.share_started_at.take() {
+                share_ended(app, at, "left");
+            }
+            if let Some(at) = app.entered {
+                desktop_native::metrics::send("room_left", &[("minutes", desktop_native::metrics::minutes_bucket(at.elapsed()).into())]);
+            }
             // Dropping Running joins the session thread: the engine stops the share and closes peers.
             let windowed = set_floating(app, None);
-            let App { name, rooms, last_share, mic_device, output_device, output_muted, room_sounds, camera_device, profile, advanced, has_tray, notice, chat_hidden, rail_hidden, compact, visible, voice_volumes, update, updating, .. } = std::mem::take(app);
-            *app = App { name, rooms, last_share, mic_device, output_device, output_muted, room_sounds, camera_device, profile, advanced, has_tray, notice, chat_hidden, rail_hidden, compact, visible, voice_volumes, update, updating, ..Default::default() };
+            let App { name, rooms, last_share, mic_device, output_device, output_muted, room_sounds, metrics_on, camera_device, profile, advanced, has_tray, notice, chat_hidden, rail_hidden, compact, visible, voice_volumes, update, updating, .. } = std::mem::take(app);
+            *app = App { name, rooms, last_share, mic_device, output_device, output_muted, room_sounds, metrics_on, camera_device, profile, advanced, has_tray, notice, chat_hidden, rail_hidden, compact, visible, voice_volumes, update, updating, ..Default::default() };
             tray::update(tray_state(app));
             return windowed.chain(operation::focus(NAME_INPUT));
         }
@@ -790,6 +808,11 @@ fn update(app: &mut App, message: Message) -> Task<Message> {
             app.room_sounds = !app.room_sounds;
             save_audio(app);
         }
+        Message::ToggleMetrics => {
+            app.metrics_on = !app.metrics_on;
+            desktop_native::metrics::set_enabled(app.metrics_on);
+            save_audio(app);
+        }
         Message::PeerOptions(target) => {
             app.menu_at = target.is_some().then_some(app.cursor);
             app.menu_opened = target.is_some().then(Instant::now);
@@ -877,12 +900,17 @@ fn update(app: &mut App, message: Message) -> Task<Message> {
             return update(app, Message::StartShare);
         }
         Message::StopShare => {
+            app.stop_requested = true;
             if let Some(running) = &app.running {
                 let _ = running.screen.send((app.view.generation, None));
             }
         }
         Message::Key(key, modifiers) => return shortcut(app, key, modifiers),
-        Message::Tick => return tick(app),
+        Message::Tick => {
+            let task = tick(app);
+            usage_metrics(app);
+            return task;
+        }
         Message::Focus(key) => app.focused = (app.focused.as_ref() != Some(&key)).then_some(key),
         Message::Fullscreen(key) => return set_fullscreen(app, key),
         Message::Float(key) => return set_floating(app, key),
@@ -982,7 +1010,7 @@ pub fn sharing(view: &SessionView) -> bool {
 }
 
 fn save_audio(app: &App) {
-    startup::save_audio_prefs(&startup::AudioPrefs { output_muted: app.output_muted, output_device: app.output_device.clone(), room_sounds_off: !app.room_sounds });
+    startup::save_audio_prefs(&startup::AudioPrefs { output_muted: app.output_muted, output_device: app.output_device.clone(), room_sounds_off: !app.room_sounds, usage_metrics_off: !app.metrics_on });
 }
 
 /// "Volume para você" as the engine has it: the saved one for voices, 100 when never set.
@@ -1244,6 +1272,8 @@ struct Quality {
     signals: HashMap<TileKey, quality::Signal>,
     /// The problem a tile shows, its label and the explanation its chip gives.
     shown: HashMap<TileKey, (quality::Problem, String, String)>,
+    /// The encoder our screen last went out on (outbound-rtp encoderImplementation), for share_ended.
+    encoder: Option<String>,
 }
 
 impl Quality {
@@ -1253,6 +1283,11 @@ impl Quality {
         let peers = view.screen_quality.as_object().unwrap_or(&empty);
         let mut measured: HashMap<TileKey, Option<quality::Problem>> = HashMap::new();
         let mut receives = HashMap::new();
+        for value in peers.values() {
+            if let Some(encoder) = value.get("send").and_then(|send| send.get("encoder")).and_then(serde_json::Value::as_str).filter(|name| !name.is_empty()) {
+                self.encoder = Some(encoder.to_owned());
+            }
+        }
         for (peer, value) in peers {
             for inbound in value.get("receive").and_then(serde_json::Value::as_array).into_iter().flatten() {
                 let (Some(track), Some(sample)) = (inbound.get("track").and_then(serde_json::Value::as_str), quality::receive_sample(inbound)) else { continue };
@@ -1292,10 +1327,50 @@ impl Quality {
             if self.shown.get(&key).is_some_and(|(was, ..)| *was == problem) {
                 continue;
             }
-            // Sentry keeps these as logs: which problem, never who or where.
-            telemetry::warn(&format!("Qualidade da tela: {problem:?}"));
+            // quality_problem: which problem, never who or where.
+            desktop_native::metrics::send("quality_problem", &[("problem", format!("{problem:?}"))]);
             self.shown.insert(key, (problem, problem.label(&name), problem.explanation(&name, viewers)));
         }
+    }
+}
+
+/// The web's share_ended: how long, why, and which encoder carried it.
+fn share_ended(app: &mut App, started: Instant, reason: &str) {
+    let encoder = app.quality.encoder.clone().unwrap_or_else(|| "unknown".into());
+    desktop_native::metrics::send("share_ended", &[("minutes", desktop_native::metrics::minutes_bucket(started.elapsed()).into()), ("reason", reason.into()), ("encoder", encoder)]);
+}
+
+/// Usage metrics read off the view each tick (desktop_native::metrics): share_started/ended,
+/// room_joined with the room's size, and reconnected after a lost socket id.
+fn usage_metrics(app: &mut App) {
+    use desktop_native::metrics::{people_bucket, seconds_bucket, send};
+    match (app.view.screen_state == "active", app.share_started_at) {
+        (true, None) => {
+            app.share_started_at = Some(Instant::now());
+            let (source, audio) = app.last_share.as_ref().map_or(("unknown", "NONE"), |(source, audio)| {
+                let window = source.kind == desktop_native::sources::SourceKind::Window;
+                (if window { "window" } else { "screen" }, if !*audio { "NONE" } else if window { "PROCESS" } else { "SYSTEM" })
+            });
+            let preset = SharePreset::ALL.into_iter().find(|preset| preset.profile() == app.profile).map_or("CUSTOM".to_owned(), |preset| format!("{preset:?}").to_uppercase());
+            send("share_started", &[("source", source.into()), ("preset", preset), ("audio", audio.into())]);
+        }
+        (false, Some(started)) => {
+            app.share_started_at = None;
+            let reason = if std::mem::take(&mut app.stop_requested) { "user" } else { "ended" };
+            share_ended(app, started, reason);
+        }
+        _ => {}
+    }
+    if app.view.local_socket_id.is_some() {
+        if let Some(lost) = app.lost_at.take() {
+            send("reconnected", &[("seconds", seconds_bucket(lost.elapsed()).into())]);
+        }
+        if !app.room_reported && !app.view.participants.is_empty() {
+            app.room_reported = true;
+            send("room_joined", &[("people", people_bucket(app.view.participants.len()).into())]);
+        }
+    } else if app.joined && app.lost_at.is_none() {
+        app.lost_at = Some(Instant::now());
     }
 }
 

@@ -90,7 +90,7 @@ fn stamp(level: &str, line: &str) {
 /// "Algo deu errado?": the user's words as an Info event, with the last 64 KB of screenshare.log.
 /// False when this build reports nothing (no DSN).
 pub fn send_feedback(text: &str) -> bool {
-    if sentry::Hub::current().client().is_none_or(|client| !client.is_enabled()) {
+    if !enabled() {
         return false;
     }
     let log = logs_dir().and_then(|dir| std::fs::read(dir.join("screenshare.log")).ok()).map(|bytes| bytes[bytes.len().saturating_sub(64 * 1024)..].to_vec());
@@ -105,4 +105,9 @@ pub fn send_feedback(text: &str) -> bool {
         || sentry::capture_message(&format!("Feedback: {text}"), sentry::Level::Info),
     );
     true
+}
+
+/// Whether this build reports to Sentry at all (a release with a DSN).
+pub fn enabled() -> bool {
+    sentry::Hub::current().client().is_some_and(|client| client.is_enabled())
 }

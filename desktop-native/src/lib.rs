@@ -27,6 +27,7 @@ pub use render::{VideoFrameSnapshot, VideoFrames, VideoSurface};
 /// Surface peer ids of this client's own screen and camera, the web's isLocal tiles.
 pub const LOCAL_SCREEN: &str = "local:screen";
 pub const LOCAL_CAMERA: &str = "local:camera";
+pub mod metrics;
 pub mod quality;
 pub mod session;
 pub mod share;

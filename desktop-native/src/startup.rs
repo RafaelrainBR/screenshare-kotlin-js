@@ -67,6 +67,9 @@ pub struct AudioPrefs {
     /// Off rather than on, so a missing field or file keeps the room tones on.
     #[serde(default)]
     pub room_sounds_off: bool,
+    /// Usage metrics off; on unless turned off. Error reports go either way.
+    #[serde(default)]
+    pub usage_metrics_off: bool,
 }
 
 /// %APPDATA%\Screenshare-native on Windows, ~/Library/Application Support/Screenshare-native on macOS.

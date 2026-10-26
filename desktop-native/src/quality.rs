@@ -158,6 +158,7 @@ pub fn samples(stats: &[RtcStats], screen_track: &str) -> Value {
             Some(json!({
                 "cpu": durations.get("cpu").copied().unwrap_or(0.0),
                 "bandwidth": durations.get("bandwidth").copied().unwrap_or(0.0),
+                "encoder": out.outbound.encoder_implementation,
             }))
         }
         _ => None,
