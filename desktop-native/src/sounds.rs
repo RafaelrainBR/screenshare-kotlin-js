@@ -59,18 +59,26 @@ fn cached(sound: RoomSound) -> &'static [u8] {
     cell.get_or_init(|| wav(sound))
 }
 
-/// Plays without blocking. shortcut: on the system's default output, not the room's chosen one;
-/// route it through the engine's playout if people use a separate headset for calls.
-pub fn play(sound: RoomSound) {
+/// Plays without blocking, on the room's chosen output (an endpoint id) when there is one.
+/// shortcut: macOS always plays on the system default; route it to the chosen device if asked.
+pub fn play(sound: RoomSound, device: Option<&str>) {
     let wav = cached(sound);
     #[cfg(windows)]
     {
         use windows::Win32::Media::Audio::{PlaySoundW, SND_ASYNC, SND_MEMORY, SND_NODEFAULT};
-        // SAFETY: SND_MEMORY reads the WAV from this pointer while it plays; it is 'static.
-        unsafe {
-            let _ = PlaySoundW(windows::core::PCWSTR(wav.as_ptr().cast()), None, SND_MEMORY | SND_ASYNC | SND_NODEFAULT);
-        }
+        let device = device.map(str::to_owned);
+        std::thread::spawn(move || {
+            if device.as_deref().is_some_and(|id| play_on(id, &wav[44..]).is_ok()) {
+                return;
+            }
+            // SAFETY: SND_MEMORY reads the WAV from this pointer while it plays; it is 'static.
+            unsafe {
+                let _ = PlaySoundW(windows::core::PCWSTR(wav.as_ptr().cast()), None, SND_MEMORY | SND_ASYNC | SND_NODEFAULT);
+            }
+        });
     }
+    #[cfg(not(windows))]
+    let _ = device;
     #[cfg(target_os = "macos")]
     {
         let path = std::env::temp_dir().join(format!("screenshare-{sound:?}.wav"));
@@ -78,6 +86,42 @@ pub fn play(sound: RoomSound) {
             let _ = std::fs::write(&path, wav);
         }
         let _ = std::process::Command::new("afplay").arg(&path).spawn();
+    }
+}
+
+/// Plays 16-bit mono PCM at RATE on one endpoint through WASAPI, blocking until it is heard.
+#[cfg(windows)]
+fn play_on(device: &str, pcm: &[u8]) -> windows::core::Result<()> {
+    use windows::Win32::{
+        Media::Audio::{
+            AUDCLNT_SHAREMODE_SHARED, AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM, AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY, IAudioClient, IAudioRenderClient, IMMDeviceEnumerator,
+            MMDeviceEnumerator, WAVE_FORMAT_PCM, WAVEFORMATEX,
+        },
+        System::Com::{CLSCTX_ALL, COINIT_MULTITHREADED, CoCreateInstance, CoInitializeEx},
+    };
+    let format = WAVEFORMATEX { wFormatTag: WAVE_FORMAT_PCM as u16, nChannels: 1, nSamplesPerSec: RATE, nAvgBytesPerSec: RATE * 2, nBlockAlign: 2, wBitsPerSample: 16, cbSize: 0 };
+    // SAFETY: COM calls on this thread; the buffer WASAPI hands out holds the frames asked for, in `format`.
+    unsafe {
+        let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
+        let devices: IMMDeviceEnumerator = CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL)?;
+        let client: IAudioClient = devices.GetDevice(&windows::core::HSTRING::from(device))?.Activate(CLSCTX_ALL, None)?;
+        client.Initialize(AUDCLNT_SHAREMODE_SHARED, AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM | AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY, 2_000_000, 0, &format, None)?;
+        let render: IAudioRenderClient = client.GetService()?;
+        let size = client.GetBufferSize()? as usize;
+        let mut rest = pcm;
+        client.Start()?;
+        while !rest.is_empty() {
+            let frames = (size - client.GetCurrentPadding()? as usize).min(rest.len() / 2);
+            let buffer = render.GetBuffer(frames as u32)?;
+            std::ptr::copy_nonoverlapping(rest.as_ptr(), buffer, frames * 2);
+            render.ReleaseBuffer(frames as u32, 0)?;
+            rest = &rest[frames * 2..];
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        while client.GetCurrentPadding()? > 0 {
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        client.Stop()
     }
 }
 
@@ -108,5 +152,23 @@ mod tests {
         // SAFETY: SND_SYNC returns after playing, while `wav` is alive ('static anyway).
         let played = unsafe { PlaySoundW(windows::core::PCWSTR(wav.as_ptr().cast()), None, SND_MEMORY | SND_SYNC | SND_NODEFAULT) };
         assert!(played.as_bool());
+    }
+
+    /// Makes noise: the same tone through WASAPI on the default endpoint, picked by its id.
+    #[cfg(windows)]
+    #[test]
+    #[ignore = "plays a tone on the default output"]
+    fn windows_plays_on_a_device_by_id() {
+        use windows::Win32::{
+            Media::Audio::{IMMDeviceEnumerator, MMDeviceEnumerator, eConsole, eRender},
+            System::Com::{CLSCTX_ALL, COINIT_MULTITHREADED, CoCreateInstance, CoInitializeEx},
+        };
+        // SAFETY: COM on this thread; GetId's string is ours to read.
+        let id = unsafe {
+            let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
+            let devices: IMMDeviceEnumerator = CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL).unwrap();
+            devices.GetDefaultAudioEndpoint(eRender, eConsole).unwrap().GetId().unwrap().to_string().unwrap()
+        };
+        play_on(&id, &cached(RoomSound::Join)[44..]).unwrap();
     }
 }

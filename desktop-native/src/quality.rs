@@ -58,11 +58,15 @@ impl Problem {
     pub fn explanation(self, peer: &str, viewers: usize) -> String {
         match self {
             Self::PeerCpu => format!("O PC de {peer} não está dando conta de codificar o vídeo, então a qualidade da tela caiu. Não é a sua conexão."),
-            Self::PeerBandwidth => format!("A internet de {peer} não está dando conta de enviar nessa qualidade, então a qualidade da tela caiu."),
+            Self::PeerBandwidth => format!(
+                "A internet de {peer} não está dando conta de enviar nessa qualidade, então a qualidade da tela caiu.{}",
+                if viewers == 1 { " Como só você está assistindo, pode ser também a sua internet." } else { "" }
+            ),
             Self::SenderCpu => "Seu PC não está dando conta de codificar o vídeo, então a qualidade da sua tela caiu. Feche programas pesados ou escolha um preset mais leve.".into(),
             Self::SenderBandwidth => format!(
                 "Sua internet não está dando conta de enviar nessa qualidade, então a qualidade da sua tela caiu. Escolha um preset mais leve.{}",
-                if viewers > 1 { " Cada pessoa assistindo usa mais da sua internet." } else { "" }
+                // One viewer: the congestion control can't tell our upload from their download.
+                if viewers > 1 { " Cada pessoa assistindo usa mais da sua internet." } else { " Como só uma pessoa está assistindo, pode ser também a internet dela." }
             ),
             Self::UnstableConnection => format!("A conexão entre você e {peer} está perdendo dados, por isso o vídeo trava. Pode ser a sua internet ou a de {peer}."),
             Self::ViewerDecode => "Seu PC não está dando conta de mostrar o vídeo e está pulando quadros. Feche programas pesados.".into(),
@@ -239,6 +243,9 @@ mod tests {
         assert!(unstable.contains("Ana") && unstable.contains("sua internet"));
         assert!(Problem::SenderBandwidth.explanation("", 2).contains("Cada pessoa"));
         assert!(!Problem::SenderBandwidth.explanation("", 1).contains("Cada pessoa"));
+        assert!(Problem::SenderBandwidth.explanation("", 1).contains("internet dela"));
+        assert!(Problem::PeerBandwidth.explanation("Ana", 1).contains("a sua internet"));
+        assert!(!Problem::PeerBandwidth.explanation("Ana", 2).contains("a sua internet"));
     }
 
     #[test]

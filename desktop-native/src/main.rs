@@ -219,6 +219,8 @@ pub struct App {
     stop_requested: bool,
     lost_at: Option<Instant>,
     room_reported: bool,
+    /// feature_used already sent in this room: once per feature.
+    features_used: HashSet<&'static str>,
     heard_sound: u64,
     sound_at: Option<Instant>,
     /// The session generation the saved sound preference was applied to.
@@ -579,6 +581,7 @@ fn update(app: &mut App, message: Message) -> Task<Message> {
         Message::Room(value) => app.room = value,
         Message::PickRoom(id) => {
             app.room = id;
+            feature_used(app, "recent_room");
             return update(app, Message::Join);
         }
         Message::ToggleFavoriteRoom(id) => {
@@ -893,6 +896,7 @@ fn update(app: &mut App, message: Message) -> Task<Message> {
                 return show_window(app).chain(update(app, Message::OpenWizard));
             };
             app.notice = Some((format!("Compartilhando de novo: {}", source.title), Instant::now()));
+            feature_used(app, "share_again");
             let mut wizard = Wizard::open();
             wizard.selected = Some(source);
             wizard.audio = audio;
@@ -913,7 +917,12 @@ fn update(app: &mut App, message: Message) -> Task<Message> {
         }
         Message::Focus(key) => app.focused = (app.focused.as_ref() != Some(&key)).then_some(key),
         Message::Fullscreen(key) => return set_fullscreen(app, key),
-        Message::Float(key) => return set_floating(app, key),
+        Message::Float(key) => {
+            if key.is_some() {
+                feature_used(app, "floating");
+            }
+            return set_floating(app, key);
+        }
         Message::ToggleChat => {
             app.chat_hidden = !app.chat_hidden;
             app.chat_toggled = Some(Instant::now());
@@ -1043,7 +1052,7 @@ fn tick(app: &mut App) -> Task<Message> {
         let quiet = app.sound_at.is_none_or(|at| at.elapsed() >= Duration::from_millis(1_500));
         if let Some(sound) = app.view.room_sound.1.filter(|_| app.room_sounds && !app.output_muted && quiet) {
             app.sound_at = Some(Instant::now());
-            sounds::play(sound);
+            sounds::play(sound, app.output_device.as_deref());
         }
     }
     app.joined |= app.view.local_socket_id.is_some();
@@ -1319,7 +1328,8 @@ impl Quality {
             let report = view.share_reports.get(peer).and_then(|problem| quality::Problem::from_peer(problem));
             let Some(problem) = report.or_else(|| self.signals.get(&(peer.clone(), false)).and_then(|signal| signal.shown)) else { continue };
             let name = view.participants.iter().find(|p| &p.socket_id == peer).map_or(peer.as_str(), |p| p.username.as_str());
-            wanted.insert((peer.clone(), false), (problem, name.to_owned(), 0));
+            // Everyone but the sharer watches: the participants without them, us included.
+            wanted.insert((peer.clone(), false), (problem, name.to_owned(), view.participants.len().saturating_sub(1)));
         }
         // A tile that stopped reporting must not keep a stale chip.
         self.shown.retain(|key, _| wanted.contains_key(key));
@@ -1365,12 +1375,25 @@ fn usage_metrics(app: &mut App) {
         if let Some(lost) = app.lost_at.take() {
             send("reconnected", &[("seconds", seconds_bucket(lost.elapsed()).into())]);
         }
+        if app.view.camera_state == "active" {
+            feature_used(app, "camera");
+        }
+        if !app.room_sounds {
+            feature_used(app, "sounds_off");
+        }
         if !app.room_reported && !app.view.participants.is_empty() {
             app.room_reported = true;
             send("room_joined", &[("people", people_bucket(app.view.participants.len()).into())]);
         }
     } else if app.joined && app.lost_at.is_none() {
         app.lost_at = Some(Instant::now());
+    }
+}
+
+/// The web's feature_used: the first use of a feature in this room, by its name only.
+fn feature_used(app: &mut App, feature: &'static str) {
+    if app.features_used.insert(feature) {
+        desktop_native::metrics::send("feature_used", &[("feature", feature.into())]);
     }
 }
 
@@ -1518,7 +1541,7 @@ fn main() -> iced::Result {
     // Flushes what is queued when main returns.
     telemetry::redirect_stderr();
     let _telemetry = telemetry::init();
-    telemetry::info(concat!("started ", env!("CARGO_PKG_VERSION")));
+    telemetry::info(&format!("started {}", option_env!("SENTRY_RELEASE").unwrap_or(concat!("dev ", env!("CARGO_PKG_VERSION")))));
     updater::wait_for_replaced();
     if !startup::first_instance() {
         return Ok(());
