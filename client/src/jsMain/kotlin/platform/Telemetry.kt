@@ -12,6 +12,8 @@ private external object Sentry {
     fun consoleLoggingIntegration(options: dynamic): dynamic
 
     fun captureFeedback(params: dynamic): dynamic
+
+    val logger: dynamic
 }
 
 // A DSN is public by design. Only the hosted site sends: local builds, self-hosts and the Tauri app don't.
@@ -58,3 +60,52 @@ fun sendFeedback(message: String) {
     params.message = message.take(2_000)
     Sentry.captureFeedback(params)
 }
+
+private const val METRICS_KEY = "screenshare.usageMetrics"
+
+/** "Enviar estatísticas de uso" (the output picker): on unless turned off; errors are sent either way. */
+fun usageMetricsOn(): Boolean = runCatching { window.localStorage.getItem(METRICS_KEY) != "false" }.getOrDefault(true)
+
+fun setUsageMetricsOn(on: Boolean) {
+    runCatching { window.localStorage.setItem(METRICS_KEY, on.toString()) }
+}
+
+/**
+ * A usage event (the "Métricas do Screenshare" design): a name and a few buckets, never a name,
+ * room, address or window title.
+ */
+fun metric(
+    name: String,
+    vararg attributes: Pair<String, String>,
+) {
+    if (!Telemetry.enabled || !usageMetricsOn()) return
+    val fields: dynamic = js("({})")
+    fields.platform = "web"
+    attributes.forEach { (key, value) -> fields[key] = value }
+    runCatching { Sentry.logger.info(name, fields) }
+}
+
+/** Buckets, not exact values: they answer the questions without making anyone recognizable. */
+fun peopleBucket(count: Int): String =
+    when {
+        count <= 1 -> "1"
+        count == 2 -> "2"
+        count <= 5 -> "3-5"
+        else -> "6+"
+    }
+
+fun minutesBucket(milliseconds: Double): String =
+    when {
+        milliseconds < 60_000 -> "<1"
+        milliseconds < 5 * 60_000 -> "1-5"
+        milliseconds < 15 * 60_000 -> "5-15"
+        milliseconds < 60 * 60_000 -> "15-60"
+        else -> "60+"
+    }
+
+fun secondsBucket(milliseconds: Double): String =
+    when {
+        milliseconds < 5_000 -> "<5"
+        milliseconds < 30_000 -> "5-30"
+        else -> "30+"
+    }
