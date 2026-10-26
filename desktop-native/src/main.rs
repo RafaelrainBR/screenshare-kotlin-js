@@ -62,6 +62,11 @@ pub enum Message {
     ToggleFavoriteRoom(String),
     /// The tray's "Compartilhar de novo": a fresh listing, to find the same source again.
     ShareAgain(Vec<desktop_native::sources::Source>),
+    /// Following a shared window that closed by itself (Follow).
+    FollowPoll,
+    FollowSources(Vec<desktop_native::sources::Source>),
+    FollowAccept,
+    FollowDismiss,
     Thumbnail(String, Option<image::Handle>),
     Pick(String),
     ToggleShareAudio,
@@ -78,6 +83,7 @@ pub enum Message {
     ToggleRoomSounds,
     /// "Enviar estatísticas de uso anônimas" in the output picker.
     ToggleMetrics,
+    ToggleShareBorder,
     /// The ⋯ menu of a participant (and of the clicked video, if any), or None to close it.
     PeerOptions(Option<(String, Option<bool>)>),
     Cursor(Point),
@@ -170,6 +176,16 @@ pub struct Tile {
     pub leaving_since: Option<Instant>,
 }
 
+/// A shared window closed by itself (a game restarting): for FOLLOW_FOR a window of the same
+/// executable may take its place, only when the person says so; it could be a launcher or a splash.
+pub struct Follow {
+    exe: String,
+    since: Instant,
+    pub found: Option<desktop_native::sources::Source>,
+}
+
+const FOLLOW_FOR: Duration = Duration::from_secs(30);
+
 #[derive(Default)]
 pub struct App {
     room: String,
@@ -215,11 +231,15 @@ pub struct App {
     room_sounds: bool,
     /// "Enviar estatísticas de uso anônimas" (desktop_native::metrics), saved in audio.json.
     metrics_on: bool,
+    share_border: bool,
     /// Usage metrics: when our share began, whether the stop button ended it, when the socket id
     /// was lost (a reconnection when it comes back), and whether this room's size was sent.
     share_started_at: Option<Instant>,
     stop_requested: bool,
     lost_at: Option<Instant>,
+    /// The executable of the window being shared, read when it started: the process is gone once it closes.
+    shared_exe: Option<String>,
+    follow: Option<Follow>,
     room_reported: bool,
     /// feature_used already sent in this room: once per feature.
     features_used: HashSet<&'static str>,
@@ -317,11 +337,13 @@ fn boot() -> (App, Task<Message>) {
         output_muted: prefs.output_muted,
         room_sounds: !prefs.room_sounds_off,
         metrics_on: !prefs.usage_metrics_off,
+        share_border: prefs.share_border,
         voice_volumes: startup::voice_volumes(),
         output_device: prefs.output_device,
         ..Default::default()
     };
     desktop_native::metrics::set_enabled(app.metrics_on);
+    set_share_border(app.share_border);
     startup::register_link_protocol();
     let link = startup::link_arg().map(|link| room_code(&link).to_owned()).filter(|code| !code.is_empty());
     if let Some(code) = &link {
@@ -665,8 +687,8 @@ fn update(app: &mut App, message: Message) -> Task<Message> {
             }
             // Dropping Running joins the session thread: the engine stops the share and closes peers.
             let windowed = set_floating(app, None);
-            let App { name, rooms, last_share, mic_device, output_device, output_muted, room_sounds, metrics_on, camera_device, profile, advanced, has_tray, notice, chat_hidden, rail_hidden, compact, visible, voice_volumes, update, updating, .. } = std::mem::take(app);
-            *app = App { name, rooms, last_share, mic_device, output_device, output_muted, room_sounds, metrics_on, camera_device, profile, advanced, has_tray, notice, chat_hidden, rail_hidden, compact, visible, voice_volumes, update, updating, ..Default::default() };
+            let App { name, rooms, last_share, mic_device, output_device, output_muted, room_sounds, metrics_on, share_border, camera_device, profile, advanced, has_tray, notice, chat_hidden, rail_hidden, compact, visible, voice_volumes, update, updating, .. } = std::mem::take(app);
+            *app = App { name, rooms, last_share, mic_device, output_device, output_muted, room_sounds, metrics_on, share_border, camera_device, profile, advanced, has_tray, notice, chat_hidden, rail_hidden, compact, visible, voice_volumes, update, updating, ..Default::default() };
             tray::update(tray_state(app));
             return windowed.chain(operation::focus(NAME_INPUT));
         }
@@ -840,6 +862,11 @@ fn update(app: &mut App, message: Message) -> Task<Message> {
             app.room_sounds = !app.room_sounds;
             save_audio(app);
         }
+        Message::ToggleShareBorder => {
+            app.share_border = !app.share_border;
+            set_share_border(app.share_border);
+            save_audio(app);
+        }
         Message::ToggleMetrics => {
             app.metrics_on = !app.metrics_on;
             desktop_native::metrics::set_enabled(app.metrics_on);
@@ -932,6 +959,33 @@ fn update(app: &mut App, message: Message) -> Task<Message> {
             app.wizard = Some(wizard);
             return update(app, Message::StartShare);
         }
+        Message::FollowPoll => {
+            let Some(follow) = &app.follow else { return Task::none() };
+            if follow.since.elapsed() >= FOLLOW_FOR {
+                app.follow = None;
+            } else if follow.found.is_none() {
+                return ui::wizard::load_sources_into(Message::FollowSources);
+            }
+        }
+        Message::FollowSources(sources) => {
+            if sharing(&app.view) || app.view.local_socket_id.is_none() {
+                app.follow = None;
+            }
+            let Some(follow) = app.follow.as_mut().filter(|follow| follow.found.is_none()) else { return Task::none() };
+            if let Some(source) = desktop_native::sources::reopened(sources, &desktop_native::sources::exe_names(), &follow.exe) {
+                // The tray's "Compartilhar de novo" now names it too: the app is often hidden mid-game.
+                let audio = app.last_share.as_ref().is_some_and(|(_, audio)| *audio);
+                app.last_share = Some((source.clone(), audio));
+                follow.found = Some(source);
+                follow.since = Instant::now();
+            }
+        }
+        Message::FollowAccept => {
+            app.follow = None;
+            feature_used(app, "follow_window");
+            return ui::wizard::load_sources_into(Message::ShareAgain);
+        }
+        Message::FollowDismiss => app.follow = None,
         Message::StopShare => {
             app.stop_requested = true;
             if let Some(running) = &app.running {
@@ -1049,7 +1103,7 @@ pub fn sharing(view: &SessionView) -> bool {
 }
 
 fn save_audio(app: &App) {
-    startup::save_audio_prefs(&startup::AudioPrefs { output_muted: app.output_muted, output_device: app.output_device.clone(), room_sounds_off: !app.room_sounds, usage_metrics_off: !app.metrics_on });
+    startup::save_audio_prefs(&startup::AudioPrefs { output_muted: app.output_muted, output_device: app.output_device.clone(), room_sounds_off: !app.room_sounds, usage_metrics_off: !app.metrics_on, share_border: app.share_border });
 }
 
 /// "Volume para você" as the engine has it: the saved one for voices, 100 when never set.
@@ -1393,11 +1447,15 @@ fn usage_metrics(app: &mut App) {
             });
             let preset = SharePreset::ALL.into_iter().find(|preset| preset.profile() == app.profile).map_or("CUSTOM".to_owned(), |preset| format!("{preset:?}").to_uppercase());
             send("share_started", &[("source", source.into()), ("preset", preset), ("audio", audio.into())]);
+            app.shared_exe = app.last_share.as_ref().filter(|(source, _)| source.kind == desktop_native::sources::SourceKind::Window).and_then(|(source, _)| desktop_native::sources::exe_names().remove(&source.pid));
+            app.follow = None;
         }
         (false, Some(started)) => {
             app.share_started_at = None;
             let reason = if std::mem::take(&mut app.stop_requested) { "user" } else { "ended" };
             share_ended(app, started, reason);
+            let closed = reason == "ended" && app.view.screen_error.as_deref() == Some("window-closed");
+            app.follow = app.shared_exe.take().filter(|_| closed).map(|exe| Follow { exe, since: Instant::now(), found: None });
         }
         _ => {}
     }
@@ -1418,6 +1476,13 @@ fn usage_metrics(app: &mut App) {
     } else if app.joined && app.lost_at.is_none() {
         app.lost_at = Some(Instant::now());
     }
+}
+
+fn set_share_border(on: bool) {
+    #[cfg(windows)]
+    desktop_capture::video::WINDOW_BORDER.store(on, std::sync::atomic::Ordering::Relaxed);
+    #[cfg(not(windows))]
+    let _ = on;
 }
 
 /// The web's feature_used: the first use of a feature in this room, by its name only.
@@ -1559,6 +1624,9 @@ fn subscription(app: &App) -> Subscription<Message> {
         let video = !app.tiles.is_empty() && app.visible && !app.compact;
         let fast = video || (app.visible && animating(app));
         subscriptions.push(iced::time::every(Duration::from_millis(if fast { 16 } else { 100 })).map(|_| Message::Tick));
+    }
+    if app.follow.is_some() {
+        subscriptions.push(iced::time::every(Duration::from_secs(2)).map(|_| Message::FollowPoll));
     }
     if app.wizard.is_some() {
         // Like the web wizard: windows that open or close show up while it is open.
