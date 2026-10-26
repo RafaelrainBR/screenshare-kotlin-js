@@ -76,6 +76,9 @@ class ConnectionQualityTest {
         assertTrue("Ana" in unstable && "sua internet" in unstable)
         assertTrue("Cada pessoa" in qualityExplanation(QualityProblem.SENDER_BANDWIDTH, "", 2))
         assertTrue("Cada pessoa" !in qualityExplanation(QualityProblem.SENDER_BANDWIDTH, "", 1))
+        assertTrue("internet dela" in qualityExplanation(QualityProblem.SENDER_BANDWIDTH, "", 1))
+        assertTrue("a sua internet" in qualityExplanation(QualityProblem.PEER_BANDWIDTH, "Ana", 1))
+        assertTrue("a sua internet" !in qualityExplanation(QualityProblem.PEER_BANDWIDTH, "Ana", 2))
     }
 
     @Test

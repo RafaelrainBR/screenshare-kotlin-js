@@ -268,6 +268,7 @@ class Session(
         if (peopleReported) return
         peopleReported = true
         platform.metric("room_joined", "people" to platform.peopleBucket(count))
+        if (!ui.RoomSounds.enabled) platform.featureUsed("sounds_off")
     }
 
     fun handleStartCameraShare() =
@@ -289,6 +290,7 @@ class Session(
                     runCatching { websocketService.stopCameraShare(localRoomId) }
                     return@launch
                 }
+                platform.featureUsed("camera")
                 runCatching { DesktopEnvironment.setTrayState("camera", true) }
                 runCatching { InterfaceMutations.populateAudioDevices() }
             }.onFailure {
@@ -400,6 +402,7 @@ class Session(
         disposed = true
         reportShareEnded("left")
         joinedAt?.let { platform.metric("room_left", "minutes" to platform.minutesBucket(Date.now() - it)) }
+        platform.resetFeaturesUsed()
         connectionQuality.stop()
         mediaCaptureGate.setAvailable(false)
         ++screenShareGeneration

@@ -30,6 +30,7 @@ object RoomSounds {
     fun setEnabled(on: Boolean) {
         enabled = on
         runCatching { window.localStorage.setItem(KEY, on.toString()) }
+        if (!on) platform.featureUsed("sounds_off")
     }
 
     fun play(sound: RoomSound) {

@@ -79,6 +79,7 @@ object RecentRooms {
             join.title = "Entrar na sala ${room.id}"
             join.addEventListener("click", {
                 Elements.roomIdInput.value = room.id
+                platform.featureUsed("recent_room")
                 (document.getElementById("join-form")?.asDynamic())?.requestSubmit()
             })
             val star = document.createElement("button") as HTMLButtonElement

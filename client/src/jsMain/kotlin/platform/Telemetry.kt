@@ -94,6 +94,16 @@ fun peopleBucket(count: Int): String =
         else -> "6+"
     }
 
+private val featuresUsed = mutableSetOf<String>()
+
+/** feature_used: the first use of a feature in this room, by its name only. */
+fun featureUsed(feature: String) {
+    if (featuresUsed.add(feature)) metric("feature_used", "feature" to feature)
+}
+
+/** Leaving a room: the next one counts its features afresh. */
+fun resetFeaturesUsed() = featuresUsed.clear()
+
 fun minutesBucket(milliseconds: Double): String =
     when {
         milliseconds < 60_000 -> "<1"

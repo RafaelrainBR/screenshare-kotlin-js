@@ -49,7 +49,8 @@ fun qualityExplanation(
         }
 
         QualityProblem.PEER_BANDWIDTH -> {
-            "A internet de $peerName não está dando conta de enviar nessa qualidade, então a qualidade da tela caiu."
+            "A internet de $peerName não está dando conta de enviar nessa qualidade, então a qualidade da tela caiu." +
+                if (viewers == 1) " Como só você está assistindo, pode ser também a sua internet." else ""
         }
 
         QualityProblem.SENDER_CPU -> {
@@ -60,7 +61,12 @@ fun qualityExplanation(
         QualityProblem.SENDER_BANDWIDTH -> {
             "Sua internet não está dando conta de enviar nessa qualidade, então a qualidade da sua tela caiu. " +
                 "Escolha um preset mais leve." +
-                if (viewers > 1) " Cada pessoa assistindo usa mais da sua internet." else ""
+                // One viewer: the congestion control can't tell our upload from their download.
+                if (viewers > 1) {
+                    " Cada pessoa assistindo usa mais da sua internet."
+                } else {
+                    " Como só uma pessoa está assistindo, pode ser também a internet dela."
+                }
         }
 
         QualityProblem.UNSTABLE_CONNECTION -> {

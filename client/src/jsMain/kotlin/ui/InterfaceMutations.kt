@@ -347,6 +347,7 @@ object InterfaceMutations {
                 if (document.asDynamic().pictureInPictureElement === video) {
                     document.asDynamic().exitPictureInPicture()
                 } else {
+                    platform.featureUsed("floating")
                     video.asDynamic().requestPictureInPicture().catch { _: dynamic ->
                         showError("Não foi possível abrir a janela flutuante.")
                     }
