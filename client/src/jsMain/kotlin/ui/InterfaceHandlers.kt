@@ -681,6 +681,13 @@ private fun setupDeviceHandlers(
         toggle.addEventListener("change", { RoomSounds.setEnabled(toggle.checked) })
     }
 
+    // Only where usage is sent at all (the hosted site); errors go either way.
+    (document.getElementById("usage-metrics") as? org.w3c.dom.HTMLInputElement)?.let { toggle ->
+        document.getElementById("usage-metrics-option")?.classList?.toggle("hidden", !platform.Telemetry.enabled)
+        toggle.checked = platform.usageMetricsOn()
+        toggle.addEventListener("change", { platform.setUsageMetricsOn(toggle.checked) })
+    }
+
     Elements.cameraDevices.addEventListener("change", {
         onCameraDeviceChange(Elements.cameraDevices.value)
     })

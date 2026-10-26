@@ -26,6 +26,12 @@ class Session(
         !DesktopEnvironment.isAvailable || window.asDynamic().__screenshareDesktopBridge.mediaAvailable != false
     private val mediaCaptureGate = MediaCaptureGate()
 
+    // Usage metrics (platform.metric): when the share and the room began, and a drop being bridged.
+    private var shareStartedAt: Double? = null
+    private var joinedAt: Double? = null
+    private var disconnectedAt: Double? = null
+    private var peopleReported = false
+
     // Incremented synchronously by every user action. A delayed display picker
     // result is therefore unable to publish a share after stop, room exit, or
     // a newer replacement request.
@@ -95,6 +101,10 @@ class Session(
 
     fun confirmRoomJoined(socketId: String) {
         localSocketId = socketId
+        val now = Date.now()
+        disconnectedAt?.let { platform.metric("reconnected", "seconds" to platform.secondsBucket(now - it)) }
+        disconnectedAt = null
+        if (joinedAt == null) joinedAt = now
         mediaCaptureGate.setAvailable(mediaAvailable)
         InterfaceMutations.updateRoomConnection(true)
         InterfaceMutations.addMessageToChat(
@@ -160,7 +170,10 @@ class Session(
                     useSourceResolution = useSourceResolution,
                     desktopAudioMode = desktopAudioMode,
                     nativeSource = nativeSource,
-                    onStreamEnd = { handleStopScreenShare() },
+                    onStreamEnd = {
+                        reportShareEnded("ended")
+                        handleStopScreenShare()
+                    },
                     recreatePeerConnections = { recreatePeerConnections() },
                 )
             }.onFailure {
@@ -187,6 +200,21 @@ class Session(
                 return@launch
             }
             websocketService.startScreenSharing(localRoomId)
+            shareStartedAt = Date.now()
+            val pickedAudio = screenSharing.localScreenStream?.getAudioTracks()?.isNotEmpty() == true
+            platform.metric(
+                "share_started",
+                "source" to (nativeSource?.kind?.name?.lowercase() ?: "picker"),
+                "preset" to (SharePreset.matching(profile)?.name ?: "CUSTOM"),
+                "audio" to
+                    if (nativeSource != null) {
+                        desktopAudioMode.name
+                    } else if (pickedAudio) {
+                        "PICKER"
+                    } else {
+                        "NONE"
+                    },
+            )
             if (!request()) {
                 runCatching { websocketService.stopScreenSharing(localRoomId) }
                 return@launch
@@ -211,6 +239,7 @@ class Session(
 
     fun handleStopScreenShare() {
         ++screenShareGeneration
+        reportShareEnded("user")
         launch {
             screenSharing.stopScreenSharing(recreatePeerConnections = { recreatePeerConnections() })
             runCatching { websocketService.stopScreenSharing(localRoomId) }
@@ -220,6 +249,25 @@ class Session(
                 runCatching { DesktopEnvironment.hideMainWindow() }
             }
         }
+    }
+
+    /** share_ended, once per share: the stop button, the source going away, or leaving the room. */
+    private fun reportShareEnded(reason: String) {
+        val startedAt = shareStartedAt ?: return
+        shareStartedAt = null
+        platform.metric(
+            "share_ended",
+            "minutes" to platform.minutesBucket(Date.now() - startedAt),
+            "reason" to reason,
+            "encoder" to (connectionQuality.encoder ?: "unknown"),
+        )
+    }
+
+    /** room_joined with the room's size, on the first user list after joining. */
+    fun reportPeople(count: Int) {
+        if (peopleReported) return
+        peopleReported = true
+        platform.metric("room_joined", "people" to platform.peopleBucket(count))
     }
 
     fun handleStartCameraShare() =
@@ -327,6 +375,7 @@ class Session(
      * deploy or a network drop doesn't make everyone share again. Only the peers are rebuilt.
      */
     fun prepareForReconnect() {
+        if (localSocketId != null) disconnectedAt = Date.now()
         mediaCaptureGate.setAvailable(false)
         connectionQuality.relayLost()
         peerConnections.closeAll()
@@ -349,6 +398,8 @@ class Session(
     fun dispose() {
         if (disposed) return
         disposed = true
+        reportShareEnded("left")
+        joinedAt?.let { platform.metric("room_left", "minutes" to platform.minutesBucket(Date.now() - it)) }
         connectionQuality.stop()
         mediaCaptureGate.setAvailable(false)
         ++screenShareGeneration

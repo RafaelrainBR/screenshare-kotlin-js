@@ -216,6 +216,10 @@ class ConnectionQuality(
     private var reported: String? = null
     private var job: Job? = null
 
+    /** The encoder our screen last went out on (outbound-rtp encoderImplementation), for share_ended. */
+    var encoder: String? = null
+        private set
+
     fun start(scope: CoroutineScope) {
         if (job != null) return
         job =
@@ -277,6 +281,7 @@ class ConnectionQuality(
                 // A copy: a peer can leave while a getStats is pending.
                 peerConnections.peers.toList().mapNotNull { (peerId, peer) ->
                     val stats = peer.trackStats(localTrack.id)?.await() ?: return@mapNotNull null
+                    encoderName(stats)?.let { encoder = it }
                     val sample = sendSample(stats, now) ?: return@mapNotNull null
                     val key = "$peerId:${localTrack.id}"
                     seenSends += key
@@ -303,8 +308,8 @@ class ConnectionQuality(
             val signal = signals.getOrPut(tileId) { QualitySignal() }
             val before = signal.shown
             val shown = signal.update(measured)
-            // Sentry keeps these as logs: which problem, never who or where.
-            if (shown != before && shown != null) console.warn("Qualidade da tela: ${shown.name}")
+            // quality_problem: which problem, never who or where.
+            if (shown != before && shown != null) platform.metric("quality_problem", "problem" to shown.name)
         }
         // A tile that stopped reporting must not keep a stale chip; a sharer's report still holds.
         (displayed.keys + tiles.keys + peerReports.keys).forEach(::show)
@@ -383,4 +388,12 @@ internal fun receiveSample(stats: dynamic): ReceiveSample? {
         }
     }
     return sample
+}
+
+internal fun encoderName(stats: dynamic): String? {
+    var name: String? = null
+    stats.forEach { stat: dynamic ->
+        if (stat.type == "outbound-rtp" && stat.kind == "video") name = stat.encoderImplementation as? String
+    }
+    return name
 }

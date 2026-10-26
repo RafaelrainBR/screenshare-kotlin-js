@@ -195,6 +195,7 @@ private fun handleUserList(
     packet: Packet.UserList,
 ) {
     session.userList = packet.users
+    if (session.localSocketId != null) session.reportPeople(packet.users.size)
     UserListMutations.updateUserList(packet.users, session.localSocketId)
     packet.users.filter { it.socketId != session.localSocketId }.forEach { user ->
         if (!session.peerConnections.contains(user.socketId)) {
