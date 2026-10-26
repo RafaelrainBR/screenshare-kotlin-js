@@ -38,6 +38,32 @@ pub fn enumerate() -> Vec<Source> {
         .collect()
 }
 
+/// Each process's executable ("game.exe"), to know a restarted game by its program.
+#[cfg(windows)]
+pub fn exe_names() -> std::collections::HashMap<u32, String> {
+    desktop_capture::process::process_list().unwrap_or_default().into_iter().map(|(pid, _, exe)| (pid, exe)).collect()
+}
+
+/// The first window of `exe` in a fresh listing: a restarted game's new window.
+pub fn reopened(sources: Vec<Source>, names: &std::collections::HashMap<u32, String>, exe: &str) -> Option<Source> {
+    sources.into_iter().find(|s| s.kind == SourceKind::Window && names.get(&s.pid).is_some_and(|name| name == exe))
+}
+
+#[test]
+fn a_restarted_game_is_its_executable_window() {
+    let window = |pid: u32, kind| Source { id: pid.to_string(), title: String::new(), hwnd: 0, pid, rect: (0, 0, 0, 0), kind };
+    let names = [(1, "game.exe".to_owned()), (2, "other.exe".to_owned()), (3, "game.exe".to_owned())].into();
+    let found = reopened(vec![window(3, SourceKind::Screen), window(2, SourceKind::Window), window(3, SourceKind::Window)], &names, "game.exe");
+    assert_eq!(found.map(|s| s.pid), Some(3));
+    assert!(reopened(vec![window(2, SourceKind::Window), window(9, SourceKind::Window)], &names, "game.exe").is_none());
+}
+
+/// shortcut: macOS never follows a restarted window; add proc_name lookups if Mac players ask.
+#[cfg(target_os = "macos")]
+pub fn exe_names() -> std::collections::HashMap<u32, String> {
+    std::collections::HashMap::new()
+}
+
 #[cfg(windows)]
 pub fn thumbnail(source: &Source) -> Option<Thumbnail> {
     use windows::Win32::Foundation::{HWND, RECT};

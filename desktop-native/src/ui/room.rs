@@ -238,7 +238,7 @@ pub fn view(app: &App) -> Element<'_, Message> {
     let opened = app.modal_at.map_or(1.0, |at| motion::progress(at, motion::ENTER));
     if let Some(wizard) = &app.wizard {
         // The web #quality-modal: a dimmed room with the panel on top; opaque keeps clicks off the room.
-        let content = motion::veil(wizard.view(app.profile, app.advanced), theme::SURFACE, 1.0 - opened, 0.0);
+        let content = motion::veil(wizard.view(app.profile, app.advanced, app.share_border), theme::SURFACE, 1.0 - opened, 0.0);
         let panel = container(content).padding(24).max_width(540).height(Length::Fill).style(theme::modal);
         layers = layers.push(opaque(container(panel).center_x(Length::Fill).padding(18).style(theme::backdrop_at(opened))));
     }
@@ -260,6 +260,17 @@ pub fn view(app: &App) -> Element<'_, Message> {
         .spacing(16);
         let panel = container(motion::veil(panel.into(), theme::SURFACE, 1.0 - opened, 0.0)).padding(20).max_width(420).style(theme::modal);
         layers = layers.push(opaque(container(panel).center(Length::Fill).style(theme::backdrop_at(opened))));
+    }
+    // A restarted game: one question, never an automatic share (crate::Follow).
+    if let Some(source) = app.follow.as_ref().and_then(|follow| follow.found.as_ref()) {
+        let question = text(format!("{} reabriu. Continuar compartilhando?", source.title)).size(13).width(Length::Fill);
+        let buttons = row![
+            button(text("Agora não").size(13)).style(button::text).on_press(Message::FollowDismiss),
+            button(text("Compartilhar").size(13).font(theme::BOLD)).style(button::primary).on_press(Message::FollowAccept),
+        ]
+        .spacing(8);
+        let banner = container(row![question, buttons].spacing(12).align_y(Alignment::Center)).padding([10, 14]).max_width(560).style(theme::modal);
+        layers = layers.push(container(banner).center_x(Length::Fill).padding(iced::Padding { top: 64.0, right: 12.0, bottom: 12.0, left: 12.0 }));
     }
     // Floats over the top like the web .notice, without moving the layout; drops 8 px in, fades out at the end.
     if let Some((notice, since)) = notice {

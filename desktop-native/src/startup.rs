@@ -113,6 +113,9 @@ pub struct AudioPrefs {
     /// Usage metrics off; on unless turned off. Error reports go either way.
     #[serde(default)]
     pub usage_metrics_off: bool,
+    /// The yellow border around a shared window (desktop_capture::video::WINDOW_BORDER).
+    #[serde(default)]
+    pub share_border: bool,
 }
 
 /// %APPDATA%\Screenshare-native on Windows, ~/Library/Application Support/Screenshare-native on macOS.

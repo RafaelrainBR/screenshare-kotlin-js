@@ -193,7 +193,8 @@ impl Wizard {
     }
 
     /// `advanced`: the "Ajustes avançados" section is open.
-    pub fn view(&self, profile: ShareProfile, advanced: bool) -> Element<'_, Message> {
+    /// `border`: the yellow border around a shared window is on (Windows only).
+    pub fn view(&self, profile: ShareProfile, advanced: bool, border: bool) -> Element<'_, Message> {
         let mut list = Column::new().spacing(8);
         if let Some(sources) = &self.sources {
             for (kind, label) in [(SourceKind::Screen, "Telas"), (SourceKind::Window, "Janelas")] {
@@ -254,6 +255,12 @@ impl Wizard {
                 quality = quality.push(text("Acima do seu upload, a imagem trava para todos.").size(11).color(theme::DIM));
             }
             quality = quality.push(text(profile::LIVE_NOTE).size(11).color(theme::DIM));
+            // The "compartilhando" indicator people can opt into; off by default, as they asked.
+            if cfg!(windows) {
+                quality = quality.push(
+                    iced::widget::checkbox(border).label("Mostrar uma borda na janela compartilhada").on_toggle(|_| Message::ToggleShareBorder).text_size(12).spacing(8),
+                );
+            }
         }
         let start = button(text("Compartilhar").font(theme::BOLD)).padding([8, 16]).style(button::primary);
         column![
