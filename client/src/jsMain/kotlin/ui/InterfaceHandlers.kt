@@ -1,5 +1,6 @@
 package ui
 
+import generatePrivateRoomId
 import generateRandomRoomId
 import hideAfterLocalShare
 import kotlinx.browser.document
@@ -78,7 +79,11 @@ fun registerUIHandlers(
     Elements.outputToggle.addEventListener("click", { InterfaceMutations.toggleOutputMute() })
 }
 
-private fun setupJoinButtonHandler(joinRoom: (username: String, roomId: String) -> Unit) =
+private fun setupJoinButtonHandler(joinRoom: (username: String, roomId: String) -> Unit) {
+    document.getElementById("private-room-btn")?.addEventListener("click", {
+        Elements.roomIdInput.value = generatePrivateRoomId()
+        (document.getElementById("join-form")?.asDynamic())?.requestSubmit()
+    })
     document.getElementById("join-form")?.addEventListener("submit", { e ->
         e.preventDefault()
         val username = Elements.usernameInput.value.trim()
@@ -105,6 +110,7 @@ private fun setupJoinButtonHandler(joinRoom: (username: String, roomId: String) 
 
         joinRoom(username, roomId)
     })
+}
 
 private fun setupSendMessageButtonHandler(sendChatMessage: suspend (message: String) -> Unit) =
     document.getElementById("chat-form")?.addEventListener("submit", { e ->

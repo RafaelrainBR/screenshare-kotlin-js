@@ -37,8 +37,9 @@
         <div id="recent-rooms" class="recent-rooms hidden" role="group" aria-label="Salas recentes"></div>
         <label class="startup-option hidden" id="startup-option"><input id="start-at-login" type="checkbox"> Iniciar com o sistema e voltar a esta sala</label>
         <button type="submit" id="joinBtn" class="btn btn-primary btn-lg">Entrar na sala <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></button>
+        <button type="button" id="private-room-btn" class="btn btn-ghost" title="Cria uma sala com um código longo que ninguém adivinha. Só entra quem receber o link.">Criar sala privada</button>
       </form>
-      <p class="join-links web-only"><a href="/about/download.html">Baixar o app para Windows e Mac</a><a href="/about">Sobre o Screenshare</a></p>
+      <p class="join-links web-only"><a id="open-in-app" class="hidden" href="#">Tem o app? Abrir no app</a><a href="/about/download.html">Baixar o app para Windows e Mac</a><a href="/about">Sobre o Screenshare</a></p>
     </div>
   </main>
 
@@ -142,7 +143,7 @@
       <aside id="sidebar-chat" class="sidebar" aria-label="Conversa">
         <header class="conversation-header">
           <span>Conversa</span>
-          <button id="copyRoomBtn" class="room-code" type="button" aria-label="Copiar código da sala" title="Copiar código da sala">
+          <button id="copyRoomBtn" class="room-code" type="button" aria-label="Copiar link da sala" title="Copiar link da sala">
             <span class="room-code-label">SALA</span><span id="current-room-id"></span>
             <svg viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"/></svg>
           </button>
