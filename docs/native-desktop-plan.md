@@ -385,7 +385,7 @@ O PostHog fica como opção futura, só para análise de produto (duração dos 
 4. **Validar à mão:**
    - o áudio do PC, que o #76 refez: cada app é mixado e ficam de fora os apps de chamada e o próprio Screenshare. O teste ao vivo do `live_mix` passou no Windows 10, mas nenhum share real foi feito de ponta a ponta;
    - o share pelo assistente usando o mouse.
-5. **Encoder por hardware no Windows** (feito em 24/10/2026, NVENC): numa GPU NVIDIA, o H264 dos presets de jogo e vídeo sai pelo NVENC. Sem NVIDIA, continua no software, e o macOS continua no VideoToolbox.
+5. **Encoder por hardware no Windows** (feito em 24/10/2026, NVENC): numa GPU NVIDIA, o H264 sai pelo NVENC. Desde 27/10/2026 o H264 vai primeiro em todo share, inclusive na Nitidez: o VP9 por software, um encoder por espectador, usava 4 núcleos com 3 pessoas assistindo a 2560×1080 30 fps. Sem NVIDIA, continua no software, e o macOS continua no VideoToolbox.
    - **Fork** (`RafaelrainBR/rust-sdks`, branch `screenshare/nvenc-windows`, rev `5f4f783`, PR RafaelrainBR/rust-sdks#1). O `build.rs` compila o encoder de `src/nvidia/` no Windows quando há `CUDA_PATH/include/cuda.h`. O probe carrega o `nvEncodeAPI64.dll` por `LoadLibrary`. O `NvEncoder.h` inclui o `winsock2.h` antes do `windows.h`. O decoder ganhou a macro própria `USE_NVIDIA_VIDEO_DECODER`, só no Linux, porque no Windows precisaria do `nvcuvid.lib`. O NVENC escolhe o level do H264 sozinho: o `42e01f` é level 3.1, e 1080p60 preso a ele dava `NV_ENC_ERR_INVALID_PARAM`.
    - **App:**
      - o `desktop-native/build.rs` passa `/DELAYLOAD:nvcuda.dll`, então o exe abre sem driver NVIDIA (`dumpbin` confirma: só delay load);

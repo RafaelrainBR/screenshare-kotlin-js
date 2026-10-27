@@ -321,10 +321,9 @@ fn attach_real_screen(
             )
             .map_err(|e| e.to_string())?;
         // Codec order and encoding go in before the offer, as in addTracksIfNotPresent.
-        let codecs = share::preferred_video_codecs(
-            factory.get_rtp_sender_capabilities(libwebrtc::MediaType::Video).codecs,
-            profile.priority != share::SharePriority::Sharpness,
-        );
+        // H264 for every priority: each viewer gets its own encoder, and software VP9 at
+        // 2560x1080 30 fps for three viewers took four cores while NVENC sat idle.
+        let codecs = share::preferred_video_codecs(factory.get_rtp_sender_capabilities(libwebrtc::MediaType::Video).codecs, true);
         if let Err(error) = transceiver.set_codec_preferences(codecs) {
             eprintln!("codec preference not applied: {error}");
         }
