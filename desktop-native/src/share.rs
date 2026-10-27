@@ -84,7 +84,7 @@ pub fn share_bitrate(profile: ShareProfile, height: u32) -> u64 {
 }
 
 /// VP9 > H264 > VP8 > AV1, keeping RTX/RED/ULPFEC: without them fullscreen video corrupts
-/// as soon as packets are lost. `h264_first` (game and video shares) is this side's take on the
+/// as soon as packets are lost. `h264_first` (every screen share) is this side's take on the
 /// web's hardware-first order: H264 goes to NVENC on an NVIDIA GPU, to Quick Sync or AMF through
 /// Media Foundation on Intel and AMD, to VideoToolbox on macOS, and is the cheapest software codec
 /// elsewhere. Software VP9 at 60 fps takes cores from the game being shared.
