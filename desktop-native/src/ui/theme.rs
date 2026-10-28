@@ -177,6 +177,33 @@ pub fn name_chip(_: &Theme) -> container::Style {
     }
 }
 
+/// .tile-name on a large tile: the .glass-chip look, so it reads as one bar with the controls.
+pub fn label_chip(_: &Theme) -> container::Style {
+    container::Style {
+        background: Some(Color { a: 0.92, ..BG }.into()),
+        text_color: Some(TEXT),
+        border: Border { color: LINE_2, width: 1.0, radius: 8.0.into() },
+        ..Default::default()
+    }
+}
+
+/// .person-main: a "Na sala" row, lit on hover only when a click shows a video.
+pub fn person_row(_: &Theme, status: button::Status) -> button::Style {
+    let hover = matches!(status, button::Status::Hovered | button::Status::Pressed);
+    button::Style {
+        background: hover.then(|| SURFACE_2.into()),
+        text_color: TEXT,
+        border: Border { radius: 6.0.into(), ..Default::default() },
+        ..Default::default()
+    }
+}
+
+/// .person-row .avatar-circle: the 24 px avatar with the same green ring as .avatar-circle.speaking.
+pub fn person_avatar(speaking: f32) -> container::Style {
+    let style = avatar(speaking);
+    container::Style { border: Border { radius: 12.0.into(), ..style.border }, ..style }
+}
+
 /// .quality-chip: amber over the video, only while something holds the quality back.
 pub fn quality_chip(_: &Theme, _: button::Status) -> button::Style {
     button::Style {

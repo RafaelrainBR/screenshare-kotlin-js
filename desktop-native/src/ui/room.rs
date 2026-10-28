@@ -4,11 +4,11 @@ use std::time::Duration;
 use desktop_native::session::{AudioDevice, Participant};
 use iced::{
     Alignment, Element, Length,
-    widget::{button, column, container, mouse_area, opaque, row, scrollable, stack, text, text_input},
+    widget::{button, column, container, hover, mouse_area, opaque, row, scrollable, stack, text, text_input},
 };
 
 use super::{dock, motion, theme};
-use crate::{App, Message, TileKey, is_shared};
+use crate::{App, Message, TileKey, awake, is_shared};
 
 pub const CHAT_INPUT: &str = "chat-input";
 const CHEVRON_RIGHT: &str = r#"<path d="m9 5 7 7-7 7"/>"#;
@@ -178,6 +178,8 @@ pub fn view(app: &App) -> Element<'_, Message> {
     let chat = container(
         column![
             container(header).padding([0, 8]).height(32).center_y(32),
+            rule(),
+            people(app),
             rule(),
             scrollable(container(messages).padding([15, 10])).height(Length::Fill).anchor_bottom(),
             rule(),
@@ -358,9 +360,17 @@ fn video_tile<'a>(app: &'a App, key: &TileKey, small: bool) -> Element<'a, Messa
             .into(),
     };
     let mut layers = stack![content];
+    // Fullscreen is for watching: the name and the controls leave with the cursor, like the web's .awake.
+    let shown = small || app.fullscreen.as_ref() != Some(key) || awake(app);
     if small {
         let chip = container(text(name).size(11)).padding([1, 6]).style(theme::name_chip);
         layers = layers.push(container(chip).padding(6).align_bottom(Length::Fill));
+    } else if shown {
+        // Whose screen or camera: bottom left, centred on the 34 px controls on the right; ours says Você.
+        let own = app.view.local_socket_id.as_deref() == Some(peer.as_str());
+        let label = text(if own { "Você" } else { name }).size(12).wrapping(text::Wrapping::None);
+        let chip = container(label).padding([4, 9]).max_width(240).clip(true).style(theme::label_chip);
+        layers = layers.push(container(chip).padding(iced::Padding { left: 12.0, bottom: 16.0, ..iced::Padding::ZERO }).align_bottom(Length::Fill));
     }
     // "Por que está travando?" (crate::Quality): the label, or only the triangle in the rail; a click explains.
     if let Some((problem, label, explanation)) = app.quality.shown.get(key) {
@@ -402,7 +412,9 @@ fn video_tile<'a>(app: &'a App, key: &TileKey, small: bool) -> Element<'a, Messa
     }
     let options = Message::PeerOptions(Some((peer.clone(), Some(*camera))));
     let options = if small { options_button(peer, Some(*camera)) } else { glass_button(DOTS, 17.0, 34.0, "Opções", options) };
-    layers = layers.push(container(controls.push(options)).padding(if small { 5 } else { 12 }).align_right(Length::Fill).align_bottom(Length::Fill));
+    if shown {
+        layers = layers.push(container(controls.push(options)).padding(if small { 5 } else { 12 }).align_right(Length::Fill).align_bottom(Length::Fill));
+    }
     let focused = app.focused.as_ref() == Some(key);
     let speaking = crate::speaking(app, peer);
     let tile = button(layers).padding(1).style(move |_, _| theme::video_tile(focused, speaking)).on_press(Message::Focus(key.clone()));
@@ -506,6 +518,57 @@ fn options_menu<'a>(app: &'a App, peer: &'a str, camera: Option<bool>) -> Elemen
         .into()
 }
 
+/// "Na sala" (the web's .room-people): you first, then the server's order, which never shuffles while people talk.
+fn people(app: &App) -> Element<'_, Message> {
+    let local = app.view.local_socket_id.as_deref();
+    let mut ordered: Vec<&Participant> = app.view.participants.iter().collect();
+    ordered.sort_by_key(|p| Some(p.socket_id.as_str()) != local);
+    let rows = ordered.into_iter().fold(column![].spacing(2), |list, p| list.push(person_row(app, p, Some(p.socket_id.as_str()) == local)));
+    let thin = scrollable::Scrollbar::new().width(4).scroller_width(4);
+    let mut section = column![
+        text(format!("Na sala · {}", app.view.participants.len())).size(12).color(theme::DIM),
+        // Five rows, then it scrolls.
+        container(scrollable(rows).direction(scrollable::Direction::Vertical(thin))).max_height(5.0 * 32.0),
+    ]
+    .spacing(4);
+    if app.view.participants.len() == 1 {
+        let copy = button(text("Copiar link").size(12)).padding([4, 8]).style(|_, status| theme::chip_button(status)).on_press(Message::CopyRoom);
+        section = section.push(row![text("Só você aqui.").size(12).color(theme::DIM).width(Length::Fill), copy].align_y(Alignment::Center));
+    }
+    container(section).padding([8, 8]).into()
+}
+
+/// .person-row: avatar with the speaking ring, name, and the screen (amber while it struggles), camera and muted icons.
+/// A click shows their screen, else their camera; ⋯ on hover and a right click open the participant menu.
+fn person_row(app: &App, p: &Participant, me: bool) -> Element<'static, Message> {
+    let peer = p.socket_id.clone();
+    let (screen, camera) = ((peer.clone(), false), (peer.clone(), true));
+    let speaking = crate::speaking(app, &peer);
+    let avatar = container(text(initials(&p.username)).size(10).font(theme::BOLD)).center(24).style(move |_: &iced::Theme| theme::person_avatar(speaking));
+    let name = text(if me { format!("{} (Você)", p.username) } else { p.username.clone() }).size(13).wrapping(text::Wrapping::None);
+    let mut icons = row![].spacing(6).align_y(Alignment::Center);
+    if is_shared(&app.view, &screen) {
+        icons = icons.push(dock::icon(dock::SCREEN, 15.0, if app.quality.shown.contains_key(&screen) { theme::AMBER } else { theme::DIM }));
+    }
+    if is_shared(&app.view, &camera) {
+        icons = icons.push(dock::icon(dock::CAMERA_ON, 15.0, theme::DIM));
+    }
+    if p.is_muted {
+        icons = icons.push(dock::icon(&format!("{}{}", dock::MIC, dock::SLASH), 15.0, theme::RED));
+    }
+    let content = row![avatar, container(name).width(Length::Fill).clip(true), icons].spacing(8).align_y(Alignment::Center);
+    let target = [screen, camera].into_iter().find(|key| is_shared(&app.view, key));
+    let press = target.as_ref().filter(|key| app.focused.as_ref() != Some(*key)).cloned().map(Message::Focus);
+    let main = button(content).padding([3, 6]).width(Length::Fill).style(theme::person_row).on_press_maybe(press);
+    let main = if target.is_some() { dock::hint_on(main.into(), "Mostrar no palco".into()) } else { main.into() };
+    if me {
+        return main;
+    }
+    // ⋯ shows over the icons while the row is hovered.
+    let options = container(options_button(&peer, None)).padding(iced::Padding { right: 1.0, ..iced::Padding::ZERO }).align_right(Length::Fill).center_y(Length::Fill);
+    mouse_area(hover(main, options)).on_right_press(Message::PeerOptions(Some((peer, None)))).into()
+}
+
 /// getUsernameInitials in Util.kt: the first letter of up to two words.
 pub fn initials(name: &str) -> String {
     name.split(' ').filter_map(|word| word.chars().next()).take(2).flat_map(char::to_uppercase).collect()
@@ -517,7 +580,13 @@ pub fn floating<'a>(app: &'a App, key: &TileKey) -> Element<'a, Message> {
         Some((frame, version)) => iced::widget::Shader::new(super::video::Video { key: key.clone(), frame, version }).width(Length::Fill).height(Length::Fill).into(),
         None => container(text("Conectando…").size(12).color(theme::DIM)).center(Length::Fill).into(),
     };
-    let back = glass_button(EXIT_FULLSCREEN, 15.0, 30.0, "Voltar para a sala", Message::Float(None));
-    let stage = stack![video, container(back).padding(8).align_right(Length::Fill)];
+    // Over a game the window keeps only the video until the cursor comes by (crate::awake).
+    let mut stage = stack![video];
+    if awake(app) {
+        let name = app.view.participants.iter().find(|p| p.socket_id == key.0).map_or("…", |p| p.username.as_str());
+        let chip = container(text(name).size(11).wrapping(text::Wrapping::None)).padding([1, 6]).max_width(160).clip(true).style(theme::name_chip);
+        let back = glass_button(EXIT_FULLSCREEN, 15.0, 30.0, "Voltar para a sala", Message::Float(None));
+        stage = stage.push(container(chip).padding(8).align_bottom(Length::Fill)).push(container(back).padding(8).align_right(Length::Fill));
+    }
     container(stage).style(|_| container::Style { background: Some(theme::VIDEO.into()), ..Default::default() }).width(Length::Fill).height(Length::Fill).into()
 }

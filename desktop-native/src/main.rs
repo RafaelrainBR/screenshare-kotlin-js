@@ -281,6 +281,8 @@ pub struct App {
     camera_restart: bool,
     /// Last cursor position in the window, where the participant menu opens (like the web contextmenu).
     cursor: Point,
+    /// When the cursor last moved: fullscreen and the floating window show their name and controls only after that.
+    cursor_moved: Option<Instant>,
     menu_at: Option<Point>,
     /// The camera stepped out for a new share and returns once the share is up.
     camera_after_share: bool,
@@ -877,7 +879,10 @@ fn update(app: &mut App, message: Message) -> Task<Message> {
             app.menu_opened = target.is_some().then(Instant::now);
             app.peer_options = target;
         }
-        Message::Cursor(position) => app.cursor = position,
+        Message::Cursor(position) => {
+            app.cursor = position;
+            app.cursor_moved = Some(Instant::now());
+        }
         Message::Explain(text) => app.notice = Some((text, Instant::now())),
         Message::Feedback(draft) => {
             let opening = app.feedback.is_none() && draft.is_some();
@@ -1529,6 +1534,11 @@ fn animating(app: &App) -> bool {
 }
 
 /// A screen or camera that is still on: ours by the engine state, the others by the room's sharers.
+/// Like the web's .awake: the cursor moved in the last 3 s.
+pub fn awake(app: &App) -> bool {
+    app.cursor_moved.is_some_and(|at| at.elapsed() < Duration::from_secs(3))
+}
+
 pub fn is_shared(view: &SessionView, (peer, camera): &TileKey) -> bool {
     if Some(peer.as_str()) == view.local_socket_id.as_deref() {
         (if *camera { &view.camera_state } else { &view.screen_state }) == "active"
