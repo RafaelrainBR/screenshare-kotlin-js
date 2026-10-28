@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Screenshare",
-  "version": "0.10.0",
+  "version": "0.12.0",
   "identifier": "com.rafaelrain.screenshare",
   "build": {
     "beforeDevCommand": "node scripts/build-frontend.mjs --dev",
@@ -11,7 +11,9 @@
   },
   "app": {
     "security": {
-      "capabilities": ["main"],
+      "capabilities": [
+        "main"
+      ],
       "csp": {
         "default-src": "'self'",
         "connect-src": "'self' ipc: http://ipc.localhost ws://localhost:8080 wss://screen-share.fly.dev https://fonts.googleapis.com https://fonts.gstatic.com",
@@ -45,14 +47,20 @@
       "endpoints": [
         "https://github.com/RafaelrainBR/screenshare-kotlin-js/releases/latest/download/latest.json"
       ],
-      "windows": { "installMode": "passive" }
+      "windows": {
+        "installMode": "passive"
+      }
     }
   },
   "bundle": {
     "active": true,
     "createUpdaterArtifacts": true,
     "targets": "all",
-    "icon": ["icons/icon.ico", "icons/icon.icns", "icons/icon.png"],
+    "icon": [
+      "icons/icon.ico",
+      "icons/icon.icns",
+      "icons/icon.png"
+    ],
     "shortDescription": "P2P screen sharing using the canonical Kotlin client",
     "macOS": {
       "infoPlist": "Info.plist",
