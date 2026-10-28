@@ -449,6 +449,8 @@ fn open_privacy_settings(kind: String) -> Result<(), String> {
         ("microphone", true) => {
             "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone"
         }
+        // The last Tauri release points people to the native app; a link would navigate the app's window away.
+        ("download", _) => "https://screen-share.fly.dev/about/download.html",
         _ => return Err("unsupported-kind".into()),
     };
     let opener = if cfg!(target_os = "windows") {

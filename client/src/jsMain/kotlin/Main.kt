@@ -145,13 +145,13 @@ fun main() {
             }
         }
         websocketCoroutineScope.launch {
-            // Offline or no release yet: no banner, nothing to report.
+            // Offline or no release yet: no update banner, only the pointer to the native app.
             runCatching { DesktopEnvironment.checkForUpdate() }.getOrNull()?.let {
                 showUpdateBanner(
                     it,
                     websocketCoroutineScope,
                 )
-            }
+            } ?: showNativeAppBanner(websocketCoroutineScope)
         }
         startupToggle.addEventListener("change", {
             websocketCoroutineScope.launch {
@@ -342,6 +342,19 @@ fun getSessionOrAlert(): Session {
         throw IllegalStateException("Session is null")
     }
     return session!!
+}
+
+// This is the last Tauri release: the desktop app is now the native one, installed side by side.
+private fun showNativeAppBanner(scope: kotlinx.coroutines.CoroutineScope) {
+    val document = kotlinx.browser.document
+    val button = document.getElementById("update-btn") as org.w3c.dom.HTMLButtonElement
+    document.getElementById("update-text")?.textContent =
+        "Este app não recebe mais atualizações. Instale o Screenshare novo, mais leve."
+    button.textContent = "Baixar"
+    document.getElementById("update-banner")?.classList?.remove("hidden")
+    button.addEventListener("click", {
+        scope.launch { runCatching { DesktopEnvironment.openPrivacySettings("download") } }
+    })
 }
 
 private fun showUpdateBanner(
