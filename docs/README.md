@@ -7,7 +7,7 @@ Start with the [project overview](../README.md) or [Português](../README.pt-BR.
 | Install the app, join a room or fix capture permissions | [Usage and troubleshooting](usage.md) |
 | Build the browser client/server or run tests | [Development](development.md) |
 | Host my own instance, configure TURN or deploy a container | [Self-hosting](self-hosting.md) |
-| Develop the desktop app or publish a desktop release | [Desktop guide](../desktop-tauri/README.md) |
+| Develop the desktop app or publish a desktop release | [Desktop guide](../desktop-native/README.md) |
 | Report a bug or contribute a change | [Contributing](../CONTRIBUTING.md) |
 | Refresh the README screenshots | [Screenshot workflow](images/README.md) |
 | Maintain the public presentation, demo and launch materials | [Presence and publication](presence/README.md) |

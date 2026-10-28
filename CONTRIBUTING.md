@@ -15,9 +15,9 @@ Remove room codes, private messages, captured content, SDP/ICE details, IP addre
 
 ## Send a change
 
-1. Follow the [development guide](docs/development.md); use the [desktop guide](desktop-tauri/README.md) for native work.
+1. Follow the [development guide](docs/development.md); use the [desktop guide](desktop-native/README.md) for native work.
 2. Keep the change focused and follow the surrounding code's structure.
 3. Run the checks relevant to the change and describe the result in the PR. Changes to capture need real-device validation; say explicitly when it was not possible.
 4. Update the relevant usage/build docs when behavior changes. Refresh both README entry points and [screenshots](docs/images/README.md) when their content changes.
 
-The browser and desktop share one Kotlin/JS client and protocol. Keep native capture behind the desktop bridge so normal browser builds work independently of Tauri.
+The browser (Kotlin/JS) and the desktop app (Rust) are two clients of one protocol: a packet change must keep both, and installed older versions, working.

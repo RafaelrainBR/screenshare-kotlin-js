@@ -1,0 +1,45 @@
+[package]
+name = "desktop-native"
+version = "0.1.0"
+description = "Screenshare desktop client in Rust: iced UI, libwebrtc and the shared capture, no WebView"
+edition = "2024"
+publish = false
+
+[features]
+synthetic-test = []
+
+[dependencies]
+# Fork at livekit 2ff180e plus set_volume on remote audio tracks, NVENC and Media Foundation H264 on Windows, no ducking (branch screenshare/mf-h264).
+libwebrtc = { git = "https://github.com/RafaelrainBR/rust-sdks.git", rev = "da550660ed7aec0c8950f7414f8db8cfb69e48e4", package = "libwebrtc" }
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.149"
+tokio = { version = "1.49.0", features = ["macros", "rt-multi-thread", "time"] }
+tokio-stream = "0.1"
+tokio-tungstenite = { version = "0.28.0", features = ["rustls-tls-native-roots"] }
+# wss:// needs exactly one rustls provider; ring only reaches libwebrtc's build script, not the app.
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+futures-util = "0.3.34"
+rand = "0.9.5"
+iced = { version = "0.14", features = ["advanced", "image", "svg", "tokio"] }
+desktop-capture = { path = "../desktop-capture" }
+tray-icon = "0.21"
+image = { version = "0.25", default-features = false, features = ["png"] }
+# minidump: crashes in the C++ side (libwebrtc) through a crash reporter process (src/telemetry.rs).
+sentry = { version = "0.49.3", features = ["minidump"] }
+# Timestamps in the local log (src/telemetry.rs); already in the tree through sentry.
+time = { version = "0.3", features = ["formatting"] }
+# Updates (src/updater.rs): the reqwest and ring already in the tree through sentry and rustls.
+reqwest = { version = "0.13", default-features = false, features = ["native-tls", "json"] }
+ring = "0.17"
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.62", features = ["Win32_Foundation", "Win32_System_Time", "Win32_Media_Audio", "Win32_Media_MediaFoundation", "Win32_System_Com", "Win32_System_Console", "Win32_System_Registry", "Win32_System_Threading", "Win32_Security", "Win32_Graphics_Gdi", "Win32_UI_WindowsAndMessaging", "Win32_UI_Shell"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+libc = "0.2"
+# The macOS camera through AVFoundation; it also asks for the camera permission.
+nokhwa = { version = "0.10.11", default-features = false, features = ["input-avfoundation"] }
+
+[profile.release]
+# File and line numbers in Sentry's stack traces: the PDB the release workflow uploads (docs/native-desktop-plan.md, F7).
+debug = "line-tables-only"

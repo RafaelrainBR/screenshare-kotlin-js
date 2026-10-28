@@ -19,19 +19,19 @@ pub const THUMB_DIM: u32 = 320;
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Source {
-    id: String,
-    title: String,
-    hwnd: u64,
-    pid: i32,
-    rect: (i32, i32, i32, i32),
-    kind: &'static str,
+    pub id: String,
+    pub title: String,
+    pub hwnd: u64,
+    pub pid: i32,
+    pub rect: (i32, i32, i32, i32),
+    pub kind: &'static str,
 }
 
 #[derive(Serialize)]
 pub struct Thumbnail {
-    width: u32,
-    height: u32,
-    data: Vec<u8>,
+    pub width: u32,
+    pub height: u32,
+    pub data: Vec<u8>,
 }
 
 /// A window id, or the display whose top-left corner is `(left, top)` (points).

@@ -98,6 +98,10 @@ pub struct VideoMetrics {
 /// the consumer had no free slot; that frame is counted as dropped and never queued.
 /// `fps` and `max_height` are read every tick, so both can change while the capture runs;
 /// a taller source is scaled down to `max_height` (on the GPU for screens) before readback.
+/// "Mostrar uma borda na janela compartilhada": off by default, since people asked for no border.
+/// Read when a window capture starts.
+pub static WINDOW_BORDER: AtomicBool = AtomicBool::new(false);
+
 pub fn capture_video_loop(
     source: VideoSource,
     fps: Arc<AtomicU32>,
@@ -703,15 +707,19 @@ impl WgcGrabber {
             )
             .map_err(|_| FAILED)?;
             let session = pool.CreateCaptureSession(&item).map_err(|_| FAILED)?;
-            // No pointer, as with PrintWindow, and no yellow border around the shared window;
-            // both setters fail on builds that predate them (the border one needs Windows 11).
+            // No pointer, as with PrintWindow, and no yellow border around the shared window unless
+            // asked for (WINDOW_BORDER); both setters fail on builds that predate them (the border
+            // one needs Windows 11, so Windows 10 always draws it).
             let _ = session.SetIsCursorCaptureEnabled(false);
-            if let Ok(access) = GraphicsCaptureAccess::RequestAccessAsync(
-                GraphicsCaptureAccessKind::Borderless,
-            ) {
-                let _ = access.join();
+            let border = WINDOW_BORDER.load(Ordering::Relaxed);
+            if !border {
+                if let Ok(access) = GraphicsCaptureAccess::RequestAccessAsync(
+                    GraphicsCaptureAccessKind::Borderless,
+                ) {
+                    let _ = access.join();
+                }
             }
-            let _ = session.SetIsBorderRequired(false);
+            let _ = session.SetIsBorderRequired(border);
             session.StartCapture().map_err(|_| FAILED)?;
             Ok(Self {
                 hwnd,

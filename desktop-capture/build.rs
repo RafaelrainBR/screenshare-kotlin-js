@@ -34,6 +34,6 @@ fn main() {
         println!("cargo:rustc-link-lib=framework=Foundation");
         println!("cargo:rustc-link-lib=framework=AVFAudio");
         // rustc-link-arg does not reach dependents: binaries that link this crate add the
-        // Swift runtime rpath themselves (see desktop-tauri/src-tauri/build.rs).
+        // Swift runtime rpath themselves (see desktop-native/build.rs).
     }
 }

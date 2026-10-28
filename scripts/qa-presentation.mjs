@@ -2,13 +2,12 @@ import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 import { mkdir, writeFile, readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
-import { downloadsFromManifest, nativeDownloads } from './build-presentation.mjs';
+import { nativeDownloads } from './build-presentation.mjs';
 
 const require = createRequire(resolve(process.env.PLAYWRIGHT_MODULE_DIR || 'node_modules', 'package.json'));
 const { chromium } = require('playwright');
 const base = process.env.SCREENSHARE_DOCS_URL || 'http://localhost:8080';
 assert(['localhost', '127.0.0.1'].includes(new URL(base).hostname), 'Use a local QA server');
-const expected = downloadsFromManifest(JSON.parse(await readFile('site/latest.json', 'utf8')));
 const native = nativeDownloads(JSON.parse(await readFile('site/native.json', 'utf8')).version);
 const output = resolve('artifacts/qa/presence');
 await mkdir(output, { recursive: true });
@@ -63,8 +62,6 @@ try {
 
     // Without JavaScript the download page keeps the versions of its build.
     assert.equal((await page.goto(base + downloadPage)).status(), 200);
-    assert.equal(await page.locator('[data-line=classic][data-file$="setup.exe"]').getAttribute('href'), expected.windowsUrl);
-    assert.equal(await page.locator('[data-line=classic][data-file$="macos-arm64.tar.gz"]').getAttribute('href'), expected.macUrl);
     assert.equal(await page.locator('.variants [data-line=native][data-file$="setup.exe"]').getAttribute('href'), native.nativeSetupUrl);
     assert(!(await page.content()).includes('{{'));
     for (const [width, height] of [[1440, 900], [390, 844], [320, 640]]) {
