@@ -12,8 +12,8 @@ APP="$OUT/Screenshare nativo.app"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$TARGET/release/desktop-native" "$APP/Contents/MacOS/Screenshare-native"
-cp "$ROOT/desktop-tauri/src-tauri/icons/icon.icns" "$APP/Contents/Resources/icon.icns"
-# The usage texts are the Tauri app's (desktop-tauri/src-tauri/Info.plist); without them macOS denies
+cp "$ROOT/desktop-native/icons/icon.icns" "$APP/Contents/Resources/icon.icns"
+# The usage texts are the old Tauri app's Info.plist; without them macOS denies
 # the camera and microphone. 14.2 is desktop-capture's Swift target.
 cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>

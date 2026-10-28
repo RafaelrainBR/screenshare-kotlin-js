@@ -27,7 +27,7 @@ ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 OutputDir={#OutputDir}
 OutputBaseFilename=Screenshare-native_{#AppVersion}_x64-setup
-SetupIconFile=..\desktop-tauri\src-tauri\icons\icon.ico
+SetupIconFile=icons\icon.ico
 UninstallDisplayIcon={app}\icon.ico
 UninstallDisplayName=Screenshare nativo
 Compression=lzma2/max
@@ -45,7 +45,7 @@ Name: "desktopicon"; Description: "Criar atalho na área de trabalho"; Flags: un
 
 [Files]
 Source: "{#SourceExe}"; DestDir: "{app}"; DestName: "Screenshare-native.exe"; Flags: ignoreversion
-Source: "..\desktop-tauri\src-tauri\icons\icon.ico"; DestDir: "{app}"; Flags: ignoreversion
+Source: "icons\icon.ico"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
 Name: "{autoprograms}\Screenshare nativo"; Filename: "{app}\Screenshare-native.exe"; IconFilename: "{app}\icon.ico"

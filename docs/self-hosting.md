@@ -17,7 +17,7 @@ The default port is 8080; set the `PORT` environment variable to override it. Op
 
 For remote use, terminate TLS at your reverse proxy and serve HTTPS/WSS. Forward HTTP and WebSocket upgrades to the same server, preserving long-lived connections. Browser capture APIs require a secure context outside `localhost`.
 
-The deployed browser client connects to its own page's host. Packaged desktop releases connect to `screen-share.fly.dev` by default; hosting another web instance does not redirect those releases. A custom desktop distribution also needs its startup endpoint and Tauri `connect-src` allowlist adjusted in [`tauri.conf.json`](../desktop-tauri/src-tauri/tauri.conf.json).
+The deployed browser client connects to its own page's host. Packaged desktop releases connect to `screen-share.fly.dev` by default; hosting another web instance does not redirect those releases. The desktop app reads another server from the `SCREENSHARE_WS` environment variable (for example `wss://example.com/`).
 
 ## Docker
 

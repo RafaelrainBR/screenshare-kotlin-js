@@ -65,7 +65,7 @@ thread_local! {
     static TRAY: RefCell<Option<Tray>> = const { RefCell::new(None) };
 }
 
-const ICON: &[u8] = include_bytes!("../../desktop-tauri/src-tauri/icons/32x32.png");
+const ICON: &[u8] = include_bytes!("../icons/32x32.png");
 
 /// The app icon, also used for the window.
 pub fn icon_rgba() -> Option<(Vec<u8>, u32, u32)> {
