@@ -248,7 +248,7 @@ object InterfaceMutations {
             }
             existingTile.setAttribute("data-username", username)
             existingTile.setAttribute("aria-label", "Tela de $username")
-            existingTile.querySelector(".tile-name")?.textContent = username
+            existingTile.querySelector(".tile-name")?.textContent = tileLabel(username, isLocal)
             (existingTile as? HTMLElement)?.title = "Tela de $username"
             reflowScreens()
         } else {
@@ -286,7 +286,7 @@ object InterfaceMutations {
         video.addEventListener("pause", { if (video.isConnected) video.play().catch { } })
         video.addEventListener("click", { e -> e.preventDefault() })
         tile.appendChild(video)
-        tile.appendChild(tileName(username))
+        tile.appendChild(tileName(tileLabel(username, isLocal)))
 
         // "Por que está travando?" (services/ConnectionQuality.kt): hidden until a problem holds.
         val quality = document.createElement("button") as HTMLButtonElement
@@ -455,6 +455,9 @@ object InterfaceMutations {
         val tile = findTile(tileId) ?: return false
         val chip = tile.querySelector(".quality-chip") as? HTMLElement ?: return false
         chip.classList.toggle("hidden", label == null)
+        if (!tile.classList.contains("camera-tile")) {
+            tile.getAttribute("data-owner-id")?.let { UserListMutations.setScreenWarning(it, label != null) }
+        }
         (tile.querySelector(".quality-action") as? HTMLElement)?.let { button ->
             button.classList.toggle("hidden", label == null || action == null)
             button.textContent = action.orEmpty()
@@ -583,6 +586,12 @@ object InterfaceMutations {
         }
     }
 
+    // Your own screen and camera say so, like "(Você)" in the participant list.
+    private fun tileLabel(
+        username: String,
+        isLocal: Boolean,
+    ) = if (isLocal) "Você" else username
+
     private fun tileName(username: String): HTMLElement =
         (document.createElement("span") as HTMLElement).apply {
             className = "tile-name"
@@ -626,7 +635,7 @@ object InterfaceMutations {
         mirror.setAttribute("data-owner-id", focusedTile.getAttribute("data-owner-id").orEmpty())
         mirror.setAttribute("aria-label", "Prévia de $username, em destaque")
         mirror.title = "Voltar à grade"
-        mirror.querySelector(".tile-name")?.textContent = username
+        mirror.querySelector(".tile-name")?.textContent = focusedTile.querySelector(".tile-name")?.textContent
         val video = mirror.querySelector("video") as HTMLVideoElement
         if (video.srcObject !== source.srcObject) video.srcObject = source.srcObject
         if (Elements.screensRail.firstChild != mirror) {
@@ -691,7 +700,7 @@ object InterfaceMutations {
             }
             existingTile.setAttribute("data-username", username)
             existingTile.setAttribute("aria-label", "Câmera de $username")
-            existingTile.querySelector(".tile-name")?.textContent = username
+            existingTile.querySelector(".tile-name")?.textContent = tileLabel(username, isLocal)
             (existingTile as? HTMLElement)?.title = "Câmera de $username"
             reflowScreens()
         } else {
@@ -729,7 +738,7 @@ object InterfaceMutations {
         video.addEventListener("pause", { if (video.isConnected) video.play().catch { } })
         video.addEventListener("click", { e -> e.preventDefault() })
         tile.appendChild(video)
-        tile.appendChild(tileName(username))
+        tile.appendChild(tileName(tileLabel(username, isLocal)))
 
         val controls = document.createElement("div") as HTMLElement
         controls.className = "screen-tile-controls"

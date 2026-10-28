@@ -52,6 +52,18 @@ previewsButton.addEventListener('click', () => {
     : '<path d="m6 9 6 6 6-6"/>';
 });
 
+// A fullscreen tile shows its name and controls while the pointer moves, then 3 s more (ui.css .awake).
+let idleTimeout;
+function wake() {
+  const tile = document.fullscreenElement;
+  if (!tile?.classList.contains('screen-tile')) return;
+  tile.classList.add('awake');
+  clearTimeout(idleTimeout);
+  idleTimeout = setTimeout(() => tile.classList.remove('awake'), 3000);
+}
+document.addEventListener('fullscreenchange', wake);
+document.addEventListener('mousemove', wake);
+
 const workspace = document.getElementById('workspace');
 document.getElementById('toggleSidebarBtn').addEventListener('click', () => {
   workspace.classList.add('chat-collapsed');
@@ -159,7 +171,7 @@ function openContext(tile, x, y) {
   (slider || context.querySelector('button:not(.hidden)'))?.focus();
 }
 document.addEventListener('contextmenu', event => {
-  const tile = event.target.closest('.participant-tile, .screen-tile');
+  const tile = event.target.closest('.participant-tile, .screen-tile, .person-row');
   if (!tile) return;
   event.preventDefault();
   openContext(tile, event.clientX, event.clientY);
@@ -167,7 +179,7 @@ document.addEventListener('contextmenu', event => {
 document.addEventListener('click', event => {
   const options = event.target.closest('[data-participant-options]');
   if (options) {
-    const tile = options.closest('.participant-tile, .screen-tile');
+    const tile = options.closest('.participant-tile, .screen-tile, .person-row');
     const rect = options.getBoundingClientRect();
     openContext(tile, rect.left, rect.bottom + 6);
     return;

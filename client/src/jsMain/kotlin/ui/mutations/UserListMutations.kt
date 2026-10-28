@@ -27,6 +27,16 @@ object UserListMutations {
     private val screenSharers = mutableSetOf<String>()
     private val cameraSharers = mutableSetOf<String>()
 
+    // Owners whose screen has a quality problem (InterfaceMutations.setTileQuality), shown amber in "Na sala".
+    private val screenWarnings = mutableSetOf<String>()
+
+    fun setScreenWarning(
+        owner: String,
+        warning: Boolean,
+    ) {
+        if (if (warning) screenWarnings.add(owner) else screenWarnings.remove(owner)) syncPeople()
+    }
+
     fun setUserMediaSharing(
         socketId: String,
         camera: Boolean,
@@ -108,6 +118,99 @@ object UserListMutations {
         syncAvatarTiles()
     }
 
+    /**
+     * "Na sala": you first, then everyone in the server's order, which never shuffles while people talk.
+     * Every layout of the stage runs it (through syncAvatarTiles), so a row turns clickable once its tile exists.
+     */
+    private fun syncPeople() {
+        val list = document.getElementById("room-people-list") as? HTMLElement ?: return
+        document.getElementById("room-people-count")?.textContent = currentUsers.size.toString()
+        list.innerHTML = ""
+        currentUsers.sortedBy { it.socketId != currentLocalSocketId }.forEach { user ->
+            list.appendChild(createPersonRow(user))
+        }
+        if (currentUsers.size == 1) list.appendChild(aloneHint())
+    }
+
+    private fun createPersonRow(user: SocketUser): HTMLElement {
+        val owner = if (user.socketId == currentLocalSocketId) "self" else user.socketId
+        val row = document.createSafeElement("div") as HTMLElement
+        row.className = "person-row"
+        row.id = "people-$owner"
+        row.setAttribute("role", "listitem")
+        row.setAttribute("data-owner-id", owner)
+        row.setAttribute("data-username", user.username)
+
+        // A click shows their screen (or camera) on the stage; without a video the row is just a name.
+        val tileId = videoTileId(owner)
+        val main = document.createSafeElement(if (tileId != null) "button" else "span") as HTMLElement
+        main.className = "person-main"
+        if (tileId != null) {
+            (main as HTMLButtonElement).type = "button"
+            main.addEventListener("click", { InterfaceMutations.focusOnTile(tileId) })
+        }
+        val avatar = createAvatar(user.username.getUsernameInitials())
+        if (owner in speakingUsers) avatar.classList.add("speaking")
+        main.appendChild(avatar)
+        val name = document.createSafeElement("span") as HTMLSpanElement
+        name.className = "person-name"
+        name.textContent = if (owner == "self") "${user.username} (Você)" else user.username
+        main.appendChild(name)
+
+        val icons = document.createSafeElement("span") as HTMLElement
+        icons.className = "person-icons"
+        if (user.socketId in screenSharers) {
+            val warning = owner in screenWarnings
+            val screen =
+                stateIcon(
+                    if (warning) "Compartilhando tela, com problema de qualidade" else "Compartilhando tela",
+                    SCREEN_ICON,
+                )
+            screen.classList.add("person-screen")
+            screen.classList.toggle("warn", warning)
+            icons.appendChild(screen)
+        }
+        if (user.socketId in cameraSharers) icons.appendChild(stateIcon("Câmera ligada", CAMERA_ICON))
+        if (mutedUsers[owner] ?: user.isMuted) icons.appendChild(createMicIcon("people-$owner", true))
+        main.appendChild(icons)
+        row.appendChild(main)
+        if (owner != "self") row.appendChild(InterfaceMutations.participantOptionsButton(user.username))
+        val states =
+            (0 until icons.children.length).mapNotNull {
+                (icons.children.item(it) as? HTMLElement)?.getAttribute("aria-label")
+            }
+        val label = (listOf(name.textContent.orEmpty()) + states).joinToString(", ")
+        // The button carries the summary and what a click does; a plain row is labelled as a whole.
+        if (tileId != null) {
+            main.setAttribute("aria-label", "$label. Mostrar no palco")
+            main.title = "Mostrar no palco"
+        } else {
+            row.setAttribute("aria-label", label)
+        }
+        return row
+    }
+
+    // The screen first, as the tray's "Visualizar tela"; a leaving tile no longer counts.
+    private fun videoTileId(owner: String): String? {
+        val tile =
+            document.querySelector(".screen-tile:not(.camera-tile):not(.leaving)[data-owner-id='$owner']")
+                ?: document.querySelector(".camera-tile:not(.leaving)[data-owner-id='$owner']")
+        return tile?.getAttribute("data-tile-id")
+    }
+
+    private fun aloneHint(): HTMLElement {
+        val hint = document.createSafeElement("div") as HTMLElement
+        hint.className = "room-people-alone"
+        hint.appendChild((document.createSafeElement("span") as HTMLElement).apply { textContent = "Só você aqui." })
+        val copy = document.createSafeElement("button") as HTMLButtonElement
+        copy.type = "button"
+        copy.className = "btn btn-ghost"
+        copy.textContent = "Copiar link"
+        copy.addEventListener("click", { (document.getElementById("copyRoomBtn") as? HTMLElement)?.click() })
+        hint.appendChild(copy)
+        return hint
+    }
+
     fun syncAvatarTiles() {
         val rail = Elements.screensRail
         val previous = rail.querySelectorAll(".participant-tile")
@@ -160,6 +263,7 @@ object UserListMutations {
         }
         rail.classList.toggle("hidden", rail.childElementCount == 0)
         document.getElementById("toggle-previews")?.classList?.toggle("hidden", rail.childElementCount == 0)
+        syncPeople()
     }
 
     private fun hasVideo(owner: String): Boolean {
@@ -203,6 +307,7 @@ object UserListMutations {
             if (tile.getAttribute("data-owner-id") == socketId) tile.classList.toggle("speaking", isSpeaking)
         }
         document.getElementById("user-list-$socketId")?.classList?.toggle("speaking", isSpeaking)
+        document.querySelector("#people-$socketId .avatar-circle")?.classList?.toggle("speaking", isSpeaking)
     }
 
     private fun createUserListItem(
