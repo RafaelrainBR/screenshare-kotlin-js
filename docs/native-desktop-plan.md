@@ -305,6 +305,8 @@ Teclado e foco básicos entram no beta. UIA/IME completos são gate de promoçã
 
 ### F6 — Promoção (decisão manual)
 
+**Feita em 28/10/2026**, sem esperar as duas semanas: a escala do app não justificava. O Tauri saiu com a v0.12.0, cujo banner aponta para o nativo (#126). O `native/desktop` entrou no `master` sem o Tauri (#127), e a `native-v1.0.0` é a release "latest". Ela leva o `latest.json` da v0.12.0, para que os Tauri instalados ainda achem a última atualização. A tabela abaixo é o estado de 25/10.
+
 Critérios mínimos: duas betas usadas de verdade sem bug grave; paridade com o Tauri nas features do dia a dia; teclado/IME ok; instalação e desinstalação limpas. Ao promover, avisar usuários Tauri por uma última release Tauri com notas apontando para o nativo. Updater próprio, se houver, começa nessa versão.
 
 **Estado dos critérios (25/10/2026):**
