@@ -150,6 +150,10 @@
           <button id="feedback-btn" class="chat-hide hidden" type="button" aria-label="Algo deu errado? Conte para a gente" title="Algo deu errado? Conte para a gente"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/><path d="M12 7v4M12 14h.01"/></svg></button>
           <button id="toggleSidebarBtn" class="chat-hide" type="button" aria-label="Ocultar conversa" title="Ocultar conversa"><svg viewBox="0 0 24 24"><path d="m9 5 7 7-7 7"/></svg></button>
         </header>
+        <section class="room-people" aria-labelledby="room-people-title">
+          <h2 id="room-people-title" class="room-people-title">Na sala · <span id="room-people-count">0</span></h2>
+          <div id="room-people-list" class="room-people-list custom-scroll" role="list"></div>
+        </section>
         <div class="chat-area">
           <div id="chat-messages" class="custom-scroll" role="log" aria-label="Mensagens" aria-live="polite"></div>
           <form class="composer" id="chat-form">
