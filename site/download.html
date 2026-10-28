@@ -43,7 +43,6 @@
 
     <section class="line wrap" aria-labelledby="native-title">
       <div class="section-heading">
-        <p class="eyebrow">{{dlRecommended}} <span class="badge">Beta</span></p>
         <h2 id="native-title">{{dlNativeName}} <span class="line-version" data-version="native">{{nativeVersion}}</span></h2>
         <p>{{dlNativeAbout}}</p>
       </div>
@@ -62,32 +61,7 @@
           <p class="download-note"><a data-line="native" data-file="install-macos-native.sh" href="{{nativeMacScriptUrl}}">{{dlReadScript}}</a> · <a data-line="native" data-file="Screenshare-native-macos-arm64.tar.gz" href="{{nativeMacUrl}}">{{dlMacArchive}}</a></p>
         </article>
       </div>
-      <p class="download-alternatives"><a data-line="native" data-file="SHA256SUMS" href="{{nativeChecksumsUrl}}">SHA256SUMS</a></p>
-    </section>
-
-    <section class="line wrap" aria-labelledby="classic-title">
-      <div class="section-heading">
-        <p class="eyebrow">{{dlClassic}}</p>
-        <h2 id="classic-title">{{dlClassicName}} <span class="line-version" data-version="classic">{{version}}</span></h2>
-        <p>{{dlClassicAbout}}</p>
-      </div>
-      <div class="platforms">
-        <article aria-labelledby="classic-windows">
-          <h3 id="classic-windows">Windows</h3><p class="platform-spec">x64 · {{dlNeedsWebView}}</p>
-          <ul class="variants">
-            <li><a class="button secondary" data-line="classic" data-file="Screenshare_{v}_x64-setup.exe" href="{{windowsUrl}}">{{dlInstaller}}</a><span>{{dlClassicInstallerNote}}</span></li>
-            <li><a class="button secondary" data-line="classic" data-file="Screenshare_{v}_x64-portable.exe" href="{{portableUrl}}">{{dlPortable}}</a><span>{{dlPortableNote}}</span></li>
-            <li><a class="button secondary" data-line="classic" data-file="Screenshare_{v}_x64_en-US.msi" href="{{msiUrl}}">MSI</a><span>{{dlMsiNote}}</span></li>
-          </ul>
-        </article>
-        <article aria-labelledby="classic-mac">
-          <h3 id="classic-mac">macOS</h3><p class="platform-spec">{{dlAppleSilicon}}</p>
-          <p class="download-note">{{dlMacSteps}}</p>
-          <div class="command"><code id="classic-command" data-line="classic" data-file="install-macos.sh" data-template="curl -fsSL {url} | bash">curl -fsSL {{macScriptUrl}} | bash</code><button type="button" class="button secondary" data-copy="classic-command" data-done="{{dlCopied}}">{{dlCopy}}</button></div>
-          <p class="download-note"><a data-line="classic" data-file="install-macos.sh" href="{{macScriptUrl}}">{{dlReadScript}}</a> · <a data-line="classic" data-file="Screenshare-macos-arm64.tar.gz" href="{{macUrl}}">{{dlMacArchive}}</a></p>
-        </article>
-      </div>
-      <p class="download-alternatives"><a data-line="classic" data-file="SHA256SUMS" href="{{checksumsUrl}}">SHA256SUMS</a> · <a href="https://github.com/RafaelrainBR/screenshare-kotlin-js/releases">{{dlAllReleases}}</a></p>
+      <p class="download-alternatives"><a data-line="native" data-file="SHA256SUMS" href="{{nativeChecksumsUrl}}">SHA256SUMS</a> · <a href="https://github.com/RafaelrainBR/screenshare-kotlin-js/releases">{{dlAllReleases}}</a></p>
     </section>
 
     <section class="questions wrap" aria-labelledby="help-title">

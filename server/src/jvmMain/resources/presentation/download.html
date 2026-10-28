@@ -43,9 +43,8 @@
 
     <section class="line wrap" aria-labelledby="native-title">
       <div class="section-heading">
-        <p class="eyebrow">Recomendado <span class="badge">Beta</span></p>
         <h2 id="native-title">Screenshare <span class="line-version" data-version="native">0.2.2</span></h2>
-        <p>O aplicativo novo, feito do zero para o computador, sem WebView2. Ainda em beta: se algo falhar, use o clássico abaixo e conte para a gente. Os dois podem ficar instalados juntos.</p>
+        <p>Feito do zero para o computador, sem WebView2. Se você usa o app antigo, instale este ao lado e desinstale o antigo quando quiser.</p>
       </div>
       <div class="platforms">
         <article aria-labelledby="native-windows">
@@ -62,39 +61,14 @@
           <p class="download-note"><a data-line="native" data-file="install-macos-native.sh" href="https://github.com/RafaelrainBR/screenshare-kotlin-js/releases/download/native-v0.2.2/install-macos-native.sh">Ver o script antes</a> · <a data-line="native" data-file="Screenshare-native-macos-arm64.tar.gz" href="https://github.com/RafaelrainBR/screenshare-kotlin-js/releases/download/native-v0.2.2/Screenshare-native-macos-arm64.tar.gz">Baixar o arquivo .tar.gz</a></p>
         </article>
       </div>
-      <p class="download-alternatives"><a data-line="native" data-file="SHA256SUMS" href="https://github.com/RafaelrainBR/screenshare-kotlin-js/releases/download/native-v0.2.2/SHA256SUMS">SHA256SUMS</a></p>
-    </section>
-
-    <section class="line wrap" aria-labelledby="classic-title">
-      <div class="section-heading">
-        <p class="eyebrow">Clássico</p>
-        <h2 id="classic-title">Screenshare clássico <span class="line-version" data-version="classic">0.11.4</span></h2>
-        <p>A versão estável de sempre, com a mesma interface do navegador.</p>
-      </div>
-      <div class="platforms">
-        <article aria-labelledby="classic-windows">
-          <h3 id="classic-windows">Windows</h3><p class="platform-spec">x64 · Requer WebView2</p>
-          <ul class="variants">
-            <li><a class="button secondary" data-line="classic" data-file="Screenshare_{v}_x64-setup.exe" href="https://github.com/RafaelrainBR/screenshare-kotlin-js/releases/download/v0.11.4/Screenshare_0.11.4_x64-setup.exe">Instalador</a><span>Instalação padrão do Windows.</span></li>
-            <li><a class="button secondary" data-line="classic" data-file="Screenshare_{v}_x64-portable.exe" href="https://github.com/RafaelrainBR/screenshare-kotlin-js/releases/download/v0.11.4/Screenshare_0.11.4_x64-portable.exe">Portátil</a><span>Um .exe que roda sem instalar. Bom para pendrive ou computador do trabalho.</span></li>
-            <li><a class="button secondary" data-line="classic" data-file="Screenshare_{v}_x64_en-US.msi" href="https://github.com/RafaelrainBR/screenshare-kotlin-js/releases/download/v0.11.4/Screenshare_0.11.4_x64_en-US.msi">MSI</a><span>Para instalar em vários computadores de uma empresa.</span></li>
-          </ul>
-        </article>
-        <article aria-labelledby="classic-mac">
-          <h3 id="classic-mac">macOS</h3><p class="platform-spec">Apple Silicon (M1 ou mais novo)</p>
-          <p class="download-note">Abra o Terminal (Cmd + Espaço, digite Terminal), cole o comando e aperte Enter.</p>
-          <div class="command"><code id="classic-command" data-line="classic" data-file="install-macos.sh" data-template="curl -fsSL {url} | bash">curl -fsSL https://github.com/RafaelrainBR/screenshare-kotlin-js/releases/download/v0.11.4/install-macos.sh | bash</code><button type="button" class="button secondary" data-copy="classic-command" data-done="Copiado">Copiar</button></div>
-          <p class="download-note"><a data-line="classic" data-file="install-macos.sh" href="https://github.com/RafaelrainBR/screenshare-kotlin-js/releases/download/v0.11.4/install-macos.sh">Ver o script antes</a> · <a data-line="classic" data-file="Screenshare-macos-arm64.tar.gz" href="https://github.com/RafaelrainBR/screenshare-kotlin-js/releases/download/v0.11.4/Screenshare-macos-arm64.tar.gz">Baixar o arquivo .tar.gz</a></p>
-        </article>
-      </div>
-      <p class="download-alternatives"><a data-line="classic" data-file="SHA256SUMS" href="https://github.com/RafaelrainBR/screenshare-kotlin-js/releases/download/v0.11.4/SHA256SUMS">SHA256SUMS</a> · <a href="https://github.com/RafaelrainBR/screenshare-kotlin-js/releases">Todas as versões</a></p>
+      <p class="download-alternatives"><a data-line="native" data-file="SHA256SUMS" href="https://github.com/RafaelrainBR/screenshare-kotlin-js/releases/download/native-v0.2.2/SHA256SUMS">SHA256SUMS</a> · <a href="https://github.com/RafaelrainBR/screenshare-kotlin-js/releases">Todas as versões</a></p>
     </section>
 
     <section class="questions wrap" aria-labelledby="help-title">
       <h2 id="help-title">Ajuda</h2>
       <details><summary>O Windows mostrou um aviso. É seguro?</summary><p>O aviso aparece porque o Screenshare não tem um certificado pago de editor. Clique em “Mais informações” e depois em “Executar assim mesmo”. O código é aberto e cada versão publica as somas SHA256 dos arquivos.</p></details>
       <details><summary>Por que no Mac é pelo Terminal?</summary><p>A Apple cobra US$ 99 por ano para liberar aplicativos baixados pelo navegador. O Screenshare é gratuito, então a instalação é pelo Terminal, que não passa por esse bloqueio. O script só baixa o aplicativo e o coloca em Aplicativos.</p><p>Autorize Gravação de Tela, microfone e câmera quando necessário. Se a captura parar após uma atualização, remova e adicione o app novamente em Privacidade e Segurança.</p></details>
-      <details><summary>Qual versão escolher?</summary><p>Comece pelo Screenshare recomendado. Use o clássico se precisar de algo que o novo ainda não faz ou se encontrar um problema. Na dúvida no Windows, escolha o instalador; o portátil é para quem não pode instalar programas.</p></details>
+      <details><summary>Instalador ou portátil?</summary><p>Na dúvida, escolha o instalador. O portátil é para computadores onde você não pode instalar programas. Os dois se atualizam sozinhos.</p></details>
       <details><summary>Tem para Linux?</summary><p>Ainda não há aplicativo para Linux. Use o Screenshare pelo navegador, no Chrome, Edge ou Firefox.</p></details>
     </section>
   </main>

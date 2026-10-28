@@ -103,10 +103,10 @@ flowchart LR
 | [`common/`](common) | Kotlin Multiplatform packet types shared by JS and JVM |
 | [`server/`](server) | Ktor/JVM signaling, room membership and in-memory chat history |
 | [`server-java/`](server-java) | JVM entry point, fat JAR, Docker and Fly.io configuration |
-| [`desktop-tauri/`](desktop-tauri) | Tauri shell, tray, updater and TypeScript media bridge |
+| [`desktop-native/`](desktop-native) | Desktop app in Rust and iced: tray, updater, WebRTC and encoders |
 | [`desktop-capture/`](desktop-capture) | Shared Rust capture: Windows DXGI/GDI/WASAPI and macOS ScreenCaptureKit/Core Audio |
 
-The UI uses local CSS, JavaScript and Barlow fonts. Dependency versions live in [`libs.versions.toml`](libs.versions.toml), [`desktop-tauri/package.json`](desktop-tauri/package.json) and the Cargo manifests.
+The UI uses local CSS, JavaScript and Barlow fonts. Dependency versions live in [`libs.versions.toml`](libs.versions.toml) and the Cargo manifests.
 
 ## Project status and contributing
 

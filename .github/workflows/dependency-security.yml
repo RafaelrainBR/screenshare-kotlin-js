@@ -2,6 +2,12 @@ name: Dependency security
 
 on:
   pull_request:
+    # The Kotlin and server checks: nothing here builds the native app (native-check.yml does).
+    paths-ignore:
+      - desktop-native/**
+      - docs/**
+      - .github/workflows/native-check.yml
+      - .github/workflows/release-native.yml
   workflow_dispatch:
 
 permissions:
@@ -30,9 +36,3 @@ jobs:
           node vendor/braces/test.cjs
           node --test scripts/build-presentation.test.mjs
           node scripts/build-presentation.mjs --check
-      - name: Test the GLib backport with optimizations
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libglib2.0-dev
-          glib_manifest=$(cargo metadata --locked --manifest-path desktop-tauri/src-tauri/Cargo.toml --format-version 1 | python3 -c 'import json, sys; print(next(p["manifest_path"] for p in json.load(sys.stdin)["packages"] if p["name"] == "glib"))')
-          cargo test --manifest-path "$glib_manifest" --release --lib test_variant_str_iter

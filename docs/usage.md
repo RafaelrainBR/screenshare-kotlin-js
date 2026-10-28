@@ -10,21 +10,20 @@
 
 | Platform | Download | Notes |
 |---|---|---|
-| Windows x64 | `Screenshare_<version>_x64-setup.exe` | NSIS installer; supports in-app updates |
-| Windows x64 | `Screenshare_<version>_x64_en-US.msi` | Alternative installer |
-| Windows x64 | `Screenshare_<version>_x64-portable.exe` | Requires WebView2; update manually |
-| macOS Apple Silicon | `install-macos.sh` and `Screenshare-macos-arm64.tar.gz` | Ad hoc signed app; not notarized |
+| Windows x64 | `Screenshare-native_<version>_x64-setup.exe` | Per-user installer, no administrator needed |
+| Windows x64 | `Screenshare-native_<version>_x64-portable.exe` | Runs without installing |
+| macOS Apple Silicon | `install-macos-native.sh` and `Screenshare-native-macos-arm64.tar.gz` | Self-signed app; not notarized |
 
-`SHA256SUMS` lists download checksums. Windows builds are unsigned, so Windows may show an unknown-publisher warning. Use packages from this repository's releases. Linux and Intel Mac installers are not part of the current Tauri release workflow.
+All three update themselves from the tray menu. `SHA256SUMS` lists download checksums. Windows builds are unsigned, so Windows may show an unknown-publisher warning. Use packages from this repository's releases. There are no Linux or Intel Mac builds.
 
 ### macOS installation
 
-The install script downloads the latest Apple Silicon archive, installs it into `/Applications` (or `~/Applications` if needed), and opens Screenshare. Download and inspect it before running:
+The install script downloads the Apple Silicon archive of its release, installs it into `/Applications` (or `~/Applications` if needed), and opens Screenshare. Download and inspect it before running:
 
 ```bash
-curl -fL https://github.com/RafaelrainBR/screenshare-kotlin-js/releases/latest/download/install-macos.sh -o install-macos.sh
-less install-macos.sh
-bash install-macos.sh
+curl -fL https://github.com/RafaelrainBR/screenshare-kotlin-js/releases/latest/download/install-macos-native.sh -o install-macos-native.sh
+less install-macos-native.sh
+bash install-macos-native.sh
 ```
 
 The app is not notarized; a browser-downloaded archive may trigger Gatekeeper. The provided script downloads the archive with `curl`. Allow screen recording, microphone and camera when prompted. Application audio uses Core Audio taps and requires macOS 14.2 or later.

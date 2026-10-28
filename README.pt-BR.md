@@ -69,7 +69,7 @@ A documentação técnica está em inglês para facilitar a colaboração:
 - [Uso, instalação e solução de problemas](docs/usage.md)
 - [Desenvolvimento e testes](docs/development.md)
 - [Hospedagem própria, Docker e STUN/TURN](docs/self-hosting.md)
-- [Desenvolvimento e releases do desktop](desktop-tauri/README.md)
+- [Desenvolvimento e releases do desktop](desktop-native/README.md)
 - [Como contribuir](CONTRIBUTING.md)
 
 O projeto está em desenvolvimento ativo. A documentação acompanha o código atual; os aplicativos publicados podem estar atrás da `master`. Consulte as [releases](https://github.com/RafaelrainBR/screenshare-kotlin-js/releases) e [issues](https://github.com/RafaelrainBR/screenshare-kotlin-js/issues) para acompanhar mudanças e reportar problemas.

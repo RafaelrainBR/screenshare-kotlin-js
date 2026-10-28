@@ -1,0 +1,186 @@
+name: Release native
+
+# native-vX.Y.Z is the release ("latest"); a suffix (native-vX.Y.Z-rc.1) is a pre-release, which the
+# app's updater (desktop-native/src/updater.rs) never offers.
+on:
+  push:
+    tags: ['native-v*']
+  # The tag push only starts this on master (job "dispatch"): a run on master restores the caches
+  # native-check.yml saves there, which turns the ~14 min compile into an incremental one.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: native-vX.Y.Z (already pushed)
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-native-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+env:
+  TAG: ${{ inputs.tag || github.ref_name }}
+  # cargo's built-in git (libgit2 over SecureTransport on macOS) drops the libyuv submodule clone from
+  # chromium.googlesource.com; the git CLI does not.
+  CARGO_NET_GIT_FETCH_WITH_CLI: "true"
+  # Sentry (desktop-native/src/telemetry.rs): only these builds report, tagged with the tag as release.
+  SENTRY_DSN_NATIVE: ${{ vars.SENTRY_DSN_NATIVE }}
+  SENTRY_RELEASE: ${{ inputs.tag || github.ref_name }}
+  # The PDB upload needs a token; without one the release still ships, with unsymbolicated frames.
+  SENTRY_UPLOAD: ${{ secrets.SENTRY_AUTH_TOKEN != '' }}
+
+jobs:
+  dispatch:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+    steps:
+      - env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run release-native.yml --repo "$GITHUB_REPOSITORY" --ref master -f tag="$TAG"
+
+  build:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      # Windows Defender scanning every object file slows the compile down.
+      - run: Set-MpPreference -DisableRealtimeMonitoring $true
+        shell: pwsh
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.TAG }}
+      # A short target path: libwebrtc's abseil includes overflow MAX_PATH under the workspace.
+      # (The runner context is not available in job-level env.)
+      - run: echo "CARGO_TARGET_DIR=$(cygpath -m "$RUNNER_TEMP")/t" >> "$GITHUB_ENV"
+      # NVENC (webrtc-sys build.rs): cuda.h and cuda.lib from NVIDIA's cuda_cudart redist, not the
+      # whole toolkit. Without CUDA_PATH the app builds and shares in software only.
+      - name: CUDA headers for NVENC
+        run: |
+          curl -sSfL -o "$RUNNER_TEMP/cudart.zip" https://developer.download.nvidia.com/compute/cuda/redist/cuda_cudart/windows-x86_64/cuda_cudart-windows-x86_64-12.6.77-archive.zip
+          echo "7a313bc0c93b1a50bb03aa9783a199ae70c3b66e2d8084da65e8254a8577b925  $RUNNER_TEMP/cudart.zip" | sha256sum -c
+          unzip -q "$RUNNER_TEMP/cudart.zip" -d "$RUNNER_TEMP"
+          echo "CUDA_PATH=$(cygpath -m "$RUNNER_TEMP")/cuda_cudart-windows-x86_64-12.6.77-archive" >> "$GITHUB_ENV"
+      - name: Check tag
+        run: '[[ "$TAG" =~ ^native-v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z.]+)?$ ]]'
+      - name: Install Rust
+        run: |
+          rustup update stable --no-self-update
+          rustup default stable
+      # The same shared key as native-check.yml. Swatinem joins the target to the workspace path, so
+      # this is CARGO_TARGET_DIR ($RUNNER_TEMP/t) relative to desktop-native.
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: native
+          workspaces: desktop-native -> ../../../_temp/t
+      - name: Test capture
+        run: cargo test --release --locked --manifest-path desktop-capture/Cargo.toml
+      # desktop-native/.cargo/config.toml (crt-static, to match the prebuilt libwebrtc's /MT) is only
+      # read when cargo runs inside that folder, not through --manifest-path.
+      - name: Test
+        working-directory: desktop-native
+        run: cargo test --release --locked
+      - name: Build
+        working-directory: desktop-native
+        # STUN/TURN arrive from the server at runtime (ice-servers); nothing is embedded.
+        run: cargo build --release --locked
+      - name: Upload debug symbols to Sentry
+        if: env.SENTRY_UPLOAD == 'true'
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+        run: |
+          npx --yes @sentry/cli@2 debug-files upload --org screenshare-app --project screenshare-native --include-sources \
+            "$CARGO_TARGET_DIR/release/desktop-native.exe" "$CARGO_TARGET_DIR/release/desktop_native.pdb"
+      - name: Package
+        run: |
+          version="${TAG#native-v}"
+          mkdir release-assets
+          cp "$CARGO_TARGET_DIR/release/desktop-native.exe" "release-assets/Screenshare-native_${version}_x64-portable.exe"
+          # Per-user installer (no admin) with a clean uninstall: desktop-native/installer.iss.
+          choco install innosetup -y --no-progress > /dev/null
+          # Git Bash would turn /Q and /D... into paths.
+          MSYS_NO_PATHCONV=1 "/c/Program Files (x86)/Inno Setup 6/ISCC.exe" /Q "/DAppVersion=$version" \
+            "/DSourceExe=$(cygpath -w "$CARGO_TARGET_DIR/release/desktop-native.exe")" \
+            "/DOutputDir=$(cygpath -w "$PWD/release-assets")" desktop-native/installer.iss
+      - uses: actions/upload-artifact@v7
+        with:
+          name: release-native-windows
+          path: release-assets/*
+          if-no-files-found: error
+
+  build-macos:
+    # apple-metal's Swift bridge requires the macOS 26 SDK, as in release.yml.
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.TAG }}
+      - name: Check tag
+        run: '[[ "$TAG" =~ ^native-v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z.]+)?$ ]]'
+      - name: Install Rust
+        run: |
+          rustup update stable --no-self-update
+          rustup default stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: native
+          workspaces: |
+            desktop-native -> target
+            desktop-capture -> target
+      - name: Test capture
+        run: cargo test --release --locked --manifest-path desktop-capture/Cargo.toml
+      - name: Test
+        working-directory: desktop-native
+        run: cargo test --release --locked
+      - name: Build
+        working-directory: desktop-native
+        run: cargo build --release --locked
+      - name: Import signing certificate
+        env:
+          MACOS_SIGN_P12: ${{ secrets.MACOS_SIGN_P12 }}
+          MACOS_SIGN_PASSWORD: ${{ secrets.MACOS_SIGN_PASSWORD }}
+        run: bash desktop-native/scripts/import-macos-cert.sh
+      - name: Package
+        run: |
+          test "$(uname -m)" = arm64
+          mkdir release-assets
+          bash desktop-native/scripts/bundle-macos.sh "${TAG#native-v}" "$PWD/release-assets"
+          rm -rf "release-assets/Screenshare nativo.app"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: release-native-macos
+          path: release-assets/*
+          if-no-files-found: error
+
+  publish:
+    needs: [build, build-macos]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: release-native-*
+          merge-multiple: true
+          path: release-assets
+      - run: cd release-assets && sha256sum * > SHA256SUMS
+      # Installed Tauri apps read releases/latest/download/latest.json: this keeps offering them v0.12.0,
+      # the last Tauri release, whose banner points to this app. Not in SHA256SUMS: it is not this app's.
+      - name: Tauri update manifest
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release download v0.12.0 --repo "$GITHUB_REPOSITORY" --pattern latest.json --dir release-assets
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [[ "$TAG" == *-* ]]; then kind=(--prerelease --latest=false); else kind=(--latest); fi
+          gh release create "$TAG" release-assets/* --repo "$GITHUB_REPOSITORY" --verify-tag \
+            "${kind[@]}" --title "Screenshare ${TAG#native-v}" \
+            --notes "Windows x64: instalador por usuário (sem admin, desinstala limpo) ou executável portátil. macOS (Apple Silicon): curl -fsSL https://github.com/$GITHUB_REPOSITORY/releases/download/$TAG/install-macos-native.sh | bash. O app avisa quando há versão nova e se atualiza com um clique no menu da bandeja."

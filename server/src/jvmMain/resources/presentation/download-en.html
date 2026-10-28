@@ -43,9 +43,8 @@
 
     <section class="line wrap" aria-labelledby="native-title">
       <div class="section-heading">
-        <p class="eyebrow">Recommended <span class="badge">Beta</span></p>
         <h2 id="native-title">Screenshare <span class="line-version" data-version="native">0.2.2</span></h2>
-        <p>The new app, built from scratch for the desktop, without WebView2. Still in beta: if something fails, use the classic app below and tell us. Both can be installed side by side.</p>
+        <p>Built from scratch for the desktop, without WebView2. If you use the old app, install this one next to it and uninstall the old one whenever you like.</p>
       </div>
       <div class="platforms">
         <article aria-labelledby="native-windows">
@@ -62,39 +61,14 @@
           <p class="download-note"><a data-line="native" data-file="install-macos-native.sh" href="https://github.com/RafaelrainBR/screenshare-kotlin-js/releases/download/native-v0.2.2/install-macos-native.sh">Read the script first</a> · <a data-line="native" data-file="Screenshare-native-macos-arm64.tar.gz" href="https://github.com/RafaelrainBR/screenshare-kotlin-js/releases/download/native-v0.2.2/Screenshare-native-macos-arm64.tar.gz">Download the .tar.gz archive</a></p>
         </article>
       </div>
-      <p class="download-alternatives"><a data-line="native" data-file="SHA256SUMS" href="https://github.com/RafaelrainBR/screenshare-kotlin-js/releases/download/native-v0.2.2/SHA256SUMS">SHA256SUMS</a></p>
-    </section>
-
-    <section class="line wrap" aria-labelledby="classic-title">
-      <div class="section-heading">
-        <p class="eyebrow">Classic</p>
-        <h2 id="classic-title">Screenshare classic <span class="line-version" data-version="classic">0.11.4</span></h2>
-        <p>The established stable version, with the same interface as the browser.</p>
-      </div>
-      <div class="platforms">
-        <article aria-labelledby="classic-windows">
-          <h3 id="classic-windows">Windows</h3><p class="platform-spec">x64 · Requires WebView2</p>
-          <ul class="variants">
-            <li><a class="button secondary" data-line="classic" data-file="Screenshare_{v}_x64-setup.exe" href="https://github.com/RafaelrainBR/screenshare-kotlin-js/releases/download/v0.11.4/Screenshare_0.11.4_x64-setup.exe">Installer</a><span>Standard Windows installation.</span></li>
-            <li><a class="button secondary" data-line="classic" data-file="Screenshare_{v}_x64-portable.exe" href="https://github.com/RafaelrainBR/screenshare-kotlin-js/releases/download/v0.11.4/Screenshare_0.11.4_x64-portable.exe">Portable</a><span>A single .exe that runs without installing. Good for a USB drive or a work computer.</span></li>
-            <li><a class="button secondary" data-line="classic" data-file="Screenshare_{v}_x64_en-US.msi" href="https://github.com/RafaelrainBR/screenshare-kotlin-js/releases/download/v0.11.4/Screenshare_0.11.4_x64_en-US.msi">MSI</a><span>For installing on many computers in a company.</span></li>
-          </ul>
-        </article>
-        <article aria-labelledby="classic-mac">
-          <h3 id="classic-mac">macOS</h3><p class="platform-spec">Apple Silicon (M1 or newer)</p>
-          <p class="download-note">Open Terminal (Cmd + Space, type Terminal), paste the command and press Enter.</p>
-          <div class="command"><code id="classic-command" data-line="classic" data-file="install-macos.sh" data-template="curl -fsSL {url} | bash">curl -fsSL https://github.com/RafaelrainBR/screenshare-kotlin-js/releases/download/v0.11.4/install-macos.sh | bash</code><button type="button" class="button secondary" data-copy="classic-command" data-done="Copied">Copy</button></div>
-          <p class="download-note"><a data-line="classic" data-file="install-macos.sh" href="https://github.com/RafaelrainBR/screenshare-kotlin-js/releases/download/v0.11.4/install-macos.sh">Read the script first</a> · <a data-line="classic" data-file="Screenshare-macos-arm64.tar.gz" href="https://github.com/RafaelrainBR/screenshare-kotlin-js/releases/download/v0.11.4/Screenshare-macos-arm64.tar.gz">Download the .tar.gz archive</a></p>
-        </article>
-      </div>
-      <p class="download-alternatives"><a data-line="classic" data-file="SHA256SUMS" href="https://github.com/RafaelrainBR/screenshare-kotlin-js/releases/download/v0.11.4/SHA256SUMS">SHA256SUMS</a> · <a href="https://github.com/RafaelrainBR/screenshare-kotlin-js/releases">All releases</a></p>
+      <p class="download-alternatives"><a data-line="native" data-file="SHA256SUMS" href="https://github.com/RafaelrainBR/screenshare-kotlin-js/releases/download/native-v0.2.2/SHA256SUMS">SHA256SUMS</a> · <a href="https://github.com/RafaelrainBR/screenshare-kotlin-js/releases">All releases</a></p>
     </section>
 
     <section class="questions wrap" aria-labelledby="help-title">
       <h2 id="help-title">Help</h2>
       <details><summary>Windows showed a warning. Is it safe?</summary><p>The warning appears because Screenshare has no paid publisher certificate. Click “More info”, then “Run anyway”. The source is open and every release publishes SHA256 sums of its files.</p></details>
       <details><summary>Why does the Mac use Terminal?</summary><p>Apple charges US$99 a year to allow apps downloaded through a browser. Screenshare is free, so it installs through Terminal, which is not subject to that block. The script only downloads the app and puts it in Applications.</p><p>Allow Screen Recording, microphone and camera as needed. If capture stops after an update, remove and re-add the app in Privacy &amp; Security.</p></details>
-      <details><summary>Which version should I pick?</summary><p>Start with the recommended Screenshare. Use the classic app if you need something the new one does not do yet or run into a problem. On Windows, pick the installer if unsure; the portable app is for computers where you cannot install programs.</p></details>
+      <details><summary>Installer or portable?</summary><p>If unsure, pick the installer. The portable app is for computers where you cannot install programs. Both update themselves.</p></details>
       <details><summary>Is there a Linux app?</summary><p>Not yet. Use Screenshare in the browser, in Chrome, Edge or Firefox.</p></details>
     </section>
   </main>

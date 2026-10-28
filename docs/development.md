@@ -1,15 +1,15 @@
 # Development
 
-[Documentation](README.md) · [Desktop development](../desktop-tauri/README.md)
+[Documentation](README.md) · [Desktop development](../desktop-native/README.md)
 
 ## Prerequisites
 
 - **JDK 21**, matching the configured JVM toolchain.
 - Git. Use the included Gradle wrapper; a separate Gradle installation is unnecessary.
 - Internet access for the first dependency download. Gradle provisions Node/Yarn for Kotlin/JS.
-- Desktop development additionally needs Node/npm, Rust and platform tools; see the [desktop guide](../desktop-tauri/README.md).
+- Desktop development additionally needs Rust and platform tools; see the [desktop guide](../desktop-native/README.md).
 
-Dependency versions belong to [`libs.versions.toml`](../libs.versions.toml) and the desktop npm/Cargo manifests.
+Dependency versions belong to [`libs.versions.toml`](../libs.versions.toml) and the desktop Cargo manifests.
 
 ## Browser and server
 
@@ -58,17 +58,15 @@ For Gradle's complete verification tasks, including lint:
 ./gradlew check
 ```
 
-Native desktop checks run from `desktop-tauri/src-tauri`:
+Desktop checks run from `desktop-native`:
 
 ```bash
 cargo fmt --check
 cargo test --release
 ```
 
-These checks do not establish that a physical camera, microphone, OS picker, installer or remote audio path works. Validate changes to capture on real hardware with two peers. Existing local browser QA scripts are in [`desktop-tauri/scripts/`](../desktop-tauri/scripts); their prerequisites and assertions are documented in their source. For documentation captures, use the [screenshot workflow](images/README.md).
+These checks do not establish that a physical camera, microphone, OS picker, installer or remote audio path works. Validate changes to capture on real hardware with two peers. For documentation captures, use the [screenshot workflow](images/README.md).
 
 ## Code map
 
 The [README module map](../README.md#how-it-works) shows the application boundaries. Start with `client/src/jsMain/kotlin/services/` for session/media logic, `client/src/jsMain/kotlin/ui/` for UI handlers/mutations, and `client/src/jsMain/resources/` for the interface, styles, fonts and brand assets.
-
-Browser builds retain an inert `desktopBridge.js`. Only the Tauri build hook opts into the native bridge with `-Pscreenshare.desktop.bridge`. Keep that boundary when changing capture behavior.
