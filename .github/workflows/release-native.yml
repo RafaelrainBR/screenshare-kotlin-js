@@ -180,7 +180,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          if [[ "$TAG" == *-* ]]; then kind=(--prerelease --latest=false); else kind=(--latest); fi
+          if [[ "${TAG#native-v}" == *-* ]]; then kind=(--prerelease --latest=false); else kind=(--latest); fi
           gh release create "$TAG" release-assets/* --repo "$GITHUB_REPOSITORY" --verify-tag \
             "${kind[@]}" --title "Screenshare ${TAG#native-v}" \
             --notes "Windows x64: instalador por usuário (sem admin, desinstala limpo) ou executável portátil. macOS (Apple Silicon): curl -fsSL https://github.com/$GITHUB_REPOSITORY/releases/download/$TAG/install-macos-native.sh | bash. O app avisa quando há versão nova e se atualiza com um clique no menu da bandeja."
