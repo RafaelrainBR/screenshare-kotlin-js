@@ -9,6 +9,7 @@ import org.jlleitschuh.gradle.ktlint.KtlintExtension
 buildscript {
     dependencies {
         classpath(platform(libs.jackson.bom))
+        classpath(platform(libs.guava.bom))
     }
 }
 
@@ -52,6 +53,11 @@ plugins.withType<YarnPlugin> {
         resolution("**/express/body-parser", libs.versions.bodyParser2.get())
         resolution("fast-uri", libs.versions.fastUri.get())
         resolution("serialize-javascript", libs.versions.serializeJavascript.get())
+        resolution("follow-redirects", libs.versions.followRedirects.get())
+        // Only mocha and karma-webpack use minimatch's named export; karma and glob 7 still need the 3.x default export.
+        resolution("**/mocha/glob", libs.versions.mochaGlob.get())
+        resolution("**/mocha/minimatch", libs.versions.minimatch.get())
+        resolution("**/karma-webpack/minimatch", libs.versions.minimatch.get())
     }
 }
 

@@ -12,13 +12,18 @@ shadow = "9.6.1"
 jackson = "2.21.7"
 mocha = "12.0.3"
 ws = "8.22.0"
-qs = "6.16.0"
+qs = "6.16.2"
 bodyParser1 = "1.20.9"
 bodyParser2 = "2.4.0"
 fastUri = "3.1.9"
 serializeJavascript = "7.1.4"
+followRedirects = "1.16.2"
+mochaGlob = "14.0.3"
+minimatch = "11.0.4"
+guava = "33.7.2-jre"
 
 [libraries]
+guava-bom = { group = "com.google.guava", name = "guava-bom", version.ref = "guava" }
 jackson-bom = { group = "com.fasterxml.jackson", name = "jackson-bom", version.ref = "jackson" }
 kotlinx-coroutines-core = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-core", version.ref = "kotlinx-coroutines" }
 kotlinx-serialization-json = { group = "org.jetbrains.kotlinx", name = "kotlinx-serialization-json", version.ref = "kotlinx-serialization" }
