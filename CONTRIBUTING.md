@@ -4,9 +4,9 @@ Bug reports, documentation fixes and testing on Windows, macOS and browsers are 
 
 ## Report a problem
 
-Check [existing issues](https://github.com/RafaelrainBR/screenshare-kotlin-js/issues) and the [troubleshooting guide](docs/usage.md#troubleshooting), then include:
+Check [existing issues](https://github.com/RafaelrainBR/screenshare/issues) and the [troubleshooting guide](docs/usage.md#troubleshooting), then include:
 
-- Version/tag or commit, OS version, browser/WebView version, and installer or portable app.
+- Version/tag or commit, OS version, browser version, and installer or portable app.
 - Steps to reproduce, expected behavior and what happened instead.
 - Whether each participant used browser or desktop; for audio, which capture source/device was selected.
 - A minimal screenshot or error excerpt if it helps.
