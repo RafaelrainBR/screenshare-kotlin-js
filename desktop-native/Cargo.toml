@@ -10,7 +10,7 @@ synthetic-test = []
 
 [dependencies]
 # Fork at livekit 2ff180e plus set_volume on remote audio tracks, NVENC and Media Foundation H264 on Windows, no ducking (branch screenshare/mf-h264).
-libwebrtc = { git = "https://github.com/RafaelrainBR/rust-sdks.git", rev = "da550660ed7aec0c8950f7414f8db8cfb69e48e4", package = "libwebrtc" }
+libwebrtc = { git = "https://github.com/RafaelrainBR/rust-sdks.git", rev = "3f1ba6467fd6116c35d29389cd9d477340b92e4b", package = "libwebrtc" }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.149"
 tokio = { version = "1.49.0", features = ["macros", "rt-multi-thread", "time"] }
