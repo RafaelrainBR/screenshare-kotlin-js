@@ -4,7 +4,7 @@ Materiais preparados em **18/10/2026**, a partir do [plano de presença](../proj
 
 Mensagem: **Compartilhe a tela e converse na mesma sala, pelo navegador ou pelo desktop.**
 
-Referência para download: [v0.11.1 estável](https://github.com/RafaelrainBR/screenshare-kotlin-js/releases/tag/v0.11.1). A [native-v0.1.0](https://github.com/RafaelrainBR/screenshare-kotlin-js/releases/tag/native-v0.1.0) é experimental e não deve ocupar o botão principal. A interface do aplicativo está em português brasileiro.
+Referência para download: a [página de downloads](https://screen-share.fly.dev/about/download.html), que aponta para a [última release nativa](https://github.com/RafaelrainBR/screenshare/releases/latest). Desde a 1.0.0 o app nativo é o app desktop; o app Tauri parou na v0.12.0. A interface do aplicativo está em português brasileiro.
 
 | Material | Uso | Situação |
 |---|---|---|

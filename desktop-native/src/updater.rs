@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
 
-const RELEASES: &str = "https://api.github.com/repos/RafaelrainBR/screenshare-kotlin-js/releases?per_page=50";
+const RELEASES: &str = "https://api.github.com/repos/RafaelrainBR/screenshare/releases?per_page=50";
 /// Given to the new exe so it waits for this process to end before the single-instance check.
 const REPLACES_ARG: &str = "--replaces";
 /// Next to the .app on macOS: the unpacked bundle, then the old one, removed at the next launch.

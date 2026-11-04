@@ -1,5 +1,5 @@
 // The page carries the versions of its last deploy; GitHub knows the newest ones.
-const repo = 'RafaelrainBR/screenshare-kotlin-js';
+const repo = 'RafaelrainBR/screenshare';
 const mac = /mac/i.test(navigator.userAgentData?.platform || navigator.platform || '');
 for (const el of document.querySelectorAll('[data-os]')) el.hidden = el.dataset.os !== (mac ? 'mac' : 'windows');
 
