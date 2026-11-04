@@ -28,7 +28,7 @@ class RoomSoundsTest {
                 """function() {
                   var param = function() { return { value: 0, setValueAtTime: function() {}, exponentialRampToValueAtTime: function() {} }; };
                   var node = function() { return { connect: function() {} }; };
-                  this.currentTime = 0; this.destination = {}; this.resume = function() {};
+                  this.currentTime = 0; this.destination = {}; this.resume = function() { return Promise.resolve(); };
                   this.createGain = function() { var n = node(); n.gain = param(); return n; };
                   this.createOscillator = function() {
                     var n = node(); n.frequency = param();

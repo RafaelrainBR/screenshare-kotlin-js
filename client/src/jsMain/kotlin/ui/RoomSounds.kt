@@ -43,9 +43,10 @@ object RoomSounds {
             val device = InterfaceMutations.selectedOutputDeviceId.orEmpty()
             if (device != sinkId && audio.setSinkId != undefined) {
                 sinkId = device
-                audio.setSinkId(device)
+                audio.setSinkId(device)?.catch { _: dynamic -> }
             }
-            audio.resume()
+            // Promises: runCatching misses their rejection (iOS refuses to start audio during a call).
+            audio.resume()?.catch { _: dynamic -> }
             var at = (audio.currentTime as Double) + 0.02
             sound.notes.forEach { frequency ->
                 val oscillator = audio.createOscillator()
