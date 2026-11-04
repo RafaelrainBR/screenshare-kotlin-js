@@ -8,8 +8,8 @@ body:
     id: version
     attributes:
       label: Version / Versão
-      description: Desktop version or date/time of the browser test.
-      placeholder: "0.11.1, or web on YYYY-MM-DD"
+      description: Desktop version (the release you downloaded) or date/time of the browser test.
+      placeholder: "1.0.1, or web on YYYY-MM-DD"
     validations:
       required: true
   - type: dropdown
@@ -20,7 +20,7 @@ body:
         - Browser / Navegador
         - Windows desktop
         - macOS desktop
-        - Experimental native app
+        - Old desktop app (0.12 or earlier) / App antigo
     validations:
       required: true
   - type: input

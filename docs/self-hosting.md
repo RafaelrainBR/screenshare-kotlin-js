@@ -75,8 +75,9 @@ For a separate test instance, use [`fly.beta.toml`](../server-java/fly.beta.toml
 
 ## Operational limits
 
-- There is no account system or room password. A room code grants access to the room.
+- There is no account system or room password. A room code grants access to the room; private rooms only make the code impossible to guess.
 - Rooms and chat are process-local. Restarts lose that state; independent server instances do not share rooms.
 - WebRTC uses peer connections between participants. Bandwidth and encoding cost increase with more peers; this is not an SFU conferencing server.
 - Signaling and chat pass through the server. Review server logging and retention before hosting sensitive sessions.
 - Capture support still depends on client OS/browser permissions and source restrictions.
+- The browser client only sends error reports and usage statistics from `screen-share.fly.dev`; your instance sends nothing to Sentry.

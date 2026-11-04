@@ -51,8 +51,8 @@ try {
   await join.evaluate(() => document.fonts.ready);
   await join.locator('.join-form').screenshot({ path: resolve(output, 'join_screen.png') });
   await join.close();
-  const viewer = await newPeer('Marina');
-  const sharer = await newPeer('Rafael');
+  const viewer = await newPeer('Clara');
+  const sharer = await newPeer('Diego');
   await viewer.locator('#message-input').fill('Vamos revisar o compartilhamento de tela?');
   await viewer.locator('#message-input').press('Enter');
   await sharer.locator('.chat-bubble').filter({ hasText: 'Vamos revisar' }).waitFor();

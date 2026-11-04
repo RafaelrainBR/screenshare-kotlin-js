@@ -1,10 +1,10 @@
 #!/bin/bash
 # Installs the native Screenshare beta on macOS without notarization, like the Tauri app's script:
 # files fetched by curl carry no quarantine attribute, so Gatekeeper does not block the ad hoc app.
-# Usage: curl -fsSL https://github.com/RafaelrainBR/screenshare-kotlin-js/releases/download/native-v__VERSION__/install-macos-native.sh | bash
+# Usage: curl -fsSL https://github.com/RafaelrainBR/screenshare/releases/download/native-v__VERSION__/install-macos-native.sh | bash
 set -euo pipefail
 
-URL="${SCREENSHARE_URL:-https://github.com/RafaelrainBR/screenshare-kotlin-js/releases/download/native-v__VERSION__/Screenshare-native-macos-arm64.tar.gz}"
+URL="${SCREENSHARE_URL:-https://github.com/RafaelrainBR/screenshare/releases/download/native-v__VERSION__/Screenshare-native-macos-arm64.tar.gz}"
 NAME="Screenshare nativo.app"
 
 if [ "$(uname -s)" != "Darwin" ] || [ "$(uname -m)" != "arm64" ]; then

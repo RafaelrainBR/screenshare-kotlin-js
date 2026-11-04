@@ -9,9 +9,9 @@
 
 **Compartilhe a tela e converse na mesma sala.**
 
-Compartilhamento de tela, voz, câmera e chat pelo navegador ou pelo aplicativo para Windows e macOS.
+Compartilhamento de tela, voz, câmera e chat pelo navegador ou pelo aplicativo nativo para Windows e macOS.
 
-**[Abrir no navegador](https://screen-share.fly.dev/)** · **[Baixar o desktop](https://github.com/RafaelrainBR/screenshare-kotlin-js/releases/latest)** · [Site e demonstração](https://screen-share.fly.dev/about) · [English](README.md)
+**[Abrir no navegador](https://screen-share.fly.dev/)** · **[Baixar o app](https://screen-share.fly.dev/about/download.html)** · [Site e demonstração](https://screen-share.fly.dev/about) · [English](README.md)
 
 <a href="https://screen-share.fly.dev/about#demo"><img src="server/src/jvmMain/resources/presentation/assets/demo-poster.jpg" alt="Assistir à demonstração real: duas pessoas, código Kotlin compartilhado e conversa" width="1000" /></a>
 
@@ -21,39 +21,44 @@ Compartilhamento de tela, voz, câmera e chat pelo navegador ou pelo aplicativo 
 
 Veja a **[demonstração curta](https://screen-share.fly.dev/about#demo)** ou [baixe o MP4 legendado](https://screen-share.fly.dev/about/assets/demo-pt.mp4). É uma sessão local real no navegador; não demonstra áudio nativo nem mede desempenho da transmissão.
 
-1. Abra o [aplicativo web](https://screen-share.fly.dev/) ou instale a [versão desktop](https://github.com/RafaelrainBR/screenshare-kotlin-js/releases/latest).
-2. Digite seu nome. Deixe o código em branco para criar uma sala ou cole o código de uma sala existente.
-3. Copie o código no cabeçalho da conversa e envie às pessoas que vão participar.
+1. Abra o [aplicativo web](https://screen-share.fly.dev/) ou instale o [app para Windows ou Mac](https://screen-share.fly.dev/about/download.html).
+2. Digite seu nome. Deixe o código em branco para criar uma sala, cole o código de uma sala existente ou use **Criar sala privada** para um código longo que ninguém adivinha.
+3. Clique no código no cabeçalho da conversa para copiar o link da sala e envie às pessoas que vão participar. O link abre a sala no navegador; no Windows, a página também oferece abrir no app.
 4. Compartilhe a tela, ative o microfone ou a câmera e converse.
 
-A interface está em português e não exige conta. Quem tiver o código pode entrar na sala; compartilhe-o com pessoas de confiança.
+A interface está em português e não exige conta. Quem tiver o código ou o link pode entrar na sala; compartilhe-o com pessoas de confiança.
 
 ## Recursos
 
-- **Tela e janelas:** perfis para jogo, vídeo e código/texto, com ajuste de quadros por segundo, bitrate e prioridade entre nitidez e fluidez.
-- **Voz e câmera:** controles independentes, seleção de dispositivos, silenciamento de entrada/saída e volume por participante.
-- **Várias transmissões:** grade ou tela em foco com faixa de prévias; conversa lateral que pode ser ocultada.
-- **Chat:** mensagens da sala, incluindo o histórico disponível enquanto ela continua ativa.
-- **Desktop:** captura nativa com miniaturas, áudio do computador ou de um aplicativo, controles na bandeja, início opcional com o sistema e atualização integrada nas instalações compatíveis.
+- **Tela e janelas:** perfis para jogo, vídeo e código/texto, com ajuste de quadros por segundo, bitrate e prioridade entre nitidez e fluidez. Quando a transmissão chega ao limite, um clique a deixa mais leve.
+- **Voz e câmera:** controles independentes, seleção de dispositivos, silenciamento de entrada/saída, volume por participante e redução de ruído do microfone no navegador.
+- **Várias transmissões:** grade ou tela em foco com faixa de prévias, nomes nas transmissões, janela flutuante e conversa lateral que pode ser ocultada.
+- **Chat e quem está na sala:** mensagens da sala, incluindo o histórico enquanto ela continua ativa. Um som curto avisa quando alguém entra, sai ou começa a compartilhar.
+- **Salas recentes e favoritas** na tela de entrada.
+- **App nativo** (Rust e iced, sem WebView): miniaturas de telas e janelas, áudio do computador ou de um aplicativo só, codificação H.264 por hardware com NVENC ou Media Foundation no Windows, controles na bandeja, início opcional com o sistema e atualização com um clique.
 - **Hospedagem própria:** servidor Kotlin/Ktor para salas, chat e sinalização. A mídia usa WebRTC direto quando possível e relay TURN quando necessário.
 
 Resolução, áudio e desempenho dependem do sistema, navegador, fonte, rede e hardware. O ajuste permite até 60 fps, sem garantir essa taxa em todos os cenários.
 
-## Navegador ou desktop?
+## Navegador ou app?
 
 O navegador não exige instalação e usa seu próprio seletor de compartilhamento. A disponibilidade de áudio depende da fonte escolhida e do suporte da plataforma.
 
-O desktop oferece seleção nativa de telas/janelas e áudio por aplicativo. Os downloads incluem **Windows x64** (instalador, MSI e EXE portátil) e **macOS Apple Silicon** (arquivo do app e script de instalação). As versões Windows não têm assinatura de código; as versões macOS usam assinatura ad hoc, sem notarização. O EXE portátil não se atualiza sozinho.
+O app é um cliente nativo separado, que entra nas mesmas salas do navegador. Ele oferece seleção nativa de telas/janelas e áudio por aplicativo. Os downloads incluem **Windows x64** (instalador por usuário e EXE portátil) e **macOS Apple Silicon** (app com script de instalação). Todos se atualizam pelo menu da bandeja. As versões Windows não têm assinatura de código; a versão macOS usa um certificado próprio, sem notarização.
 
-Leia o [guia de instalação, permissões e limitações](docs/usage.md) (em inglês). No macOS, o guia explica também como recuperar a permissão de captura após uma atualização.
+Leia o [guia de instalação, permissões e limitações](docs/usage.md) (em inglês).
+
+## Privacidade
+
+A mídia vai direto entre os participantes, ou por um relay TURN quando a conexão direta falha. Chat e sinalização passam pelo servidor e ficam só na memória dele. O site oficial e o app publicado enviam ao Sentry relatórios de erro e estatísticas de uso anônimas: contagens e durações em faixas, nunca seu nome, o código da sala, seu IP ou o que você compartilha. Desligue as estatísticas em **Enviar estatísticas de uso anônimas**, no menu da saída de áudio (a seta ao lado do botão do alto-falante). Cópias hospedadas por terceiros e builds locais não enviam nada.
 
 ## Rodar localmente
 
 Com o **JDK 21** instalado:
 
 ```bash
-git clone https://github.com/RafaelrainBR/screenshare-kotlin-js.git
-cd screenshare-kotlin-js
+git clone https://github.com/RafaelrainBR/screenshare.git
+cd screenshare
 ./gradlew :server-java:run
 ```
 
@@ -69,10 +74,10 @@ A documentação técnica está em inglês para facilitar a colaboração:
 - [Uso, instalação e solução de problemas](docs/usage.md)
 - [Desenvolvimento e testes](docs/development.md)
 - [Hospedagem própria, Docker e STUN/TURN](docs/self-hosting.md)
-- [Desenvolvimento e releases do desktop](desktop-native/README.md)
+- [Desenvolvimento e releases do app](desktop-native/README.md)
 - [Como contribuir](CONTRIBUTING.md)
 
-O projeto está em desenvolvimento ativo. A documentação acompanha o código atual; os aplicativos publicados podem estar atrás da `master`. Consulte as [releases](https://github.com/RafaelrainBR/screenshare-kotlin-js/releases) e [issues](https://github.com/RafaelrainBR/screenshare-kotlin-js/issues) para acompanhar mudanças e reportar problemas.
+O projeto está em desenvolvimento ativo. A documentação acompanha o código atual; o app publicado pode estar atrás da `master`. Consulte as [releases](https://github.com/RafaelrainBR/screenshare/releases) e [issues](https://github.com/RafaelrainBR/screenshare/issues) para acompanhar mudanças e reportar problemas.
 
 As capturas mostram o cliente web atual numa sala local de demonstração, com transmissão WebRTC real e uma conversa de exemplo. O código compartilhado pertence a este repositório.
 

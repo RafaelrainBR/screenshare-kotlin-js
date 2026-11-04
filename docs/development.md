@@ -21,7 +21,7 @@ From the repository root:
 
 On PowerShell, replace `./gradlew` with `.\gradlew.bat`. Open [localhost:8080](http://localhost:8080). This builds the production browser bundle, copies it into the server's static resources, and starts Ktor. Restart/rebuild after frontend changes; this command does not provide frontend hot reload.
 
-`PORT` changes the Ktor server port. The browser uses its page's host/port for signaling. The standalone Webpack server (`:client:jsBrowserDevelopmentRun`, port 8081) has no signaling proxy configured; use the full Ktor server for browser room tests. The desktop development shell explicitly selects the local signaling server separately.
+`PORT` changes the Ktor server port. The browser uses its page's host/port for signaling. The standalone Webpack server (`:client:jsBrowserDevelopmentRun`, port 8081) has no signaling proxy configured; use the full Ktor server for browser room tests. The desktop app connects to the public server unless you start it with `SCREENSHARE_WS=ws://localhost:8080/`.
 
 ## Build
 
@@ -39,18 +39,20 @@ The standalone JAR runs with:
 java -jar server-java/build/libs/server-java-all.jar
 ```
 
-On hosts where the default Gradle cache is not writable, set `GRADLE_USER_HOME` before invoking the wrapper. The desktop frontend hook uses the repository-local ignored `.gradle` directory automatically.
+On hosts where the default Gradle cache is not writable, set `GRADLE_USER_HOME` before invoking the wrapper.
 
 ## Tests and checks
 
-Run the tests used by the release workflow:
+Run the checks that [`dependency-security.yml`](../.github/workflows/dependency-security.yml) runs on every pull request outside `desktop-native/`:
 
 ```bash
-./gradlew :client:jsTest :common:allTests :server:jvmTest
+./gradlew :client:jsTest :common:allTests :server:jvmTest :server-java:buildFatJar ktlintCheck
 node vendor/braces/test.cjs
+node --test scripts/build-presentation.test.mjs
+node scripts/build-presentation.mjs --check
 ```
 
-`node` is required on PATH for the standalone vendor check. Client tests cover capture lifecycle, media gates, share profiles, negotiation and WebSocket behavior. Common tests cover serialized packets; server tests cover room/media behavior.
+`node` is required on PATH for the script checks. After editing `site/`, regenerate the public pages with `node scripts/build-presentation.mjs` before the check; see [web publication](presence/web-publication.md). Client tests cover capture lifecycle, media gates, share profiles, negotiation and WebSocket behavior. Common tests cover serialized packets; server tests cover room/media behavior.
 
 For Gradle's complete verification tasks, including lint:
 
@@ -58,11 +60,12 @@ For Gradle's complete verification tasks, including lint:
 ./gradlew check
 ```
 
-Desktop checks run from `desktop-native`:
+Desktop checks, as [`native-check.yml`](../.github/workflows/native-check.yml) runs them on macOS for changes to the desktop folders:
 
 ```bash
-cargo fmt --check
-cargo test --release
+cargo test --release --locked --manifest-path desktop-capture/Cargo.toml
+cd desktop-native
+cargo test --release --locked
 ```
 
 These checks do not establish that a physical camera, microphone, OS picker, installer or remote audio path works. Validate changes to capture on real hardware with two peers. For documentation captures, use the [screenshot workflow](images/README.md).

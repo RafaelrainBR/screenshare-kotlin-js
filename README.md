@@ -9,10 +9,10 @@
 
 **Share a screen. Talk it through. Keep everyone in the same room.**
 
-Peer-to-peer screen sharing, voice, camera and chat in your browser — with native capture on Windows and macOS.
+Peer-to-peer screen sharing, voice, camera and chat in your browser, plus a native desktop app for Windows and macOS.
 
 [![Try in browser](https://img.shields.io/badge/Try_in_browser-screen--share.fly.dev-27855a?style=flat-square)](https://screen-share.fly.dev/)
-[![Download desktop](https://img.shields.io/github/v/release/RafaelrainBR/screenshare-kotlin-js?label=Desktop&style=flat-square)](https://github.com/RafaelrainBR/screenshare-kotlin-js/releases/latest)
+[![Download desktop](https://img.shields.io/github/v/release/RafaelrainBR/screenshare?label=Desktop&style=flat-square)](https://github.com/RafaelrainBR/screenshare/releases/latest)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue?style=flat-square)](LICENSE)
 
 [Português](README.pt-BR.md) · [Website](https://screen-share.fly.dev/about/en.html) · [Features](#what-you-can-do) · [Run locally](#run-locally) · [Documentation](docs/README.md)
@@ -23,21 +23,22 @@ Peer-to-peer screen sharing, voice, camera and chat in your browser — with nat
 
 ## Get into a room
 
-1. Open **[Screenshare in your browser](https://screen-share.fly.dev/)** or **[download the desktop app](https://github.com/RafaelrainBR/screenshare-kotlin-js/releases/latest)**.
-2. Enter your name. Leave the room code empty to create a room, or paste a code to join one.
-3. Copy the room code from the conversation header and send it to the people you want to join.
-4. Share your screen, enable your microphone or camera, and chat.
+1. Open **[Screenshare in your browser](https://screen-share.fly.dev/)** or **[download the desktop app](https://screen-share.fly.dev/about/download-en.html)**.
+2. Enter your name. Leave the room code empty to create a room, paste a code to join one, or choose **Criar sala privada** for a long code nobody can guess.
+3. Click the room code in the conversation header to copy the room link, and send it to the people you want to join. The link opens the room in the browser; on Windows the page also offers to open it in the desktop app.
+4. Share your screen, turn on your microphone or camera, and chat.
 
-No account is required. The interface is currently in Brazilian Portuguese. Anyone with the room code can join; use it with people you trust.
+No account is required. The interface is in Brazilian Portuguese. Anyone with the room code or link can join; use it with people you trust.
 
 ## What you can do
 
-- **Share screens and windows**, with game, video, and code/text presets. Adjust frame rate (up to 60 fps), bitrate and the trade-off between sharpness and smoothness.
-- **Talk and use your camera** independently of screen sharing. Choose devices, mute your microphone or output, and adjust another participant's volume.
-- **Follow multiple streams** in a grid or focus on one with a preview rail. Hide the conversation when you need more space.
-- **Chat in the room**, including earlier messages while the room remains active.
-- **Use native desktop capture** with screen/window thumbnails, computer or application audio, tray controls, optional startup at login, and in-app updates for supported installations.
-- **Host your own server**. Kotlin/Ktor handles rooms, text chat and WebRTC signaling; media uses a direct connection when possible, with TURN relay when needed.
+- **Share screens and windows** with game, video and code/text presets. Adjust frame rate (up to 60 fps), bitrate and the trade-off between sharpness and smoothness; when a share hits its limit, one click lightens it.
+- **Talk and use your camera** independently of screen sharing. Choose devices, mute your microphone or output, set each participant's volume, and reduce microphone noise in the browser.
+- **Follow several streams** in a grid, or focus on one with a preview rail. Names stay on the tiles, any stream can pop out into a floating window, and the conversation hides when you need the space.
+- **Chat and see who is in the room**, including earlier messages while the room stays active. A short tone plays when someone joins, leaves or starts sharing.
+- **Get back quickly** with recent and favorite rooms on the join screen.
+- **Use the native desktop app** (Rust and iced, no WebView): screen and window thumbnails, computer or single-application audio, H.264 hardware encoding with NVENC or Media Foundation on Windows, tray controls, optional startup at login and one-click updates.
+- **Host your own server**. Kotlin/Ktor handles rooms, text chat and WebRTC signaling; media uses a direct connection when possible, with a TURN relay when needed.
 
 Resolution, frame rate and audio availability depend on the source, browser, operating system, network and hardware. These are capture/encoder settings, not a performance guarantee.
 
@@ -46,12 +47,16 @@ Resolution, frame rate and audio availability depend on the source, browser, ope
 | | Browser | Windows desktop | macOS desktop |
 |---|---|---|---|
 | Screen sharing, camera, voice and chat | Yes | Yes | Yes |
-| Source selection | Browser picker | Native screens/windows and thumbnails | Native screens/windows and thumbnails |
-| Shared audio | Browser/source dependent | Computer or selected application | Computer or selected application |
-| Tray controls and startup at login | — | Yes | Yes |
-| Distribution | Open the web app | x64 installer, MSI or portable EXE | Apple Silicon app archive and install script |
+| Source selection | Browser picker | Native screens/windows with thumbnails | Native screens/windows with thumbnails |
+| Shared audio | Browser/source dependent | Computer (call apps left out) or one application | Computer or one application (macOS 14.2+) |
+| Tray, startup at login and in-app updates | — | Yes | Yes |
+| Distribution | Open the web app | Per-user installer or portable EXE (x64) | Apple Silicon app with an install script |
 
-Desktop builds use the same Kotlin/JS client and rooms as the browser. Windows builds are unsigned; macOS builds use ad hoc signing without notarization. See [installation, permissions and platform limits](docs/usage.md).
+The desktop app is a separate native client that joins the same rooms as the browser. Windows builds are unsigned; the macOS app is self-signed and not notarized. See [installation, permissions and platform limits](docs/usage.md).
+
+### Privacy
+
+Media goes directly between participants, or through a TURN relay when a direct connection fails. Chat and signaling pass through the server and live only in its memory. The hosted site and the released desktop app send error reports and anonymous usage statistics to Sentry: counts and durations in ranges, never your name, the room code, your IP address or what you share. Turn the statistics off with **Enviar estatísticas de uso anônimas** in the audio output menu (the arrow next to the speaker button); self-hosted and locally built copies send nothing.
 
 ## See it in action
 
@@ -61,12 +66,12 @@ Screenshots show the current browser client in a local demo room, with a real We
 
 | Join or create a room | Tune your transmission |
 |---|---|
-| ![Join form with name and optional room code](docs/images/join_screen.png) | ![Transmission settings with game, video and code/text presets](docs/images/share_settings.png) |
+| ![Join form with name, optional room code and private room button](docs/images/join_screen.png) | ![Transmission settings with game, video and code/text presets](docs/images/share_settings.png) |
 
 <details>
 <summary>Conversation sidebar</summary>
 
-![Room code, conversation history and message composer](docs/images/sidebar.png)
+![Room code, people in the room, conversation history and message composer](docs/images/sidebar.png)
 
 </details>
 
@@ -75,8 +80,8 @@ Screenshots show the current browser client in a local demo room, with a real We
 Install **JDK 21** (the build uses a Java 21 toolchain), then clone and run:
 
 ```bash
-git clone https://github.com/RafaelrainBR/screenshare-kotlin-js.git
-cd screenshare-kotlin-js
+git clone https://github.com/RafaelrainBR/screenshare.git
+cd screenshare
 ./gradlew :server-java:run
 ```
 
@@ -84,7 +89,7 @@ On Windows PowerShell, use `.\gradlew.bat :server-java:run`.
 
 Open **[http://localhost:8080](http://localhost:8080)** in two tabs and join the same room. The task builds the browser client and serves it with the signaling server. The included Gradle wrapper manages Gradle and the Kotlin/JS Node/Yarn tools; the first build downloads dependencies. For screen sharing on another host, serve the app over HTTPS.
 
-See [development and tests](docs/development.md) for build commands and desktop prerequisites; see [self-hosting](docs/self-hosting.md) for Docker, Fly.io and STUN/TURN configuration.
+See [development and tests](docs/development.md) for build commands, the [desktop guide](desktop-native/README.md) for the native app, and [self-hosting](docs/self-hosting.md) for Docker, Fly.io and STUN/TURN configuration.
 
 ## How it works
 
@@ -99,19 +104,20 @@ flowchart LR
 
 | Module | Responsibility |
 |---|---|
-| [`client/`](client) | Kotlin/JS interface, WebRTC, screen sharing, camera and voice |
+| [`client/`](client) | Kotlin/JS browser client: interface, WebRTC, screen sharing, camera and voice |
 | [`common/`](common) | Kotlin Multiplatform packet types shared by JS and JVM |
-| [`server/`](server) | Ktor/JVM signaling, room membership and in-memory chat history |
+| [`server/`](server) | Ktor/JVM signaling, room membership, in-memory chat history and the public site |
 | [`server-java/`](server-java) | JVM entry point, fat JAR, Docker and Fly.io configuration |
-| [`desktop-native/`](desktop-native) | Desktop app in Rust and iced: tray, updater, WebRTC and encoders |
-| [`desktop-capture/`](desktop-capture) | Shared Rust capture: Windows DXGI/GDI/WASAPI and macOS ScreenCaptureKit/Core Audio |
+| [`desktop-native/`](desktop-native) | Desktop app in Rust and iced: interface, tray, updater, WebRTC and encoders |
+| [`desktop-capture/`](desktop-capture) | Rust capture shared by the desktop app: Windows DXGI/GDI/WASAPI and macOS ScreenCaptureKit/Core Audio |
+| [`site/`](site) | Templates and copy for the public About and Downloads pages |
 
-The UI uses local CSS, JavaScript and Barlow fonts. Dependency versions live in [`libs.versions.toml`](libs.versions.toml) and the Cargo manifests.
+The browser and the desktop app are two clients of one protocol. The web UI uses local CSS, JavaScript and Barlow fonts. Dependency versions live in [`libs.versions.toml`](libs.versions.toml) and the Cargo manifests.
 
 ## Project status and contributing
 
-Screenshare is under active development. Documentation describes the current source; the [latest desktop release](https://github.com/RafaelrainBR/screenshare-kotlin-js/releases/latest) may lag behind `master`. Release assets and changes are listed on [GitHub Releases](https://github.com/RafaelrainBR/screenshare-kotlin-js/releases).
+Screenshare is under active development. Documentation describes the current source; the [latest desktop release](https://github.com/RafaelrainBR/screenshare/releases/latest) may lag behind `master`. Release assets and changes are listed on [GitHub Releases](https://github.com/RafaelrainBR/screenshare/releases).
 
-Bug reports, platform testing and contributions are welcome. Start with [CONTRIBUTING.md](CONTRIBUTING.md), check [open issues](https://github.com/RafaelrainBR/screenshare-kotlin-js/issues), or read the [documentation index](docs/README.md).
+Bug reports, platform testing and contributions are welcome. Start with [CONTRIBUTING.md](CONTRIBUTING.md), check [open issues](https://github.com/RafaelrainBR/screenshare/issues), or read the [documentation index](docs/README.md).
 
 Licensed under [MIT](LICENSE).

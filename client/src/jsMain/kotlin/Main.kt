@@ -383,7 +383,7 @@ private fun showUpdateBanner(
                 button.textContent = "Atualizar e reiniciar"
                 progress.classList.add("hidden")
                 text.innerHTML =
-                    "Falha ao atualizar. <a href=\"https://github.com/RafaelrainBR/screenshare-kotlin-js/releases/latest\" target=\"_blank\" rel=\"noopener\">Baixar manualmente</a>"
+                    "Falha ao atualizar. <a href=\"https://github.com/RafaelrainBR/screenshare/releases/latest\" target=\"_blank\" rel=\"noopener\">Baixar manualmente</a>"
             }
         }
     })

@@ -6,7 +6,7 @@
 
 **Browser:** open [screen-share.fly.dev](https://screen-share.fly.dev/). Use a current browser with WebRTC and screen-capture support. Screen sharing and audio options vary by browser and operating system; mobile browsers may join without supporting screen capture.
 
-**Desktop:** open the [latest release](https://github.com/RafaelrainBR/screenshare-kotlin-js/releases/latest) and choose the package for your machine. Release downloads connect to the public Screenshare server by default and join the same rooms as browser users.
+**Desktop:** open the [download page](https://screen-share.fly.dev/about/download-en.html) or the [latest release](https://github.com/RafaelrainBR/screenshare/releases/latest) and choose the package for your machine. The desktop app is a native client (Rust and iced, no WebView). It connects to the public Screenshare server by default and joins the same rooms as browser users.
 
 | Platform | Download | Notes |
 |---|---|---|
@@ -21,7 +21,7 @@ All three update themselves from the tray menu. `SHA256SUMS` lists download chec
 The install script downloads the Apple Silicon archive of its release, installs it into `/Applications` (or `~/Applications` if needed), and opens Screenshare. Download and inspect it before running:
 
 ```bash
-curl -fL https://github.com/RafaelrainBR/screenshare-kotlin-js/releases/latest/download/install-macos-native.sh -o install-macos-native.sh
+curl -fL https://github.com/RafaelrainBR/screenshare/releases/latest/download/install-macos-native.sh -o install-macos-native.sh
 less install-macos-native.sh
 bash install-macos-native.sh
 ```
@@ -31,11 +31,13 @@ The app is not notarized; a browser-downloaded archive may trigger Gatekeeper. T
 ## Create or join a room
 
 1. Enter a display name in **Seu nome**.
-2. Leave **Código da sala** empty to create a room, or paste an existing code.
+2. Leave **Código da sala** empty to create a room, or paste an existing code. **Criar sala privada** fills in a long random code instead.
 3. Click **Entrar na sala**.
-4. Click the room code in the conversation header to copy it for other participants.
+4. Click the room code in the conversation header to copy the room link (`https://screen-share.fly.dev/?roomId=…`) for other participants.
 
-Rooms do not require accounts or passwords. Anyone who knows a room code can join. Messages and room membership are held in server memory; chat is not a durable archive and is lost when a room is removed or the server restarts.
+The link opens the room in the browser. On Windows, the page also shows **Tem o app? Abrir no app**, which opens the room in the desktop app through its `screenshare:` link. The join screen lists recent rooms; mark one as a favorite to keep it at the top.
+
+Rooms do not require accounts or passwords. Anyone who knows a room code can join; a private room's 128-bit random code cannot be guessed, so only people who receive the link get in. Messages and room membership are held in server memory; chat is not a durable archive and is lost when a room is removed or the server restarts.
 
 ## Share a screen and audio
 
@@ -57,21 +59,27 @@ Open the arrow beside the screen button to choose:
 
 Customize **Quadros/s**, **Se piorar** (quality preference when the network tightens), and **Bitrate**. Native desktop video keeps source dimensions. Actual quality depends on capture support, encoding, bandwidth and the receiving device.
 
-Click a stream to focus it; use the preview rail to switch streams or return to the grid. Each viewer can hide video or adjust another participant's volume locally.
+Click a stream to focus it; use the preview rail to switch streams or return to the grid. **Janela flutuante** pops a stream out into a small window. Each viewer can hide video or adjust another participant's volume locally. When your share reaches its limit, the warning offers one click to lighten it.
 
 ## Voice, camera and conversation
 
-Microphone and camera start off. Use their buttons to enable them and the adjacent arrows to select devices. The speaker button mutes local output. Output-device selection depends on browser/WebView support.
+Microphone and camera start off. Use their buttons to enable them and the adjacent arrows to select devices. In the browser, the microphone menu also has **Reduzir ruído do microfone**. The speaker button mutes local output; its menu selects the output device (browser support varies) and turns off the join/leave/share tones.
 
-Type a message and press Enter, or use the send button on narrow screens. Hide/show the conversation with its arrow. The leave button lets you leave or switch rooms.
+Type a message and press Enter, or use the send button on narrow screens. **Na sala**, above the messages, lists who is in the room. Hide/show the conversation with its arrow. The leave button lets you leave or switch rooms.
 
-On desktop, closing the main window keeps the tray available. Use the tray menu to open the room, manage media or quit. The optional **Iniciar com o sistema e voltar a esta sala** setting controls startup at login and room rejoin.
+On desktop, closing the main window keeps the tray available. Use the tray menu to open the room, manage media, update or quit. The optional **Iniciar com o sistema e voltar a esta sala** setting controls startup at login and room rejoin.
+
+**Algo deu errado?** (in the room on the web, in the tray on desktop) sends a short note with diagnostics to the maintainer, without your name or room.
 
 ## Updates
 
-Supported installed desktop builds check GitHub Releases at startup and show an update banner. Leave your room before installing; the app downloads, installs and restarts. The portable Windows EXE requires a manual download.
+The desktop app checks GitHub Releases for a newer version. When one exists, the tray menu and the join screen show **Atualizar para a versão X.Y.Z**: the app downloads its package, checks it against `SHA256SUMS`, replaces itself and reopens. The installer, the portable EXE and the macOS app all update this way. If a release has no package for your system, the item opens the release page instead.
 
-On macOS, an update changes the ad hoc signature. If capture stops working, remove Screenshare from **System Settings → Privacy & Security → Screen Recording**, then add it again and restart.
+Every macOS release is signed with the same certificate, so the Screen Recording permission survives updates. If capture stops working anyway, remove Screenshare from **System Settings → Privacy & Security → Screen Recording**, then add it again and restart.
+
+## Usage statistics
+
+The hosted site and the released desktop app send error reports and anonymous usage statistics to Sentry: how many rooms and shares happen, how long they last and why quality drops, in ranges. They never include your name, the room code, your IP address or what you share. Turn the statistics off with **Enviar estatísticas de uso anônimas** in the speaker menu; error reports keep going. Self-hosted instances and local builds send nothing.
 
 ## Troubleshooting
 

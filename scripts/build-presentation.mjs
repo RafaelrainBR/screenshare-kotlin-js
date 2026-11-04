@@ -4,7 +4,7 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const repo = 'https://github.com/RafaelrainBR/screenshare-kotlin-js';
+const repo = 'https://github.com/RafaelrainBR/screenshare';
 const semver = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
 export const escapeHTML = value => String(value).replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;');
 
@@ -47,7 +47,7 @@ export function renderPage(template, values) {
 async function refreshNative(nativePath) {
   let native;
   try {
-    const response = await fetch('https://api.github.com/repos/RafaelrainBR/screenshare-kotlin-js/releases?per_page=50', { signal: AbortSignal.timeout(20000) });
+    const response = await fetch('https://api.github.com/repos/RafaelrainBR/screenshare/releases?per_page=50', { signal: AbortSignal.timeout(20000) });
     assert(response.ok, `Releases HTTP ${response.status}`);
     native = { version: newestNative(await response.json()) };
   } catch {
