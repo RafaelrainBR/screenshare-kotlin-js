@@ -324,11 +324,7 @@ object InterfaceMutations {
         fullscreenButton.addEventListener("click", { e ->
             e.preventDefault()
             e.stopPropagation()
-            if (document.fullscreenElement == tile) {
-                document.exitFullscreen()
-            } else {
-                tile.requestFullscreen()
-            }
+            toggleFullscreen(tile, video)
         })
         controls.appendChild(fullscreenButton)
 
@@ -483,6 +479,20 @@ object InterfaceMutations {
         if (focusedTileId == tileId) focusedTileId = null
         val tile = document.getElementById("screen-tile-$tileId") as? HTMLElement
         if (tile != null) leaveTile(tile) else reflowScreens()
+    }
+
+    private fun toggleFullscreen(
+        tile: HTMLElement,
+        video: HTMLVideoElement,
+    ) {
+        when {
+            document.fullscreenElement == tile -> document.exitFullscreen()
+
+            tile.asDynamic().requestFullscreen != null -> tile.requestFullscreen()
+
+            // iPhone Safari has no element fullscreen, only the native video player.
+            video.asDynamic().webkitEnterFullscreen != null -> video.asDynamic().webkitEnterFullscreen()
+        }
     }
 
     /**
@@ -757,11 +767,7 @@ object InterfaceMutations {
         fullscreenButton.addEventListener("click", { e ->
             e.preventDefault()
             e.stopPropagation()
-            if (document.fullscreenElement == tile) {
-                document.exitFullscreen()
-            } else {
-                tile.requestFullscreen()
-            }
+            toggleFullscreen(tile, video)
         })
         controls.appendChild(fullscreenButton)
         controls.appendChild(participantOptionsButton(username))

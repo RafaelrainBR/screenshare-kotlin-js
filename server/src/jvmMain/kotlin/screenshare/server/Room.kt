@@ -70,8 +70,8 @@ class Room(
     }
 
     suspend fun removeUser(user: RoomUser) {
-        users.remove(user.id)
-        notifyUserLeave(user)
+        // Close frame, socket end and a failed send can all report the same leave.
+        if (users.remove(user.id) != null) notifyUserLeave(user)
     }
 
     suspend fun consumePacket(
