@@ -485,13 +485,20 @@ object InterfaceMutations {
         tile: HTMLElement,
         video: HTMLVideoElement,
     ) {
-        when {
-            document.fullscreenElement == tile -> document.exitFullscreen()
+        // Any of these can fail (a rejected promise, a video without metadata yet): the click does nothing.
+        runCatching {
+            val pending: dynamic =
+                when {
+                    document.fullscreenElement == tile -> document.asDynamic().exitFullscreen()
 
-            tile.asDynamic().requestFullscreen != null -> tile.requestFullscreen()
+                    tile.asDynamic().requestFullscreen != null -> tile.asDynamic().requestFullscreen()
 
-            // iPhone Safari has no element fullscreen, only the native video player.
-            video.asDynamic().webkitEnterFullscreen != null -> video.asDynamic().webkitEnterFullscreen()
+                    // iPhone Safari has no element fullscreen, only the native video player.
+                    video.asDynamic().webkitEnterFullscreen != null -> video.asDynamic().webkitEnterFullscreen()
+
+                    else -> null
+                }
+            pending?.catch { _: dynamic -> }
         }
     }
 
