@@ -18,11 +18,17 @@ import io.ktor.server.websocket.webSocket
 import io.ktor.websocket.Frame.Close
 import io.ktor.websocket.Frame.Text
 import io.ktor.websocket.readText
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.channels.consumeEach
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import org.slf4j.LoggerFactory
 import screenshare.common.Packet
 import screenshare.common.Packet.JoinRoom
+import java.io.IOException
+import java.util.concurrent.ConcurrentHashMap
 import kotlin.time.Duration.Companion.seconds
 
 private val logger = LoggerFactory.getLogger("Server")
@@ -43,7 +49,10 @@ fun Application.module() {
         masking = false
     }
 
-    val rooms = mutableMapOf<String, Room>()
+    // Every socket runs on its own coroutine: the map must be thread-safe, and the lock keeps a join
+    // from landing in a room that a leave is closing at the same time.
+    val rooms = ConcurrentHashMap<String, Room>()
+    val roomsLock = Mutex()
 
     routing {
         webSocket("/") {
@@ -68,19 +77,23 @@ fun Application.module() {
                     )
                 roomId = joinRoomPacket.roomId
 
-                val room = rooms.computeIfAbsent(roomId) { Room.create(roomId) }
-                room.addUser(roomUser)
+                roomsLock.withLock {
+                    val room = rooms.computeIfAbsent(roomId) { Room.create(roomId) }
+                    room.addUser(roomUser)
+                }
             }
 
             val disconnectUser =
                 suspend {
-                    val room = roomId?.let { rooms[it] }
-                    val roomUser = roomUser
-                    if (roomUser != null && room != null) {
-                        room.removeUser(roomUser)
-                        if (room.isEmpty) {
-                            room.close()
-                            rooms.remove(room.id)
+                    roomsLock.withLock {
+                        val room = roomId?.let { rooms[it] }
+                        val roomUser = roomUser
+                        if (roomUser != null && room != null) {
+                            room.removeUser(roomUser)
+                            if (room.isEmpty) {
+                                room.close()
+                                rooms.remove(room.id)
+                            }
                         }
                     }
                 }
@@ -93,26 +106,31 @@ fun Application.module() {
                 }
             }
 
-            this.incoming.consumeEach { frame ->
-                when (frame) {
-                    is Text -> {
-                        val packet = Json.decodeFromString<Packet>(frame.readText())
-                        when (packet) {
-                            is JoinRoom -> connectUser(packet)
-                            else -> handlePacket(packet)
+            try {
+                this.incoming.consumeEach { frame ->
+                    when (frame) {
+                        is Text -> {
+                            val packet = Json.decodeFromString<Packet>(frame.readText())
+                            when (packet) {
+                                is JoinRoom -> connectUser(packet)
+                                else -> handlePacket(packet)
+                            }
                         }
-                    }
 
-                    is Close -> {
-                        disconnectUser()
-                    }
+                        is Close -> {
+                            disconnectUser()
+                        }
 
-                    else -> {}
+                        else -> {}
+                    }
                 }
+            } catch (e: IOException) {
+                // A client that vanished (Ping timeout, reset): routine, not a server error.
+                logger.info("Connection lost: $clientIp (${e.message})")
+            } finally {
+                logger.info("Connection closed: $clientIp")
+                withContext(NonCancellable) { disconnectUser() }
             }
-
-            logger.info("Connection closed: $clientIp")
-            disconnectUser()
         }
 
         // Short link to share and to put in release notes.
