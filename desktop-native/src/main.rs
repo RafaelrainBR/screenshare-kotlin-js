@@ -617,10 +617,7 @@ fn update(app: &mut App, message: Message) -> Task<Message> {
         _ => None,
     };
     if let Some(action) = action {
-        let breadcrumb = sentry::Breadcrumb { category: Some("ui".into()), message: Some(action.into()), ..Default::default() };
-        // The crash reporter process keeps its own copy, for the steps before a C++ crash.
-        sentry::with_integration(|minidump: &sentry::integrations::minidump::MinidumpIntegration, _| minidump.add_breadcrumb(breadcrumb.clone()));
-        sentry::add_breadcrumb(breadcrumb);
+        telemetry::breadcrumb("ui", action);
         telemetry::info(action);
     }
     match message {
@@ -1649,6 +1646,7 @@ fn main() -> iced::Result {
     // Flushes what is queued when main returns.
     telemetry::redirect_stderr();
     let _telemetry = telemetry::init();
+    telemetry::watch_memory();
     telemetry::info(&format!("started {}", option_env!("SENTRY_RELEASE").unwrap_or(concat!("dev ", env!("CARGO_PKG_VERSION")))));
     updater::wait_for_replaced();
     if !startup::first_instance() {
