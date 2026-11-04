@@ -180,7 +180,27 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          if [[ "${TAG#native-v}" == *-* ]]; then kind=(--prerelease --latest=false); else kind=(--latest); fi
+          v=${TAG#native-v}
+          base="https://github.com/$GITHUB_REPOSITORY/releases/download/$TAG"
+          if [[ "$v" == *-* ]]; then kind=(--prerelease --latest=false); else kind=(--latest); fi
+          # "What changed" is the annotated tag's body (after the title line and a blank line), in
+          # pt-BR for users: git tag -a native-vX.Y.Z -F notes.txt. No body: GitHub's PR list instead.
+          sha=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG" --jq 'select(.object.type == "tag") | .object.sha')
+          changes=""
+          if [ -n "$sha" ]; then
+            changes=$(gh api "repos/$GITHUB_REPOSITORY/git/tags/$sha" --jq .message | sed '1,/^$/d' | sed '/^-----BEGIN PGP/,$d')
+          fi
+          generate=()
+          [ -n "$changes" ] || generate=(--generate-notes)
+          {
+            if [[ "$v" == *-* ]]; then printf '> Versão de teste: o app não oferece esta versão como atualização.\n\n'; fi
+            if [ -n "$changes" ]; then printf '## O que mudou\n\n%s\n\n' "$changes"; fi
+            printf '## Instalar\n\n'
+            printf '**Windows (x64)**\n\n'
+            printf -- '- [Instalador](%s/Screenshare-native_%s_x64-setup.exe): instala só para o seu usuário, sem pedir admin.\n' "$base" "$v"
+            printf -- '- [Portátil](%s/Screenshare-native_%s_x64-portable.exe): roda sem instalar.\n\n' "$base" "$v"
+            printf '**macOS (Apple Silicon)**: no Terminal,\n\n```bash\ncurl -fsSL %s/install-macos-native.sh | bash\n```\n\n' "$base"
+            printf 'Quem já tem o app recebe esta versão pelo aviso de atualização no menu da bandeja.\n'
+          } > notes.md
           gh release create "$TAG" release-assets/* --repo "$GITHUB_REPOSITORY" --verify-tag \
-            "${kind[@]}" --title "Screenshare ${TAG#native-v}" \
-            --notes "Windows x64: instalador por usuário (sem admin, desinstala limpo) ou executável portátil. macOS (Apple Silicon): curl -fsSL https://github.com/$GITHUB_REPOSITORY/releases/download/$TAG/install-macos-native.sh | bash. O app avisa quando há versão nova e se atualiza com um clique no menu da bandeja."
+            "${kind[@]}" --title "Screenshare $v" --notes-file notes.md "${generate[@]}"
