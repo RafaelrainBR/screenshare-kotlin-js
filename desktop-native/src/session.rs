@@ -18,7 +18,7 @@ const MAX_PENDING: usize = 256;
 // Same receipt deadline as WebsocketService.sendChatMessage.
 const CHAT_RECEIPT: Duration = Duration::from_secs(10);
 
-#[derive(Clone, Debug, Default, Deserialize, PartialEq)]
+#[derive(Clone, Debug, Default, Deserialize, serde::Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct Participant {
     pub socket_id: String,
@@ -32,7 +32,7 @@ fn muted_by_default() -> bool {
     true
 }
 
-#[derive(Clone, Debug, Default, Deserialize, PartialEq)]
+#[derive(Clone, Debug, Default, Deserialize, serde::Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct ChatMessage {
     #[serde(default)]
@@ -46,7 +46,7 @@ pub struct ChatMessage {
     pub client_message_id: Option<String>,
 }
 
-#[derive(Clone, Debug, Deserialize, PartialEq)]
+#[derive(Clone, Debug, Deserialize, serde::Serialize, PartialEq)]
 pub struct AudioDevice {
     pub id: String,
     pub label: String,
@@ -165,14 +165,16 @@ impl AudioControl {
 }
 
 /// Someone else joined, left or started sharing the screen (the web's ui/RoomSounds.kt).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
 pub enum RoomSound {
     Join,
     Leave,
     Share,
 }
 
-#[derive(Clone, Debug, Default, PartialEq)]
+/// Serialize: the Android app reads it as JSON (android/engine).
+#[derive(Clone, Debug, Default, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SessionView {
     pub generation: u64,
     pub local_socket_id: Option<String>,

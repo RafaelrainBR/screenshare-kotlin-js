@@ -8,7 +8,10 @@ use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
 
-const RELEASES: &str = "https://api.github.com/repos/RafaelrainBR/screenshare/releases?per_page=50";
+/// Paged: Android releases (android-v*) share this repository, so the newest native-v* can fall off
+/// the first page. Older installs read only `per_page=50`; the Android betas are deleted to protect them.
+const RELEASES: &str = "https://api.github.com/repos/RafaelrainBR/screenshare/releases?per_page=100";
+const MAX_PAGES: usize = 3;
 /// Given to the new exe so it waits for this process to end before the single-instance check.
 const REPLACES_ARG: &str = "--replaces";
 /// Next to the .app on macOS: the unpacked bundle, then the old one, removed at the next launch.
@@ -90,8 +93,18 @@ fn client() -> Result<reqwest::Client, String> {
 pub async fn check() -> Option<Release> {
     let current = current()?;
     let fetch = async {
-        let response = client()?.get(RELEASES).header("Accept", "application/vnd.github+json").send().await.map_err(|error| error.to_string())?;
-        response.error_for_status().map_err(|error| error.to_string())?.json::<Vec<GhRelease>>().await.map_err(|error| error.to_string())
+        let client = client()?;
+        let mut releases = Vec::new();
+        for page in 1..=MAX_PAGES {
+            let response = client.get(format!("{RELEASES}&page={page}")).header("Accept", "application/vnd.github+json").send().await.map_err(|error| error.to_string())?;
+            let batch = response.error_for_status().map_err(|error| error.to_string())?.json::<Vec<GhRelease>>().await.map_err(|error| error.to_string())?;
+            let last = batch.len() < 100;
+            releases.extend(batch);
+            if last {
+                break;
+            }
+        }
+        Ok::<_, String>(releases)
     };
     match fetch.await {
         Ok(releases) => newest(releases, current, package),

@@ -101,6 +101,7 @@ pub fn thumbnail(source: &Source) -> Option<Thumbnail> {
     rgba(thumb.width, thumb.height, thumb.data)
 }
 
+#[cfg(not(target_os = "android"))]
 /// BGRA, as both captures produce it, to the RGBA iced draws; minimized windows come back 0×0.
 fn rgba(width: u32, height: u32, mut data: Vec<u8>) -> Option<Thumbnail> {
     if width == 0 || height == 0 {

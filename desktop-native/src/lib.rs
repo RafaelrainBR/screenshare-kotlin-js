@@ -18,6 +18,14 @@ mod camera;
 #[cfg(target_os = "macos")]
 #[path = "camera_macos.rs"]
 mod camera;
+#[cfg(not(feature = "synthetic-test"))]
+#[cfg(target_os = "android")]
+mod camera {
+    pub use crate::capture::platform::{Camera, list_cameras as list};
+}
+/// What the Android app pushes from its own capture (android/engine).
+#[cfg(target_os = "android")]
+pub use capture::platform::{push_camera_yuv, push_screen_audio, push_screen_rgba};
 #[cfg(all(windows, test))]
 mod ducking;
 mod capture;

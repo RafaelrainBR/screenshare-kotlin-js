@@ -14,9 +14,12 @@ const MIN_PACKETS: f64 = 60.0;
 const DROPPED_SHARE: f64 = 0.15;
 const MIN_FRAMES: f64 = 30.0;
 
+/// This device in its own phrases; other people stay "PC" (the protocol does not say which).
+const DEVICE: &str = if cfg!(target_os = "android") { "celular" } else { "PC" };
+
 /// In priority order: the sharer's own report (send-share-quality) explains its screen first, and
 /// the CPU holds every viewer back, so it explains more than one slow link.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, serde::Serialize)]
 pub enum Problem {
     PeerCpu,
     PeerBandwidth,
@@ -31,7 +34,7 @@ impl Problem {
         match self {
             Self::PeerCpu => format!("PC de {peer} no limite"),
             Self::PeerBandwidth => format!("Internet de {peer} no limite"),
-            Self::SenderCpu | Self::ViewerDecode => "Seu PC no limite".into(),
+            Self::SenderCpu | Self::ViewerDecode => format!("Seu {DEVICE} no limite"),
             Self::SenderBandwidth => "Sua internet no limite".into(),
             Self::UnstableConnection => "Conexão instável".into(),
         }
@@ -62,14 +65,14 @@ impl Problem {
                 "A internet de {peer} não está dando conta de enviar nessa qualidade, então a qualidade da tela caiu.{}",
                 if viewers == 1 { " Como só você está assistindo, pode ser também a sua internet." } else { "" }
             ),
-            Self::SenderCpu => "Seu PC não está dando conta de codificar o vídeo, então a qualidade da sua tela caiu. Feche programas pesados ou escolha um preset mais leve.".into(),
+            Self::SenderCpu => format!("Seu {DEVICE} não está dando conta de codificar o vídeo, então a qualidade da sua tela caiu. Feche {} ou escolha um preset mais leve.", if cfg!(target_os = "android") { "outros apps" } else { "programas pesados" }),
             Self::SenderBandwidth => format!(
                 "Sua internet não está dando conta de enviar nessa qualidade, então a qualidade da sua tela caiu. Escolha um preset mais leve.{}",
                 // One viewer: the congestion control can't tell our upload from their download.
                 if viewers > 1 { " Cada pessoa assistindo usa mais da sua internet." } else { " Como só uma pessoa está assistindo, pode ser também a internet dela." }
             ),
             Self::UnstableConnection => format!("A conexão entre você e {peer} está perdendo dados, por isso o vídeo trava. Pode ser a sua internet ou a de {peer}."),
-            Self::ViewerDecode => "Seu PC não está dando conta de mostrar o vídeo e está pulando quadros. Feche programas pesados.".into(),
+            Self::ViewerDecode => format!("Seu {DEVICE} não está dando conta de mostrar o vídeo e está pulando quadros. Feche {}.", if cfg!(target_os = "android") { "outros apps" } else { "programas pesados" }),
         }
     }
 }
