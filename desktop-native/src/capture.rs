@@ -1,6 +1,8 @@
 //! Shared desktop-capture feeding libwebrtc: BGRA frames become I420 on a NativeVideoSource,
 //! 10 ms f32 stereo chunks become i16 on a NativeAudioSource.
+#[cfg(not(target_os = "android"))]
 use desktop_capture::{AudioChunk, CHANNELS, FRAMES_PER_CHUNK};
+#[cfg(not(target_os = "android"))]
 use libwebrtc::audio_frame::AudioFrame;
 
 #[cfg(windows)]
@@ -9,6 +11,9 @@ mod platform;
 #[cfg(target_os = "macos")]
 #[path = "capture_macos.rs"]
 mod platform;
+#[cfg(target_os = "android")]
+#[path = "capture_android.rs"]
+pub mod platform;
 pub use platform::Capture;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
@@ -30,6 +35,8 @@ pub enum ShareSource {
     Window { hwnd: u64, pid: u32 },
 }
 
+// Android ends a capture from the app (MediaProjection.Callback), never from the engine.
+#[cfg_attr(target_os = "android", allow(dead_code))]
 pub enum CaptureEvent {
     Ready(u64),
     Ended(u64, String),
@@ -37,6 +44,7 @@ pub enum CaptureEvent {
     CameraEnded(u64, String),
 }
 
+#[cfg(not(target_os = "android"))]
 /// A 10 ms chunk of f32 stereo PCM from desktop-capture, as the i16 frame libwebrtc takes.
 fn audio_frame(chunk: &AudioChunk) -> AudioFrame<'static> {
     let data: Vec<i16> = chunk

@@ -16,7 +16,7 @@ pub fn send(name: &str, attributes: &[(&str, String)]) {
     if !ON.load(Ordering::Relaxed) {
         return;
     }
-    let platform = if cfg!(target_os = "macos") { "native-macos" } else { "native-windows" };
+    let platform = if cfg!(target_os = "android") { "native-android" } else if cfg!(target_os = "macos") { "native-macos" } else { "native-windows" };
     let mut fields = sentry::protocol::Map::new();
     for (key, value) in std::iter::once(("platform", platform.to_owned())).chain(attributes.iter().map(|(key, value)| (*key, value.clone()))) {
         fields.insert(key.to_owned(), sentry::protocol::LogAttribute(sentry::protocol::Value::from(value)));
