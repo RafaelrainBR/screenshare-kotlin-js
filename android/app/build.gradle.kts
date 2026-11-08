@@ -18,6 +18,9 @@ fun versionCodeOf(version: String): Int {
 }
 check(versionCodeOf("1.2.3-rc.4") == 1_020_304 && versionCodeOf("1.2.3") == 1_020_399 && versionCodeOf("0.1.0-rc.1") < versionCodeOf("0.1.0"))
 
+// The Rust engine (android/engine) through cargo-ndk. Debug also builds x86_64 for the emulator.
+val rustAbis = (findProperty("abis") as String?)?.split(",") ?: listOf("arm64-v8a", "armeabi-v7a", "x86_64")
+
 android {
     namespace = "com.rafaelrain.screenshare"
     compileSdk = 37
@@ -29,6 +32,9 @@ android {
         targetSdk = 36
         versionCode = versionCodeOf(appVersion)
         versionName = appVersion
+        // Only the ABIs the engine is built for: libraries (androidx, Sentry) also ship x86/x86_64, and a
+        // device that picks one of those would not find libscreenshare_android.so.
+        ndk { abiFilters += rustAbis }
         // Only CI release builds have it (secret SENTRY_DSN_ANDROID); local and PR builds send nothing.
         buildConfigField("String", "SENTRY_DSN", "\"${System.getenv("SENTRY_DSN_ANDROID").orEmpty()}\"")
     }
@@ -71,8 +77,6 @@ android {
     }
 }
 
-// The Rust engine (android/engine) through cargo-ndk. Debug also builds x86_64 for the emulator.
-val rustAbis = (findProperty("abis") as String?)?.split(",") ?: listOf("arm64-v8a", "armeabi-v7a", "x86_64")
 val rustTarget = System.getenv("CARGO_TARGET_DIR") ?: File(rootDir, "engine/target").path
 val cargoBuild by tasks.registering(Exec::class) {
     val release = gradle.startParameter.taskNames.any { it.contains("Release", ignoreCase = true) }
