@@ -1,7 +1,8 @@
 // The page carries the versions of its last deploy; GitHub knows the newest ones.
 const repo = 'RafaelrainBR/screenshare';
-const mac = /mac/i.test(navigator.userAgentData?.platform || navigator.platform || '');
-for (const el of document.querySelectorAll('[data-os]')) el.hidden = el.dataset.os !== (mac ? 'mac' : 'windows');
+const platform = navigator.userAgentData?.platform || navigator.platform || '';
+const os = /android/i.test(navigator.userAgent) ? 'android' : /mac/i.test(platform) ? 'mac' : 'windows';
+for (const el of document.querySelectorAll('[data-os]')) el.hidden = el.dataset.os !== os;
 
 for (const button of document.querySelectorAll('[data-copy]')) {
   button.addEventListener('click', async () => {
