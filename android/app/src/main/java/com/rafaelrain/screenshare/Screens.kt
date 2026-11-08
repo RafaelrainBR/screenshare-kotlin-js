@@ -11,7 +11,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.FlowRow
+
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
@@ -34,6 +34,7 @@ import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.VerticalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -52,12 +53,17 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import android.content.res.Configuration
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import org.json.JSONObject
 import java.util.UUID
@@ -65,7 +71,10 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-/** The web's join card (index.html .join-form): logo, title, labelled fields, recent rooms, the two buttons. */
+/**
+ * The web's join form, laid out for a thumb: the fields scroll at the top, the two buttons stay at the bottom and
+ * ride on top of the keyboard, the keyboard's own key enters, and a recent room enters with one tap.
+ */
 @Composable
 fun JoinScreen(linked: String?, join: (String, String) -> Unit) {
     val context = LocalContext.current
@@ -73,48 +82,53 @@ fun JoinScreen(linked: String?, join: (String, String) -> Unit) {
     var code by remember(linked) { mutableStateOf(linked ?: "") }
     var favorites by remember { mutableStateOf(Settings.favorites(context)) }
     val error = RoomService.view.collectAsStateWithLifecycle().value.error
-    Box(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), contentAlignment = Alignment.Center) {
-        Column(
-            Modifier.widthIn(max = 430.dp).fillMaxWidth().background(Surface, RoundedCornerShape(14.dp)).border(1.dp, Line, RoundedCornerShape(14.dp)).padding(24.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Image(painterResource(R.drawable.logo), "Screenshare", Modifier.width(104.dp).padding(bottom = 14.dp))
-            UpdateBanner()
-            Text("Participar de uma sala", style = Body.copy(fontSize = 26.sp, lineHeight = 30.sp, fontWeight = FontWeight.Bold))
-            Text("Use um código recebido ou deixe vazio para criar uma sala.", style = Body.copy(color = Dim), modifier = Modifier.padding(bottom = 14.dp))
-            Label("Seu nome")
-            IconField(name, { name = it.take(32) }, Glyphs.Person, "Como você aparece na sala")
-            Spacer(Modifier.height(6.dp))
-            Label("Código da sala")
-            IconField(code, { code = it.trim().take(64) }, Glyphs.Hash, "ex: 4f8a2c1e", mono = true)
-            Hint(if (code.isNotEmpty() && !validRoom(code)) "Use só letras, números, - e _." else "Código opcional ao criar uma sala.", if (code.isNotEmpty() && !validRoom(code)) Red else Faint)
-            val recents = Settings.recents(context).sortedByDescending { it in favorites }
-            if (recents.isNotEmpty()) {
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(vertical = 4.dp)) {
+    val ready = name.isNotBlank() && (code.isEmpty() || validRoom(code))
+    val enter = { if (ready) join(code.ifEmpty { UUID.randomUUID().toString().take(8) }, name.trim()) }
+    val column = Modifier.widthIn(max = 430.dp).fillMaxWidth().padding(horizontal = 20.dp)
+    Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally) {
+        Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()), horizontalAlignment = Alignment.CenterHorizontally) {
+            Column(column.padding(top = 20.dp, bottom = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Image(painterResource(R.drawable.logo), "Screenshare", Modifier.width(88.dp).padding(bottom = 10.dp))
+                Text("Participar de uma sala", style = Body.copy(fontSize = 26.sp, lineHeight = 30.sp, fontWeight = FontWeight.Bold))
+                Text("Use um código recebido ou deixe vazio para criar uma sala.", style = Body.copy(color = Dim), modifier = Modifier.padding(bottom = 10.dp))
+                Label("Seu nome")
+                IconField(name, { name = it.take(32) }, Glyphs.Person, "Como você aparece na sala", imeAction = ImeAction.Next)
+                Spacer(Modifier.height(6.dp))
+                Label("Código da sala")
+                IconField(code, { code = it.trim().take(64) }, Glyphs.Hash, "ex: 4f8a2c1e", mono = true, imeAction = ImeAction.Go, onIme = enter)
+                Hint(if (code.isNotEmpty() && !validRoom(code)) "Use só letras, números, - e _." else "Código opcional ao criar uma sala.", if (code.isNotEmpty() && !validRoom(code)) Red else Faint)
+                val recents = Settings.recents(context).sortedByDescending { it in favorites }
+                if (recents.isNotEmpty()) {
+                    Label("Salas recentes", Modifier.padding(top = 10.dp))
                     recents.forEach { room ->
                         val favorite = room in favorites
-                        Row(Modifier.background(Surface2, Small).border(1.dp, if (code == room) Accent else Line, Small), verticalAlignment = Alignment.CenterVertically) {
+                        // A row is a whole tap target: it enters the room (with the name above), the star keeps it on top.
+                        Row(
+                            Modifier.fillMaxWidth().heightIn(min = 48.dp).background(Surface, Small).border(1.dp, Line, Small)
+                                .clickable(onClickLabel = "Entrar na sala $room") { if (name.isNotBlank()) join(room, name.trim()) else code = room },
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
                             Text(
-                                room, style = Mono, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.widthIn(max = 170.dp).clickable { code = room }.padding(start = 10.dp, end = 4.dp, top = 9.dp, bottom = 9.dp),
-                            )
-                            Text(
-                                if (favorite) "★" else "☆", style = Body.copy(color = if (favorite) Amber else Faint),
+                                if (favorite) "★" else "☆", style = Body.copy(fontSize = 18.sp, color = if (favorite) Amber else Faint),
                                 modifier = Modifier.clickable(onClickLabel = if (favorite) "Tirar dos favoritos" else "Favoritar") {
                                     Settings.toggleFavorite(context, room)
                                     favorites = Settings.favorites(context)
-                                }.padding(horizontal = 10.dp, vertical = 8.dp),
+                                }.padding(horizontal = 14.dp, vertical = 12.dp),
                             )
+                            Text(room, style = Mono.copy(fontSize = 14.sp), maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                            Icon(Glyphs.Arrow, null, tint = Dim, modifier = Modifier.padding(horizontal = 14.dp).size(18.dp))
                         }
                     }
                 }
             }
+        }
+        // The bottom bar: in the thumb's reach and, with adjustResize, right above the keyboard.
+        HorizontalDivider(color = Line)
+        Column(column.padding(vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            // Here it arrives late without moving anything the person may be about to tap.
+            UpdateBanner()
             if (error != null) Hint(error, Red)
-            val ready = name.isNotBlank() && (code.isEmpty() || validRoom(code))
-            ActionButton(
-                "Entrar na sala", Kind.Primary, { join(code.ifEmpty { UUID.randomUUID().toString().take(8) }, name.trim()) },
-                enabled = ready, trailing = Glyphs.Arrow, modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
-            )
+            ActionButton("Entrar na sala", Kind.Primary, enter, enabled = ready, trailing = Glyphs.Arrow, modifier = Modifier.fillMaxWidth())
             // A private room's code: all 128 random bits, like generatePrivateRoomId on the web.
             ActionButton("Criar sala privada", Kind.Ghost, { join(UUID.randomUUID().toString().replace("-", ""), name.trim()) }, enabled = name.isNotBlank(), modifier = Modifier.fillMaxWidth())
         }
@@ -133,15 +147,20 @@ fun RoomScreen(room: String, askShare: (ShareChoice) -> Unit) {
     if (focused != null && focused !in videos) focused = null
     LaunchedEffect(videos.size) { (context as? MainActivity)?.let { it.setPictureInPictureParams(it.pipParams()) } }
 
-    Column(Modifier.fillMaxSize()) {
-        // The web's conversation header: SALA + the code in mono; a tap sends the link (WhatsApp and the like).
-        Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+    val invite = {
+        val link = "https://screen-share.fly.dev/?roomId=$room"
+        context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, link), "Convidar para a sala"))
+    }
+    var speaker by remember { mutableStateOf(service?.speakerWanted != false) }
+    var seen by remember { mutableStateOf(view.messageCount) }
+    if (sheet == "chat") seen = view.messageCount
+    val header: @Composable () -> Unit = {
+        // The top is the hardest place to reach with a thumb: only what is rare lives here, inviting and leaving,
+        // so a slip of the thumb on the dock never drops the person out of the room.
+        Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
             Row(
-                Modifier.weight(1f, fill = false).background(Surface, Small).border(1.dp, Line, Small)
-                    .clickable(onClickLabel = "Convidar para a sala") {
-                        val link = "https://screen-share.fly.dev/?roomId=$room"
-                        context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, link), "Convidar para a sala"))
-                    }.padding(horizontal = 10.dp, vertical = 8.dp),
+                Modifier.weight(1f, fill = false).heightIn(min = 44.dp).background(Surface, Small).border(1.dp, Line, Small)
+                    .clickable(onClickLabel = "Convidar para a sala", onClick = invite).padding(horizontal = 10.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text("SALA", style = Body.copy(fontSize = 10.sp, color = Faint, letterSpacing = 1.sp))
@@ -150,26 +169,18 @@ fun RoomScreen(room: String, askShare: (ShareChoice) -> Unit) {
                 Spacer(Modifier.width(8.dp))
                 Icon(Glyphs.Copy, null, tint = Dim, modifier = Modifier.size(15.dp))
             }
-            Spacer(Modifier.weight(0.01f).width(8.dp))
-            var seen by remember { mutableStateOf(view.messageCount) }
-            if (sheet == "chat") seen = view.messageCount
-            Box(Modifier.clickable(onClickLabel = "Conversa") { sheet = "chat" }.padding(8.dp)) {
-                Icon(Glyphs.Chat, "Conversa", tint = Dim, modifier = Modifier.size(20.dp))
-                if (view.messageCount > seen) Box(Modifier.align(Alignment.TopEnd).size(8.dp).background(Accent, RoundedCornerShape(50)))
-            }
-            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clickable { sheet = "people" }.padding(8.dp)) {
-                Icon(Glyphs.People, null, tint = Dim, modifier = Modifier.size(18.dp))
-                Spacer(Modifier.width(6.dp))
-                Text(if (view.joined) "${view.people.size}" else "…", style = Body.copy(color = Dim))
-            }
+            Spacer(Modifier.width(12.dp))
+            ActionButton("Sair", Kind.Danger, { service?.leave() }, leading = Glyphs.Leave, height = 44.dp)
         }
+    }
+    val stage: @Composable (Modifier) -> Unit = { modifier -> Column(modifier) {
         if (!view.joined) Hint("Conectando à sala…", Dim, Modifier.padding(horizontal = 14.dp))
 
         val notices = listOfNotNull(
             view.screenError,
             "Nenhum som do celular está chegando ao compartilhamento. Alguns apps não permitem capturar o áudio.".takeIf { view.sharing && service?.shareAudioSilent == true },
         )
-        notices.forEach { GlassChip(it, Amber, AmberLine, Glyphs.Alert, Modifier.padding(horizontal = 12.dp, vertical = 2.dp)) }
+        notices.forEach { GlassChip(it, Amber, AmberLine, Glyphs.Alert, Modifier.padding(horizontal = 12.dp, vertical = 2.dp), wrap = true) }
 
         Box(Modifier.weight(1f).fillMaxWidth().padding(10.dp)) {
             val shown = focused?.let { listOf(it) } ?: videos
@@ -181,9 +192,20 @@ fun RoomScreen(room: String, askShare: (ShareChoice) -> Unit) {
                     Text(if (view.joined) "Ninguém está compartilhando" else "Conectando…", style = Body.copy(fontWeight = FontWeight.Bold))
                     Spacer(Modifier.height(6.dp))
                     Text(
-                        if (view.joined) "Toque em compartilhar para mostrar a tela do seu celular." else "Entrando na sala $room.",
+                        when {
+                            !view.joined -> "Entrando na sala $room."
+                            view.people.size <= 1 -> "Você está sozinho. Convide alguém ou mostre a tela do seu celular."
+                            else -> "Mostre a tela do seu celular para a sala."
+                        },
                         style = Body.copy(color = Dim, textAlign = androidx.compose.ui.text.style.TextAlign.Center),
                     )
+                    // The empty room's two next steps, as buttons and not as instructions to find one.
+                    if (view.joined) {
+                        Spacer(Modifier.height(18.dp))
+                        ActionButton("Compartilhar a tela", Kind.Primary, { sheet = "share" }, leading = Glyphs.Screen, modifier = Modifier.widthIn(max = 320.dp).fillMaxWidth())
+                        Spacer(Modifier.height(8.dp))
+                        ActionButton("Convidar", Kind.Secondary, invite, leading = Glyphs.Copy, modifier = Modifier.widthIn(max = 320.dp).fillMaxWidth())
+                    }
                 }
             } else {
                 val tile: @Composable (Pair<String, Boolean>) -> Unit = { key ->
@@ -195,7 +217,8 @@ fun RoomScreen(room: String, askShare: (ShareChoice) -> Unit) {
                             else -> Line
                         }
                         Box(
-                            Modifier.fillMaxWidth().aspectRatio(16f / 9f).background(VideoBg, Regular).border(1.dp, border, Regular)
+                            // aspectRatio alone fits both sides: lying down, a full-width 16:9 is taller than the screen.
+                            Modifier.aspectRatio(16f / 9f).background(VideoBg, Regular).border(1.dp, border, Regular)
                                 .clickable(onClickLabel = if (focused == key) "Voltar à grade" else "Focar") { focused = if (focused == key) null else key },
                         ) {
                             VideoTile(peer, camera, fit = true, modifier = Modifier.fillMaxSize().padding(1.dp))
@@ -213,28 +236,48 @@ fun RoomScreen(room: String, askShare: (ShareChoice) -> Unit) {
                 }
             }
         }
+    } }
+    // Everything used during the call; [captions] only where there is room for them (standing up).
+    val controls: @Composable (Modifier, Boolean) -> Unit = { slot, captions ->
+        val tall = if (captions) 46.dp else 42.dp
+        DockButton(if (view.microphoneEnabled) Glyphs.Mic else Glyphs.MicOff, if (view.microphoneEnabled) "Desligar microfone" else "Ligar microfone", "Microfone".takeIf { captions }, slot, height = tall, muted = !view.microphoneEnabled) {
+            if (context.checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) service?.setMicrophone(!view.microphoneEnabled)
+            else (context as? ComponentActivity)?.requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), 1)
+        }
+        DockButton(if (speaker) Glyphs.Speaker else Glyphs.Earpiece, if (speaker) "Usar o fone do celular" else "Usar o alto-falante", (if (speaker) "Viva-voz" else "Fone").takeIf { captions }, slot, height = tall) {
+            service?.toggleSpeaker()
+            speaker = service?.speakerWanted != false
+        }
+        DockButton(if (view.sharing) Glyphs.StopScreen else Glyphs.Screen, if (view.sharing) "Parar compartilhamento" else "Compartilhar a tela", (if (view.sharing) "Parar" else "Tela").takeIf { captions }, slot, height = tall, active = view.sharing) {
+            if (view.sharing) service?.stopShare() else sheet = "share"
+        }
+        val cameraOn = view.cameraState == "active" || view.cameraState == "pending"
+        DockButton(if (cameraOn) Glyphs.Camera else Glyphs.CameraOff, if (cameraOn) "Desligar câmera" else "Ligar câmera", "Câmera".takeIf { captions }, slot, height = tall, active = cameraOn) {
+            if (cameraOn) service?.stopCamera() else sheet = "camera"
+        }
+        DockButton(Glyphs.Chat, "Conversa", "Conversa".takeIf { captions }, slot, height = tall, badge = "".takeIf { view.messageCount > seen && view.messages.lastOrNull()?.let { !it.mine && !it.system } == true }) { sheet = "chat" }
+        DockButton(Glyphs.People, "Pessoas e ajustes", "Pessoas".takeIf { captions }, slot, height = tall, badge = if (view.joined) "${view.people.size}" else null) { sheet = "people" }
+    }
 
-        // The web dock: square controls on the bg, a line on top; leaving is the red arrow at the end.
+    if (LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE) {
+        // Lying down the thumbs rest on the sides: the controls are a column at the right edge, the video gets the height.
+        Row(Modifier.fillMaxSize()) {
+            stage(Modifier.weight(1f).fillMaxHeight())
+            VerticalDivider(color = Line)
+            // Leaving sits apart at the top, away from where the thumb rests; the column scrolls on very short screens.
+            Column(Modifier.width(68.dp).fillMaxHeight().verticalScroll(rememberScrollState()).padding(6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                DockButton(Glyphs.Leave, "Sair da sala", null, Modifier.fillMaxWidth(), danger = true, height = 42.dp) { service?.leave() }
+                Spacer(Modifier.height(8.dp))
+                controls(Modifier.fillMaxWidth(), false)
+            }
+        }
+    } else Column(Modifier.fillMaxSize()) {
+        header()
+        stage(Modifier.weight(1f))
+        // The thumb's dock: spread over the whole width, a caption under each control.
         HorizontalDivider(color = Line)
-        Row(Modifier.fillMaxWidth().background(Bg).padding(horizontal = 12.dp, vertical = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally)) {
-            DockButton(if (view.microphoneEnabled) Glyphs.Mic else Glyphs.MicOff, if (view.microphoneEnabled) "Desligar microfone" else "Ligar microfone", muted = !view.microphoneEnabled) {
-                if (context.checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) service?.setMicrophone(!view.microphoneEnabled)
-                else (context as? ComponentActivity)?.requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), 1)
-            }
-            DockButton(if (view.sharing) Glyphs.StopScreen else Glyphs.Screen, if (view.sharing) "Parar compartilhamento" else "Compartilhar a tela", active = view.sharing) {
-                if (view.sharing) service?.stopShare() else sheet = "share"
-            }
-            val cameraOn = view.cameraState == "active" || view.cameraState == "pending"
-            DockButton(if (cameraOn) Glyphs.Camera else Glyphs.CameraOff, if (cameraOn) "Desligar câmera" else "Ligar câmera", active = cameraOn) {
-                if (cameraOn) service?.stopCamera() else sheet = "camera"
-            }
-            var speaker by remember { mutableStateOf(service?.speakerWanted != false) }
-            DockButton(if (speaker) Glyphs.Speaker else Glyphs.Earpiece, if (speaker) "Usar o fone do celular" else "Usar o alto-falante") {
-                service?.toggleSpeaker()
-                speaker = service?.speakerWanted != false
-            }
-            DockButton(Glyphs.People, "Pessoas e ajustes") { sheet = "people" }
-            DockButton(Glyphs.Leave, "Sair da sala", danger = true) { service?.leave() }
+        Row(Modifier.fillMaxWidth().background(Bg).padding(horizontal = 8.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            controls(Modifier.weight(1f), true)
         }
     }
 
@@ -249,7 +292,7 @@ fun RoomScreen(room: String, askShare: (ShareChoice) -> Unit) {
                     else (context as? ComponentActivity)?.requestPermissions(arrayOf(Manifest.permission.CAMERA), 2)
                 }
                 "chat" -> ChatSheet(view)
-                else -> PeopleSheet(view)
+                else -> PeopleSheet(view, invite)
             }
             Spacer(Modifier.navigationBarsPadding().height(16.dp))
         }
@@ -308,7 +351,7 @@ fun SettingRow(text: String, on: Boolean, change: (Boolean) -> Unit) {
 
 /** "Na sala" with each person's voice and screen volume ("Volume para você"), then the settings. */
 @Composable
-fun PeopleSheet(view: RoomView) {
+fun PeopleSheet(view: RoomView, invite: () -> Unit) {
     val context = LocalContext.current
     val service = RoomService.instance
     val volumes = remember { mutableStateMapOf<String, Float>() }
@@ -318,6 +361,7 @@ fun PeopleSheet(view: RoomView) {
     val slider = SliderDefaults.colors(thumbColor = Accent, activeTrackColor = Accent, inactiveTrackColor = Line)
     Column(Modifier.padding(horizontal = 20.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         SheetTitle("Na sala · ${view.people.size}")
+        ActionButton("Convidar para a sala", Kind.Secondary, invite, leading = Glyphs.Copy, modifier = Modifier.fillMaxWidth())
         view.people.forEach { person ->
             val local = person.id == view.localId
             Column(Modifier.fillMaxWidth().background(Surface2, Regular).border(1.dp, Line, Regular).padding(12.dp)) {
@@ -367,15 +411,18 @@ fun UpdateBanner() {
     val context = LocalContext.current
     var update by remember { mutableStateOf<Update?>(null) }
     LaunchedEffect(Unit) { update = withContext(Dispatchers.IO) { Updater.check() } }
+    // One line, the whole of it a tap target: visible, without pushing the form down.
     update?.let { found ->
-        Column(
-            Modifier.fillMaxWidth().padding(bottom = 14.dp).background(Surface2, RoundedCornerShape(10.dp)).border(1.dp, Accent, RoundedCornerShape(10.dp)).padding(14.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+        Row(
+            Modifier.fillMaxWidth().heightIn(min = 48.dp).background(Surface2, Regular).border(1.dp, Accent, Regular)
+                .clickable(onClickLabel = "Baixar a nova versão") {
+                    context.startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse("https://screen-share.fly.dev/about/download.html")))
+                }.padding(horizontal = 14.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text("Nova versão ${found.version} disponível", style = Body.copy(fontWeight = FontWeight.Bold))
-            ActionButton("Baixar a nova versão", Kind.Primary, {
-                context.startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse("https://screen-share.fly.dev/about/download.html")))
-            }, modifier = Modifier.fillMaxWidth())
+            Text("Nova versão ${found.version} disponível", style = Body.copy(fontWeight = FontWeight.Bold), modifier = Modifier.weight(1f))
+            Text("Baixar", style = Body.copy(fontWeight = FontWeight.Bold, color = Accent))
+            Icon(Glyphs.Arrow, null, tint = Accent, modifier = Modifier.padding(start = 6.dp).size(16.dp))
         }
     }
 }
@@ -412,7 +459,9 @@ fun ChatSheet(view: RoomView) {
         Column(Modifier.heightIn(max = 360.dp).verticalScroll(rememberScrollState(Int.MAX_VALUE)), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             if (view.messages.isEmpty()) Hint("Nenhuma mensagem ainda.")
             view.messages.forEach { message ->
-                Column(Modifier.fillMaxWidth(), horizontalAlignment = if (message.mine) Alignment.End else Alignment.Start) {
+                // The room's own notes are a quiet line, not a bubble that reads like someone talking.
+                if (message.system) Hint(message.text, modifier = Modifier.fillMaxWidth(), color = Faint)
+                else Column(Modifier.fillMaxWidth(), horizontalAlignment = if (message.mine) Alignment.End else Alignment.Start) {
                     if (!message.mine) Hint(message.name.ifEmpty { "Sistema" })
                     Text(
                         message.text, style = Body.copy(color = if (message.mine) androidx.compose.ui.graphics.Color.White else TextColor),
@@ -422,10 +471,9 @@ fun ChatSheet(view: RoomView) {
             }
         }
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            IconField(text, { text = it.take(4000) }, Glyphs.Chat, "Mensagem", modifier = Modifier.weight(1f))
-            ActionButton("Enviar", Kind.Primary, {
-                if (text.isNotBlank() && RoomService.instance?.send(JSONObject().put("type", "chat").put("text", text.trim())) == null) text = ""
-            }, enabled = text.isNotBlank())
+            val send = { if (text.isNotBlank() && RoomService.instance?.send(JSONObject().put("type", "chat").put("text", text.trim())) == null) text = "" }
+            IconField(text, { text = it.take(4000) }, Glyphs.Chat, "Mensagem", modifier = Modifier.weight(1f), imeAction = ImeAction.Send, onIme = send, capitalization = KeyboardCapitalization.Sentences)
+            ActionButton("Enviar", Kind.Primary, send, enabled = text.isNotBlank())
         }
     }
 }
