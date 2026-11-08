@@ -36,6 +36,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Switch
@@ -237,7 +238,8 @@ fun RoomScreen(room: String, askShare: (ShareChoice) -> Unit) {
     }
 
     if (sheet != null) {
-        ModalBottomSheet({ sheet = null }, containerColor = Surface, contentColor = TextColor) {
+        // Fully open: the share sheet's button sits at the bottom and must never start cut off.
+        ModalBottomSheet({ sheet = null }, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true), containerColor = Surface, contentColor = TextColor) {
             when (sheet) {
                 "share" -> ShareSheet { sheet = null; askShare(it) }
                 "camera" -> CameraSheet { lens ->
