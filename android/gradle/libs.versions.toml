@@ -1,0 +1,29 @@
+[versions]
+agp = "9.5.1"
+kotlin = "2.4.21"
+compose-bom = "2026.09.00"
+activity = "1.13.0"
+core = "1.19.1"
+lifecycle = "2.11.0"
+camerax = "1.6.2"
+sentry = "8.63.0"
+junit = "4.13.2"
+json = "20250517"
+
+[libraries]
+compose-bom = { group = "androidx.compose", name = "compose-bom", version.ref = "compose-bom" }
+compose-material3 = { group = "androidx.compose.material3", name = "material3" }
+compose-ui = { group = "androidx.compose.ui", name = "ui" }
+activity-compose = { group = "androidx.activity", name = "activity-compose", version.ref = "activity" }
+core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "core" }
+lifecycle-service = { group = "androidx.lifecycle", name = "lifecycle-service", version.ref = "lifecycle" }
+lifecycle-runtime-compose = { group = "androidx.lifecycle", name = "lifecycle-runtime-compose", version.ref = "lifecycle" }
+camera-camera2 = { group = "androidx.camera", name = "camera-camera2", version.ref = "camerax" }
+camera-lifecycle = { group = "androidx.camera", name = "camera-lifecycle", version.ref = "camerax" }
+sentry-android = { group = "io.sentry", name = "sentry-android", version.ref = "sentry" }
+json = { group = "org.json", name = "json", version.ref = "json" }
+junit = { group = "junit", name = "junit", version.ref = "junit" }
+
+[plugins]
+androidApplication = { id = "com.android.application", version.ref = "agp" }
+composeCompiler = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }

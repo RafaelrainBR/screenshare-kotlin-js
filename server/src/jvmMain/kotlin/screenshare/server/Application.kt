@@ -1,5 +1,6 @@
 package screenshare.server
 
+import io.ktor.http.ContentType
 import io.ktor.serialization.kotlinx.json.json
 import io.ktor.server.application.Application
 import io.ktor.server.application.install
@@ -8,6 +9,7 @@ import io.ktor.server.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.server.plugins.origin
 import io.ktor.server.plugins.partialcontent.PartialContent
 import io.ktor.server.response.respondRedirect
+import io.ktor.server.response.respondText
 import io.ktor.server.routing.get
 import io.ktor.server.routing.route
 import io.ktor.server.routing.routing
@@ -132,6 +134,11 @@ fun Application.module() {
                 withContext(NonCancellable) { disconnectUser() }
             }
         }
+
+        // App Links: the room link opens the Android app when it is installed (android/app's intent filter).
+        // Not under static/, which the client build generates.
+        val assetLinks = Application::class.java.getResource("/assetlinks.json")!!.readText()
+        get("/.well-known/assetlinks.json") { call.respondText(assetLinks, ContentType.Application.Json) }
 
         // Short link to share and to put in release notes.
         get("/download") { call.respondRedirect("/about/download.html") }

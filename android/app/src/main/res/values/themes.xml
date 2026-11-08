@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.Screenshare" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">#101318</item>
+        <item name="android:statusBarColor">#101318</item>
+        <item name="android:navigationBarColor">#101318</item>
+    </style>
+</resources>

@@ -1,0 +1,73 @@
+name: Android check
+
+# The Android app (android/) runs the desktop's Rust engine (desktop-native), so a change to either
+# builds the APK: debug for the emulator, release minified (R8 drops what JNI looks up by name).
+on:
+  pull_request:
+    branches: [master]
+    paths:
+      - android/**
+      - desktop-native/**
+      - .github/workflows/android-check.yml
+  push:
+    branches: [master]
+    paths:
+      - android/**
+      - desktop-native/**
+      - .github/workflows/android-check.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-check-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_NET_GIT_FETCH_WITH_CLI: "true"
+  NDK_VERSION: 28.2.13676358
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v5
+        with:
+          distribution: corretto
+          java-version: 21
+      - name: Install the NDK
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "ndk;$NDK_VERSION" "platforms;android-37.0" "build-tools;36.0.0" > /dev/null
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/$NDK_VERSION" >> "$GITHUB_ENV"
+      - name: Install Rust
+        working-directory: android/engine
+        run: |
+          rustup show active-toolchain || rustup toolchain install
+          cargo install cargo-ndk --locked --version 4.1.2
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: android
+          workspaces: android/engine -> target
+          save-if: ${{ github.event_name == 'push' }}
+      - uses: gradle/actions/setup-gradle@v5
+      - name: Test the engine
+        working-directory: desktop-native
+        # The Android-only pieces (frame pacing of the pushed capture) run on the host.
+        run: cargo test --locked --lib share quality
+      - name: Build and test
+        working-directory: android
+        run: ./gradlew --no-daemon :app:testDebugUnitTest :app:assembleDebug :app:assembleRelease
+      - name: Check 16 KB alignment and size
+        run: |
+          for apk in android/app/build/outputs/apk/*/*.apk; do
+            "$ANDROID_HOME/build-tools/36.0.0/zipalign" -c -P 16 -v 4 "$apk" | tail -1
+            ls -la "$apk"
+          done
+      - uses: actions/upload-artifact@v7
+        with:
+          name: screenshare-android-apks
+          path: android/app/build/outputs/apk/*/*.apk
+          retention-days: 14
