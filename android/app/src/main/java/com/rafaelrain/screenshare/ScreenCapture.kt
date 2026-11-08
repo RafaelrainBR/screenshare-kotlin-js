@@ -142,7 +142,7 @@ class ScreenCapture(
                 .build()
         } catch (_: Exception) {
             null
-        } ?: return
+        } ?: return Telemetry.problem("share-audio", "AudioRecord for playback capture failed")
         audio = record
         record.startRecording()
         audioThread = Thread({
@@ -160,6 +160,7 @@ class ScreenCapture(
                 heard = heard || loud
                 silentChunks = if (loud) 0 else silentChunks + 1
                 // 10 s of digital silence from the start: the playing app blocks capture (allowAudioPlaybackCapture), or nothing plays.
+                if (!audioSilent && !heard && silentChunks > 1000) Telemetry.problem("share-audio", "10 s of silence from the start: the app blocks capture or nothing plays")
                 audioSilent = !heard && silentChunks > 1000
                 Engine.pushScreenAudio(chunk)
             }

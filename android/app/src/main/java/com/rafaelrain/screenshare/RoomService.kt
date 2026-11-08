@@ -110,7 +110,9 @@ class RoomService : LifecycleService() {
 
     private fun start(code: String, name: String) {
         Engine.stop()
+        Telemetry.info("room", "joining")
         Engine.start(BuildConfig.SERVER, code, name)?.let { error ->
+            Telemetry.problem("join-error", error)
             _view.value = RoomView(error = error)
             stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf()
@@ -136,6 +138,7 @@ class RoomService : LifecycleService() {
     private fun update(next: RoomView) {
         val before = _view.value
         _view.value = next
+        Telemetry.diff(before, next)
         if (next.joined && next.generation != restoredGeneration) {
             // A new connection (first join, server deploy, network change): output on, and what was on comes back on.
             restoredGeneration = next.generation
@@ -178,10 +181,12 @@ class RoomService : LifecycleService() {
     fun startShare(resultCode: Int, data: Intent, choice: ShareChoice) {
         stopCapture()
         share = choice
+        Telemetry.info("share", "starting ${choice.shortSide}p, ${choice.profile()}, audio ${choice.audio}")
         promote(projection = true)
-        val projection = getSystemService(MediaProjectionManager::class.java).getMediaProjection(resultCode, data) ?: return
+        val projection = getSystemService(MediaProjectionManager::class.java).getMediaProjection(resultCode, data) ?: return Telemetry.problem("share-error", "no MediaProjection from the consent")
         capture = ScreenCapture(this, projection, choice.shortSide, choice.audio) {
             main.post {
+                Telemetry.problem("share-stopped", "the system stopped the capture (screen locked or projection revoked)")
                 stopShare()
                 _view.value = _view.value.copy(screenError = "O compartilhamento parou porque a tela foi bloqueada ou o Android encerrou a captura.")
             }
@@ -214,6 +219,7 @@ class RoomService : LifecycleService() {
     fun startCamera(lens: String) {
         if (checkSelfPermission(android.Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) return
         cameraLens = lens
+        Telemetry.info("camera", "starting $lens")
         promote()
         send(JSONObject().put("type", "startCamera").put("device", lens))
         val future = ProcessCameraProvider.getInstance(this)
@@ -250,7 +256,11 @@ class RoomService : LifecycleService() {
                 override fun onDisplayRemoved(displayId: Int) = Unit
             }.also { displays.registerDisplayListener(it, main) }
             val selector = listOf(wanted, other).firstOrNull { runCatching { provider.hasCamera(it) }.getOrDefault(false) }
-            if (selector == null || runCatching { provider.bindToLifecycle(this, selector, analysis) }.isFailure) stopCamera()
+            val bound = selector?.let { runCatching { provider.bindToLifecycle(this, it, analysis) } }
+            if (bound == null || bound.isFailure) {
+                Telemetry.problem("camera-error", bound?.exceptionOrNull()?.toString() ?: "no camera on this device")
+                stopCamera()
+            }
         }, ContextCompat.getMainExecutor(this))
     }
 
@@ -269,6 +279,7 @@ class RoomService : LifecycleService() {
     }
 
     fun leave() {
+        Telemetry.info("room", "left")
         room.value = null
         main.removeCallbacks(poll)
         stopCapture()

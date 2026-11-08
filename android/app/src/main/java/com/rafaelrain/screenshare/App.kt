@@ -14,6 +14,11 @@ class App : Application() {
                 options.release = "screenshare-android@${BuildConfig.VERSION_NAME}"
                 options.isSendDefaultPii = false
                 options.setTag("platform", "native-android")
+                // Logs (Telemetry.info) next to errors, and ANRs and app-start/session health, not only crashes.
+                options.logs.isEnabled = true
+                options.isAnrEnabled = true
+                options.isEnableAutoSessionTracking = true
+                options.maxBreadcrumbs = 200
             }
         }
         Engine.init(this, BuildConfig.SENTRY_DSN, "screenshare-android@${BuildConfig.VERSION_NAME}")
