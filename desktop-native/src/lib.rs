@@ -969,6 +969,17 @@ fn run_worker(
 ) {
     factory.set_adm_recording_enabled(false);
     factory.set_adm_playout_enabled(false);
+    // Android: the voice engine initializes lazily with the first audio channel. If the platform ADM
+    // was acquired before that (alone in a room, the output turns on first), that late init
+    // re-registers the audio callback on the running Android ADM and crashes in
+    // AudioDeviceBuffer::RegisterAudioCallback (Sentry SCREENSHARE-ANDROID-1). One throwaway audio
+    // channel now gives the order of joining a room with people in it, which works.
+    #[cfg(target_os = "android")]
+    if let Ok(peer) = factory.create_peer_connection(config.clone()) {
+        let init = RtpTransceiverInit { direction: RtpTransceiverDirection::RecvOnly, stream_ids: Vec::new(), send_encodings: Vec::new() };
+        let _ = peer.add_transceiver_for_media(libwebrtc::MediaType::Audio, init);
+        peer.close();
+    }
     let runtime = Runtime::new().expect("tokio runtime initialization");
     let mut peers: HashMap<String, PeerConnection> = HashMap::new();
     let mut polite_by_peer: HashMap<String, bool> = HashMap::new();

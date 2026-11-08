@@ -8,6 +8,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
+import android.hardware.display.DisplayManager
 import android.media.AudioManager
 import android.media.ToneGenerator
 import android.media.projection.MediaProjectionManager
@@ -15,6 +16,7 @@ import android.net.wifi.WifiManager
 import android.os.Handler
 import android.os.Looper
 import android.os.PowerManager
+import android.view.Display
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.resolutionselector.ResolutionSelector
@@ -235,12 +237,31 @@ class RoomService : LifecycleService() {
             // The asked lens, else the other one (a phone, or the emulator, may have only one); none: camera off.
             val wanted = if (lens == "back") CameraSelector.DEFAULT_BACK_CAMERA else CameraSelector.DEFAULT_FRONT_CAMERA
             val other = if (lens == "back") CameraSelector.DEFAULT_FRONT_CAMERA else CameraSelector.DEFAULT_BACK_CAMERA
+            // CameraX turns the image upright for this rotation (rotationDegrees); follow the device as it turns.
+            analysis.targetRotation = display().rotation
+            cameraRotation?.let { displays.unregisterDisplayListener(it) }
+            cameraRotation = object : DisplayManager.DisplayListener {
+                override fun onDisplayChanged(displayId: Int) {
+                    if (displayId == Display.DEFAULT_DISPLAY) analysis.targetRotation = display().rotation
+                }
+
+                override fun onDisplayAdded(displayId: Int) = Unit
+
+                override fun onDisplayRemoved(displayId: Int) = Unit
+            }.also { displays.registerDisplayListener(it, main) }
             val selector = listOf(wanted, other).firstOrNull { runCatching { provider.hasCamera(it) }.getOrDefault(false) }
             if (selector == null || runCatching { provider.bindToLifecycle(this, selector, analysis) }.isFailure) stopCamera()
         }, ContextCompat.getMainExecutor(this))
     }
 
+    private val displays by lazy { getSystemService(DisplayManager::class.java) }
+    private var cameraRotation: DisplayManager.DisplayListener? = null
+
+    private fun display() = displays.getDisplay(Display.DEFAULT_DISPLAY)
+
     fun stopCamera() {
+        cameraRotation?.let { displays.unregisterDisplayListener(it) }
+        cameraRotation = null
         cameraLens = null
         cameraProvider?.unbindAll()
         send(JSONObject().put("type", "stopCamera"))
@@ -252,6 +273,8 @@ class RoomService : LifecycleService() {
         main.removeCallbacks(poll)
         stopCapture()
         cameraProvider?.unbindAll()
+        cameraRotation?.let { displays.unregisterDisplayListener(it) }
+        cameraRotation = null
         cameraLens = null
         microphoneWanted = false
         Engine.stop()
