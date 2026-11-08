@@ -79,6 +79,7 @@ fun JoinScreen(linked: String?, join: (String, String) -> Unit) {
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Image(painterResource(R.drawable.logo), "Screenshare", Modifier.width(104.dp).padding(bottom = 14.dp))
+            UpdateBanner()
             Text("Participar de uma sala", style = Body.copy(fontSize = 26.sp, lineHeight = 30.sp, fontWeight = FontWeight.Bold))
             Text("Use um código recebido ou deixe vazio para criar uma sala.", style = Body.copy(color = Dim), modifier = Modifier.padding(bottom = 14.dp))
             Label("Seu nome")
@@ -357,6 +358,25 @@ fun PeopleSheet(view: RoomView) {
             com.rafaelrain.screenshare.engine.Engine.send("""{"metrics":$it}""")
         }
         UpdateRow()
+    }
+}
+
+/** On the first screen: a newer final release sends the person to the site's download page. */
+@Composable
+fun UpdateBanner() {
+    val context = LocalContext.current
+    var update by remember { mutableStateOf<Update?>(null) }
+    LaunchedEffect(Unit) { update = withContext(Dispatchers.IO) { Updater.check() } }
+    update?.let { found ->
+        Column(
+            Modifier.fillMaxWidth().padding(bottom = 14.dp).background(Surface2, RoundedCornerShape(10.dp)).border(1.dp, Accent, RoundedCornerShape(10.dp)).padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text("Nova versão ${found.version} disponível", style = Body.copy(fontWeight = FontWeight.Bold))
+            ActionButton("Baixar a nova versão", Kind.Primary, {
+                context.startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse("https://screen-share.fly.dev/about/download.html")))
+            }, modifier = Modifier.fillMaxWidth())
+        }
     }
 }
 
