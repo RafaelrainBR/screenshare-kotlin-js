@@ -158,12 +158,19 @@ impl Drop for Camera {
     }
 }
 
-fn rotation(degrees: i32) -> VideoRotation {
-    match degrees.rem_euclid(360) {
-        90 => VideoRotation::VideoRotation90,
-        180 => VideoRotation::VideoRotation180,
-        270 => VideoRotation::VideoRotation270,
-        _ => VideoRotation::VideoRotation0,
+/// Copies a `width`×`height` plane (row stride, pixel stride) into `dst` turned clockwise by `degrees`.
+fn rotate_plane(src: &[u8], (width, height): (u32, u32), (stride, pixel): (u32, u32), degrees: i32, dst: &mut [u8], dst_stride: u32) {
+    let (w, h, stride, pixel, dst_stride) = (width as usize, height as usize, stride as usize, pixel as usize, dst_stride as usize);
+    for y in 0..h {
+        for x in 0..w {
+            let (dx, dy) = match degrees {
+                90 => (h - 1 - y, x),
+                180 => (w - 1 - x, h - 1 - y),
+                270 => (y, w - 1 - x),
+                _ => (x, y),
+            };
+            dst[dy * dst_stride + dx] = src[y * stride + x * pixel];
+        }
     }
 }
 
@@ -219,26 +226,37 @@ pub fn push_camera_yuv(
         return Err("camera buffer too small".into());
     }
     let Some(feed) = current(&CAMERA) else { return Ok(false) };
-    let mut buffer = I420Buffer::new(width, height);
+    // Upright before encoding: the desktop's renderer ignores the frame's rotation, so turning the
+    // pixels here is what makes a portrait phone show portrait everywhere.
+    let degrees = degrees.rem_euclid(360);
+    let (ow, oh) = if degrees % 180 == 90 { (height, width) } else { (width, height) };
+    let mut buffer = I420Buffer::new(ow, oh);
     let (sy, su, sv) = buffer.strides();
     let (dy, du, dv) = buffer.data_mut();
-    for row in 0..height as usize {
-        let src = row * y_stride as usize;
-        dy[row * sy as usize..][..width as usize].copy_from_slice(&y[src..src + width as usize]);
-    }
-    for row in 0..ch as usize {
-        for col in 0..cw as usize {
-            let src = row * uv_stride as usize + col * uv_pixel_stride as usize;
-            du[row * su as usize + col] = u[src];
-            dv[row * sv as usize + col] = v[src];
-        }
-    }
-    feed.deliver(buffer, rotation(degrees), timestamp_us);
+    rotate_plane(y, (width, height), (y_stride, 1), degrees, dy, sy);
+    rotate_plane(u, (cw, ch), (uv_stride, uv_pixel_stride), degrees, du, su);
+    rotate_plane(v, (cw, ch), (uv_stride, uv_pixel_stride), degrees, dv, sv);
+    feed.deliver(buffer, VideoRotation::VideoRotation0, timestamp_us);
     Ok(true)
 }
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn camera_planes_turn_clockwise() {
+        // 3×2:  a b c / d e f, with a pixel stride of 2 (NV12-like) and row padding.
+        let src = [b'a', 0, b'b', 0, b'c', 0, 9, b'd', 0, b'e', 0, b'f', 0, 9];
+        let turned = |degrees, dst_w: usize, dst_h: usize| {
+            let mut dst = vec![b'.'; dst_w * dst_h];
+            super::rotate_plane(&src, (3, 2), (7, 2), degrees, &mut dst, dst_w as u32);
+            String::from_utf8(dst).unwrap()
+        };
+        assert_eq!(turned(0, 3, 2), "abcdef");
+        assert_eq!(turned(90, 2, 3), "daebfc");
+        assert_eq!(turned(180, 3, 2), "fedcba");
+        assert_eq!(turned(270, 2, 3), "cfbead");
+    }
+
     #[test]
     fn frame_pacing_follows_the_share_rate() {
         let (events, _rx) = std::sync::mpsc::sync_channel(1);
