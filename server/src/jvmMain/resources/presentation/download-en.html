@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Download Screenshare for Windows and Mac</title>
-  <meta name="description" content="Download Screenshare for Windows or Mac: share a single program's audio, use the tray and get automatic updates. Free, no account.">
+  <meta name="description" content="Download Screenshare for Windows, Mac and Android: share a single program's audio, use the tray and get automatic updates. Free, no account.">
   <link rel="canonical" href="https://screen-share.fly.dev/about/download-en.html">
   <link rel="alternate" hreflang="pt-BR" href="https://screen-share.fly.dev/about/download.html">
   <link rel="alternate" hreflang="en" href="https://screen-share.fly.dev/about/download-en.html">
@@ -13,7 +13,7 @@
   <meta property="og:site_name" content="Screenshare">
   <meta property="og:locale" content="en_US">
   <meta property="og:title" content="Download Screenshare for Windows and Mac">
-  <meta property="og:description" content="Download Screenshare for Windows or Mac: share a single program's audio, use the tray and get automatic updates. Free, no account.">
+  <meta property="og:description" content="Download Screenshare for Windows, Mac and Android: share a single program's audio, use the tray and get automatic updates. Free, no account.">
   <meta property="og:url" content="https://screen-share.fly.dev/about/download-en.html">
   <meta property="og:image" content="https://screen-share.fly.dev/about/assets/social-en.png">
   <meta name="twitter:card" content="summary_large_image">
@@ -60,6 +60,10 @@
           <div class="command"><code id="native-command" data-line="native" data-file="install-macos-native.sh" data-template="curl -fsSL {url} | bash">curl -fsSL https://github.com/RafaelrainBR/screenshare/releases/download/native-v1.0.2/install-macos-native.sh | bash</code><button type="button" class="button secondary" data-copy="native-command" data-done="Copied">Copy</button></div>
           <p class="download-note"><a data-line="native" data-file="install-macos-native.sh" href="https://github.com/RafaelrainBR/screenshare/releases/download/native-v1.0.2/install-macos-native.sh">Read the script first</a> · <a data-line="native" data-file="Screenshare-native-macos-arm64.tar.gz" href="https://github.com/RafaelrainBR/screenshare/releases/download/native-v1.0.2/Screenshare-native-macos-arm64.tar.gz">Download the .tar.gz archive</a></p>
         </article>
+        <article id="android" aria-labelledby="android-title">
+          <h3 id="android-title">Android</h3><p class="platform-spec">Test version · Android 10 or newer</p>
+          <ul class="variants"><li><a class="button primary" data-line="android" data-file="Screenshare-android_{v}.apk" href="https://github.com/RafaelrainBR/screenshare/releases/download/android-v0.1.0-rc.3/Screenshare-android_0.1.0-rc.3.apk">Download the APK</a><span>Share your phone screen with game and app sound, watch the room's screens and talk. Open the APK on your phone and allow installing from unknown sources.</span></li></ul>
+        </article>
       </div>
       <p class="download-alternatives"><a data-line="native" data-file="SHA256SUMS" href="https://github.com/RafaelrainBR/screenshare/releases/download/native-v1.0.2/SHA256SUMS">SHA256SUMS</a> · <a href="https://github.com/RafaelrainBR/screenshare/releases">All releases</a></p>
     </section>
@@ -69,6 +73,7 @@
       <details><summary>Windows showed a warning. Is it safe?</summary><p>The warning appears because Screenshare has no paid publisher certificate. Click “More info”, then “Run anyway”. The source is open and every release publishes SHA256 sums of its files.</p></details>
       <details><summary>Why does the Mac use Terminal?</summary><p>Apple charges US$99 a year to allow apps downloaded through a browser. Screenshare is free, so it installs through Terminal, which is not subject to that block. The script only downloads the app and puts it in Applications.</p><p>Allow Screen Recording, microphone and camera as needed. If capture stops after an update, remove and re-add the app in Privacy &amp; Security.</p></details>
       <details><summary>Installer or portable?</summary><p>If unsure, pick the installer. The portable app is for computers where you cannot install programs. Both update themselves.</p></details>
+      <details><summary>Is there an Android app?</summary><p>Yes, as a test version. Download the APK on your phone and allow installing apps from this source when Android asks. Room links open the app when it is installed. There is no iPhone app yet; use the browser.</p></details>
       <details><summary>Is there a Linux app?</summary><p>Not yet. Use Screenshare in the browser, in Chrome, Edge or Firefox.</p></details>
     </section>
   </main>
