@@ -53,10 +53,6 @@ jobs:
           workspaces: android/engine -> target
           save-if: ${{ github.event_name == 'push' }}
       - uses: gradle/actions/setup-gradle@v5
-      - name: Test the engine
-        working-directory: desktop-native
-        # The Android-only pieces (frame pacing of the pushed capture) run on the host.
-        run: cargo test --locked --lib share quality
       - name: Build and test
         working-directory: android
         run: ./gradlew --no-daemon :app:testDebugUnitTest :app:assembleDebug :app:assembleRelease

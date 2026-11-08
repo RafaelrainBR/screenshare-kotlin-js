@@ -45,6 +45,23 @@ class ScreenCapture(
     private var reader: ImageReader? = null
     private var audio: AudioRecord? = null
     private var audioThread: Thread? = null
+    private val displays = context.getSystemService(DisplayManager::class.java)
+    private val rotation = object : DisplayManager.DisplayListener {
+        override fun onDisplayChanged(displayId: Int) {
+            if (displayId == android.view.Display.DEFAULT_DISPLAY) displaySize().let { (w, h) -> resize(w, h) }
+        }
+
+        override fun onDisplayAdded(displayId: Int) = Unit
+
+        override fun onDisplayRemoved(displayId: Int) = Unit
+    }
+
+    @Suppress("DEPRECATION")
+    private fun displaySize(): Pair<Int, Int> {
+        val size = android.graphics.Point()
+        displays.getDisplay(android.view.Display.DEFAULT_DISPLAY).getRealSize(size)
+        return size.x to size.y
+    }
 
     @Volatile private var running = true
 
@@ -65,8 +82,10 @@ class ScreenCapture(
                 handler.post { resize(width, height) }
             }
         }, handler)
-        val metrics = context.resources.displayMetrics
-        resize(metrics.widthPixels, metrics.heightPixels, create = true)
+        val (width, height) = displaySize()
+        resize(width, height, create = true)
+        // A rotation; Android 14+ also reports the shared app's size through onCapturedContentResize.
+        displays.registerDisplayListener(rotation, handler)
         if (withAudio) startAudio()
     }
 
@@ -127,24 +146,21 @@ class ScreenCapture(
         audio = record
         record.startRecording()
         audioThread = Thread({
-            // 10 ms of 48 kHz stereo 16-bit, what the engine's NativeAudioSource takes.
+            // 10 ms of 48 kHz stereo 16-bit, what the engine's NativeAudioSource takes. read(ByteBuffer)
+            // always writes at the buffer's start, so read into an array and copy.
             val chunk = ByteBuffer.allocateDirect(1920).order(ByteOrder.nativeOrder())
+            val bytes = ByteArray(1920)
             var silentChunks = 0
+            var heard = false
             while (running) {
+                if (record.read(bytes, 0, 1920, AudioRecord.READ_BLOCKING) != 1920) continue
                 chunk.clear()
-                var read = 0
-                while (read < 1920 && running) {
-                    val n = record.read(chunk, 1920 - read)
-                    if (n <= 0) break
-                    read += n
-                    chunk.position(read)
-                }
-                if (read < 1920) continue
-                chunk.position(0)
+                chunk.put(bytes).flip()
                 val loud = (0 until 960).any { kotlin.math.abs(chunk.getShort(it * 2).toInt()) > 2 }
+                heard = heard || loud
                 silentChunks = if (loud) 0 else silentChunks + 1
-                // 10 s of digital silence: the app playing blocks capture (allowAudioPlaybackCapture) or plays nothing.
-                audioSilent = silentChunks > 1000
+                // 10 s of digital silence from the start: the playing app blocks capture (allowAudioPlaybackCapture), or nothing plays.
+                audioSilent = !heard && silentChunks > 1000
                 Engine.pushScreenAudio(chunk)
             }
         }, "screen-audio").apply { start() }
@@ -152,6 +168,7 @@ class ScreenCapture(
 
     fun stop() {
         running = false
+        displays.unregisterDisplayListener(rotation)
         audioThread?.join(500)
         audio?.run {
             try {

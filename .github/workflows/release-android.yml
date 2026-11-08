@@ -88,7 +88,8 @@ jobs:
           apk=android/app/build/outputs/apk/release/app-release.apk
           bt="$ANDROID_HOME/build-tools/36.0.0"
           "$bt/zipalign" -c -P 16 -v 4 "$apk" | tail -1
-          "$bt/apksigner" verify --print-certs "$apk" | grep -E "SHA-256|Signer #1 certificate DN"
+          # The release key's fingerprint (android/README.md): a debug-signed APK would never update installed apps.
+          "$bt/apksigner" verify --print-certs "$apk" | tee /dev/stderr | grep -q "SHA-256 digest: ff5958d591970fcae9dea8f60c9aca718454ca1616fbe4b367c954cc8a78c17b"
           v=${TAG#android-v}
           mkdir -p release-assets
           cp "$apk" "release-assets/Screenshare-android_${v}.apk"

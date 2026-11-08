@@ -77,7 +77,8 @@ class RoomService : LifecycleService() {
         private set
     private var restoredGeneration = -1L
     private var lastSound = 0L
-    private val tones by lazy { ToneGenerator(AudioManager.STREAM_MUSIC, 40) }
+    private var toneGenerator: ToneGenerator? = null
+    private val tones get() = toneGenerator ?: ToneGenerator(AudioManager.STREAM_MUSIC, 40).also { toneGenerator = it }
     private var notified = ""
 
     override fun onCreate() {
@@ -109,6 +110,8 @@ class RoomService : LifecycleService() {
         Engine.stop()
         Engine.start(BuildConfig.SERVER, code, name)?.let { error ->
             _view.value = RoomView(error = error)
+            stopForeground(STOP_FOREGROUND_REMOVE)
+            stopSelf()
             return
         }
         room.value = code
@@ -156,7 +159,11 @@ class RoomService : LifecycleService() {
     fun setMicrophone(on: Boolean) {
         if (on && checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) return
         microphoneWanted = on
-        if (on) routes.apply(true, speakerWanted)
+        // The permission may have come after the join: add the microphone type now, while the app is in front.
+        if (on) {
+            promote()
+            routes.apply(true, speakerWanted)
+        }
         send(JSONObject().put("type", "microphone").put("enabled", on))
     }
 
@@ -187,11 +194,6 @@ class RoomService : LifecycleService() {
             JSONObject().put("type", "startScreen").put("width", width).put("height", height)
                 .put("profile", choice.profile()).put("shareHeight", minOf(width, height)).put("audio", choice.audio),
         )
-    }
-
-    fun setShareChoice(choice: ShareChoice) {
-        share = choice
-        if (capture != null) send(JSONObject().put("type", "shareProfile").put("profile", choice.profile()).put("shareHeight", choice.shortSide))
     }
 
     val shareAudioSilent get() = capture?.audioSilent == true
@@ -251,6 +253,8 @@ class RoomService : LifecycleService() {
         microphoneWanted = false
         Engine.stop()
         routes.release()
+        toneGenerator?.release()
+        toneGenerator = null
         wake?.takeIf { it.isHeld }?.release()
         wifi?.takeIf { it.isHeld }?.release()
         _view.value = RoomView()
