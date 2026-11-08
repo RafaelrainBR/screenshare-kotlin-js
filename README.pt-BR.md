@@ -46,6 +46,8 @@ O navegador não exige instalação e usa seu próprio seletor de compartilhamen
 
 O app é um cliente nativo separado, que entra nas mesmas salas do navegador. Ele oferece seleção nativa de telas/janelas e áudio por aplicativo. Os downloads incluem **Windows x64** (instalador por usuário e EXE portátil) e **macOS Apple Silicon** (app com script de instalação). Todos se atualizam pelo menu da bandeja. As versões Windows não têm assinatura de código; a versão macOS usa um certificado próprio, sem notarização.
 
+O **app Android** (beta, Android 10 ou mais novo) compartilha a tela do celular com o som dos apps, fica na sala em segundo plano com uma notificação e assiste numa janela flutuante. Ele sai como APK no GitHub Releases e se atualiza sozinho.
+
 Leia o [guia de instalação, permissões e limitações](docs/usage.md) (em inglês).
 
 ## Privacidade

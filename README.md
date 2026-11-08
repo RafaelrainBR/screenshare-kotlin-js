@@ -44,13 +44,13 @@ Resolution, frame rate and audio availability depend on the source, browser, ope
 
 ### Browser or desktop?
 
-| | Browser | Windows desktop | macOS desktop |
-|---|---|---|---|
-| Screen sharing, camera, voice and chat | Yes | Yes | Yes |
-| Source selection | Browser picker | Native screens/windows with thumbnails | Native screens/windows with thumbnails |
-| Shared audio | Browser/source dependent | Computer (call apps left out) or one application | Computer or one application (macOS 14.2+) |
-| Tray, startup at login and in-app updates | — | Yes | Yes |
-| Distribution | Open the web app | Per-user installer or portable EXE (x64) | Apple Silicon app with an install script |
+| | Browser | Windows desktop | macOS desktop | Android (beta) |
+|---|---|---|---|---|
+| Screen sharing, camera, voice and chat | Yes | Yes | Yes | Yes |
+| Source selection | Browser picker | Native screens/windows with thumbnails | Native screens/windows with thumbnails | Android's picker: the whole screen, or one app on Android 14+ |
+| Shared audio | Browser/source dependent | Computer (call apps left out) or one application | Computer or one application (macOS 14.2+) | The phone's media and games (call apps left out; some apps block capture) |
+| Tray, startup at login and in-app updates | — | Yes | Yes | Background with a notification, picture-in-picture, in-app updates |
+| Distribution | Open the web app | Per-user installer or portable EXE (x64) | Apple Silicon app with an install script | APK on GitHub Releases (Android 10+) |
 
 The desktop app is a separate native client that joins the same rooms as the browser. Windows builds are unsigned; the macOS app is self-signed and not notarized. See [installation, permissions and platform limits](docs/usage.md).
 

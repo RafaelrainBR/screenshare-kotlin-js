@@ -16,6 +16,16 @@
 
 All three update themselves from the tray menu. `SHA256SUMS` lists download checksums. Windows builds are unsigned, so Windows may show an unknown-publisher warning. Use packages from this repository's releases. There are no Linux or Intel Mac builds.
 
+### Android (beta)
+
+The Android app (Android 10 or later) shares the phone's screen with its audio, stays in the room in the background and watches in picture-in-picture. It is an APK on [GitHub Releases](https://github.com/RafaelrainBR/screenshare/releases) (`Screenshare-android_<version>.apk`), never marked "latest", and updates itself from its settings.
+
+- **Install:** open the APK on the phone. The first time, Android asks to allow installing apps from the browser.
+- **Room links:** `https://screen-share.fly.dev/?roomId=…` opens the app when it is installed. A link only fills in the code; you still tap **Entrar na sala**.
+- **Sharing:** Android asks for consent each time. On Android 14 or later you can share one app instead of the whole screen. Locking the phone ends the share (an Android rule). Apps that block capture (banking, some streaming apps) show black, and some apps do not allow capturing their audio.
+- **Audio:** with the microphone off the phone stays in media mode (Bluetooth headphones keep music quality). Turning the microphone on switches to call mode for echo cancelling, which puts Bluetooth headsets in call quality. Use headphones when sharing a game with the microphone on, or the game's sound leaks into the microphone.
+- **Background:** a notification keeps you in the room, with mute, stop sharing and leave. Some manufacturers (Xiaomi, Samsung and others) kill background apps; if the app drops out of rooms, allow it to run in the background ([dontkillmyapp.com](https://dontkillmyapp.com)).
+
 ### macOS installation
 
 The install script downloads the Apple Silicon archive of its release, installs it into `/Applications` (or `~/Applications` if needed), and opens Screenshare. Download and inspect it before running:

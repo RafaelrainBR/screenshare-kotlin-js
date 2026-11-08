@@ -1,0 +1,8 @@
+[{
+  "relation": ["delegate_permission/common.handle_all_urls"],
+  "target": {
+    "namespace": "android_app",
+    "package_name": "com.rafaelrain.screenshare",
+    "sha256_cert_fingerprints": ["FF:59:58:D5:91:97:0F:CA:E9:DE:A8:F6:0C:9A:CA:71:84:54:CA:16:16:FB:E4:B3:67:C9:54:CC:8A:78:C1:7B"]
+  }
+}]

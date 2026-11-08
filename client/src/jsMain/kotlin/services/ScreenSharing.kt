@@ -85,6 +85,14 @@ class ScreenSharing(
                 nativeVideoTrack = started
                 createMediaStream(started)
             } else {
+                // Chrome on Android has no getDisplayMedia: the Android app shares the phone's screen.
+                val mediaDevices = window.navigator.mediaDevices.asDynamic()
+                if (mediaDevices.getDisplayMedia == undefined && window.navigator.userAgent.contains("Android")) {
+                    InterfaceMutations.showError(
+                        "Para compartilhar a tela do celular, use o app Android: screen-share.fly.dev/download",
+                    )
+                    throw kotlinx.coroutines.CancellationException("getDisplayMedia unavailable on Android")
+                }
                 window.navigator.mediaDevices
                     .getDisplayMedia(buildMediaStreamConstraints(width, height, frameRate, useSourceResolution))
                     .await()
