@@ -5,7 +5,8 @@ import org.json.JSONObject
 
 data class Person(val id: String, val name: String, val muted: Boolean)
 
-data class Message(val name: String, val text: String, val mine: Boolean)
+/** [system]: the room's own notes ("Você entrou na sala"), with no sender. */
+data class Message(val name: String, val text: String, val mine: Boolean, val system: Boolean = false)
 
 /** The engine's SessionView (desktop-native/src/session.rs), only what the app shows. */
 data class RoomView(
@@ -60,7 +61,7 @@ data class RoomView(
                 screenSharers = o.optJSONArray("screenSharers").strings().toSet(),
                 cameraSharers = o.optJSONArray("cameraSharers").strings().toSet(),
                 messages = o.optJSONArray("messages").objects().map {
-                    Message(it.optString("username"), it.optString("content"), local != null && it.optStringOrNull("senderSocketId") == local)
+                    Message(it.optString("username"), it.optString("content"), local != null && it.optStringOrNull("senderSocketId") == local, it.optStringOrNull("senderSocketId") == null)
                 },
                 messageCount = o.optLong("messageCount"),
                 error = o.optStringOrNull("error"),

@@ -8,6 +8,7 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -18,7 +19,9 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
@@ -131,13 +134,17 @@ fun Hint(text: String, color: Color = Faint, modifier: Modifier = Modifier) = Te
 
 /** `.input-icon .input`: 48 dp, bg fill, line border that turns accent on focus, icon at the left. */
 @Composable
-fun IconField(value: String, onValueChange: (String) -> Unit, icon: ImageVector, placeholder: String, mono: Boolean = false, modifier: Modifier = Modifier) {
+fun IconField(
+    value: String, onValueChange: (String) -> Unit, icon: ImageVector, placeholder: String, mono: Boolean = false, modifier: Modifier = Modifier,
+    imeAction: ImeAction = ImeAction.Default, onIme: (() -> Unit)? = null, capitalization: KeyboardCapitalization = KeyboardCapitalization.Words,
+) {
     val interaction = remember { MutableInteractionSource() }
     val focused by interaction.collectIsFocusedAsState()
     val style = if (mono) Mono.copy(fontSize = 15.sp) else Body
     BasicTextField(
         value, onValueChange, singleLine = true, textStyle = style, cursorBrush = SolidColor(Accent), interactionSource = interaction,
-        keyboardOptions = KeyboardOptions(capitalization = if (mono) KeyboardCapitalization.None else KeyboardCapitalization.Words, autoCorrectEnabled = !mono),
+        keyboardOptions = KeyboardOptions(capitalization = if (mono) KeyboardCapitalization.None else capitalization, autoCorrectEnabled = !mono, imeAction = imeAction),
+        keyboardActions = if (onIme == null) KeyboardActions.Default else KeyboardActions(onAny = { onIme() }),
         modifier = modifier.fillMaxWidth().height(48.dp).background(Bg, Small).border(1.dp, if (focused) Accent else Line, Small),
         decorationBox = { field ->
             Row(Modifier.padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -156,7 +163,7 @@ enum class Kind { Primary, Secondary, Ghost, Danger }
 
 /** `.btn`: radius 8, bold 14 sp; primary is accent, danger is red text on a red line. */
 @Composable
-fun ActionButton(text: String, kind: Kind, onClick: () -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true, trailing: ImageVector? = null, height: Dp = 48.dp) {
+fun ActionButton(text: String, kind: Kind, onClick: () -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true, trailing: ImageVector? = null, height: Dp = 48.dp, leading: ImageVector? = null) {
     val (bg, fg, line) = when (kind) {
         Kind.Primary -> Triple(Accent, OnAccent, Accent)
         Kind.Secondary -> Triple(Surface2, TextColor, Line)
@@ -168,6 +175,10 @@ fun ActionButton(text: String, kind: Kind, onClick: () -> Unit, modifier: Modifi
         colors = ButtonDefaults.buttonColors(containerColor = bg, contentColor = fg, disabledContainerColor = if (kind == Kind.Primary) Accent.copy(alpha = .45f) else bg, disabledContentColor = fg.copy(alpha = .6f)),
         modifier = modifier.height(height),
     ) {
+        if (leading != null) {
+            Icon(leading, null, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(8.dp))
+        }
         Text(text, style = Body.copy(fontWeight = FontWeight.Bold, color = fg))
         if (trailing != null) {
             Spacer(Modifier.width(8.dp))
@@ -176,33 +187,45 @@ fun ActionButton(text: String, kind: Kind, onClick: () -> Unit, modifier: Modifi
     }
 }
 
-/** A dock control (`.toolgroup .icon-button`): square, radius 10; active is accent, muted draws the glyph red. */
+/**
+ * A dock control (`.toolgroup .icon-button`): radius 10, a short caption under it so the phone's dock reads
+ * without guessing; active is accent, muted draws the glyph red. [badge]: "" is a dot, text is a count.
+ */
 @Composable
-fun DockButton(icon: ImageVector, label: String, active: Boolean = false, muted: Boolean = false, danger: Boolean = false, onClick: () -> Unit) {
-    val bg = if (active) Accent else if (danger) Color.Transparent else Surface2
+fun DockButton(icon: ImageVector, label: String, caption: String?, modifier: Modifier = Modifier, active: Boolean = false, muted: Boolean = false, danger: Boolean = false, badge: String? = null, height: Dp = 46.dp, onClick: () -> Unit) {
     val fg = when {
         active -> OnAccent
         muted || danger -> Red
         else -> TextColor
     }
-    Box(
-        Modifier.size(50.dp).background(bg, Regular).border(1.dp, if (active) Accent else if (danger) RedLine else Line, Regular)
-            .clickable(onClickLabel = label, onClick = onClick).semantics { contentDescription = label },
-        contentAlignment = Alignment.Center,
+    Column(
+        modifier.clickable(onClickLabel = label, onClick = onClick).semantics(mergeDescendants = true) { contentDescription = label },
+        horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Icon(icon, null, tint = fg, modifier = Modifier.size(22.dp))
+        Box(
+            Modifier.fillMaxWidth().height(height).background(if (active) Accent else if (danger) Color.Transparent else Surface2, Regular)
+                .border(1.dp, if (active) Accent else if (danger) RedLine else Line, Regular),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(icon, null, tint = fg, modifier = Modifier.size(22.dp))
+            when {
+                badge == "" -> Box(Modifier.align(Alignment.TopEnd).padding(7.dp).size(8.dp).background(Accent, RoundedCornerShape(50)))
+                badge != null -> Text(badge, style = Body.copy(fontSize = 11.sp, lineHeight = 12.sp, fontWeight = FontWeight.Bold, color = Dim), modifier = Modifier.align(Alignment.TopEnd).padding(top = 4.dp, end = 6.dp))
+            }
+        }
+        if (caption != null) Text(caption, style = Body.copy(fontSize = 11.sp, lineHeight = 14.sp, color = Dim), maxLines = 1, modifier = Modifier.padding(top = 4.dp))
     }
 }
 
-/** `.glass-chip` / `.tile-name`: dark glass with the line-2 border. */
+/** `.glass-chip` / `.tile-name`: dark glass with the line-2 border. [wrap]: a notice is read whole, a tile's name stays on one line. */
 @Composable
-fun GlassChip(text: String, color: Color = TextColor, border: Color = Line2, icon: ImageVector? = null, modifier: Modifier = Modifier) {
+fun GlassChip(text: String, color: Color = TextColor, border: Color = Line2, icon: ImageVector? = null, modifier: Modifier = Modifier, wrap: Boolean = false) {
     Row(
         modifier.background(Glass, Small).border(1.dp, border, Small).padding(horizontal = 9.dp, vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         if (icon != null) Icon(icon, null, tint = color, modifier = Modifier.size(15.dp))
-        Text(text, style = Body.copy(fontSize = 13.sp, lineHeight = 16.sp, color = color, fontWeight = if (color == TextColor) FontWeight.Normal else FontWeight.Bold), maxLines = 1)
+        Text(text, style = Body.copy(fontSize = 13.sp, lineHeight = 16.sp, color = color, fontWeight = if (color == TextColor) FontWeight.Normal else FontWeight.Bold), maxLines = if (wrap) 4 else 1)
     }
 }
 
