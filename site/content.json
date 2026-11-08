@@ -8,7 +8,7 @@
     "otherLang": "en",
     "otherLabel": "English",
     "title": "Screenshare — Compartilhamento de tela",
-    "description": "Compartilhamento de tela com voz, câmera e chat. Sem cadastro. Disponível no navegador, Windows e macOS.",
+    "description": "Compartilhamento de tela com voz, câmera e chat. Sem cadastro. Disponível no navegador, Windows, macOS e Android.",
     "skip": "Pular para o conteúdo",
     "navigation": "Navegação principal",
     "navDemo": "Demonstração",
@@ -50,8 +50,8 @@
     "answerFive": "O navegador basta para entrar na sala, falar, ligar a câmera e compartilhar a tela. O aplicativo acrescenta o som de um programa só, a bandeja e a atualização automática.",
     "questionSix": "O que o Screenshare coleta?",
     "answerSix": "Relatórios de erro e estatísticas de uso anônimas: quantas salas e shares acontecem, quanto duram e por que a qualidade cai. Nunca seu nome, o código da sala, seu IP ou o que você compartilha. As estatísticas podem ser desligadas na seta ao lado do alto-falante, em \"Enviar estatísticas de uso anônimas\".",
-    "dlTitle": "Baixar o Screenshare para Windows e Mac",
-    "dlDescription": "Baixe o Screenshare para Windows ou Mac: envie o som de um programa só, use a bandeja e receba atualizações automáticas. Grátis e sem conta.",
+    "dlTitle": "Baixar o Screenshare para Windows, Mac e Android",
+    "dlDescription": "Baixe o Screenshare para Windows, Mac e Android: envie o som de um programa só, use a bandeja e receba atualizações automáticas. Grátis e sem conta.",
     "dlHeadline": "Baixe o aplicativo",
     "dlIntro": "Envie só o som de um programa, controle a chamada pela bandeja e receba atualizações com um clique. Grátis e sem conta.",
     "dlWindowsAction": "Baixar para Windows",
@@ -78,7 +78,13 @@
     "dlWhich": "Instalador ou portátil?",
     "dlWhichText": "Na dúvida, escolha o instalador. O portátil é para computadores onde você não pode instalar programas. Os dois se atualizam sozinhos.",
     "dlLinux": "Tem para Linux?",
-    "dlLinuxText": "Ainda não há aplicativo para Linux. Use o Screenshare pelo navegador, no Chrome, Edge ou Firefox."
+    "dlLinuxText": "Ainda não há aplicativo para Linux. Use o Screenshare pelo navegador, no Chrome, Edge ou Firefox.",
+    "dlAndroidAction": "Baixar para Android",
+    "dlAndroidSpec": "Versão de teste · Android 10 ou mais novo",
+    "dlAndroidButton": "Baixar o APK",
+    "dlAndroidNote": "Compartilhe a tela do celular com o som dos jogos e apps, assista às telas da sala e fale. Abra o APK no celular e permita instalar de fontes desconhecidas.",
+    "dlAndroid": "Tem para Android?",
+    "dlAndroidText": "Sim, em versão de teste. Baixe o APK no celular e permita instalar apps desta fonte quando o Android pedir. O link da sala abre o app quando ele está instalado. iPhone ainda não tem app; use o navegador."
   },
   "en": {
     "lang": "en",
@@ -89,7 +95,7 @@
     "otherLang": "pt-BR",
     "otherLabel": "Português",
     "title": "Screenshare — Screen sharing",
-    "description": "Screen sharing with voice, camera and chat. No account required. Available in your browser, on Windows and on macOS.",
+    "description": "Screen sharing with voice, camera and chat. No account required. Available in your browser, on Windows, macOS and Android.",
     "skip": "Skip to content",
     "navigation": "Main navigation",
     "navDemo": "Demo",
@@ -131,8 +137,8 @@
     "answerFive": "The browser is enough to join a room, talk, turn on your camera and share your screen. The app adds a single program's audio, the tray and automatic updates.",
     "questionSix": "What does Screenshare collect?",
     "answerSix": "Error reports and anonymous usage statistics: how many rooms and shares happen, how long they last and why quality drops. Never your name, the room code, your IP or what you share. Statistics can be turned off from the arrow next to the speaker, under \"Enviar estatísticas de uso anônimas\".",
-    "dlTitle": "Download Screenshare for Windows and Mac",
-    "dlDescription": "Download Screenshare for Windows or Mac: share a single program's audio, use the tray and get automatic updates. Free, no account.",
+    "dlTitle": "Download Screenshare for Windows, Mac and Android",
+    "dlDescription": "Download Screenshare for Windows, Mac and Android: share a single program's audio, use the tray and get automatic updates. Free, no account.",
     "dlHeadline": "Download the app",
     "dlIntro": "Share a single program's audio, control the call from the tray and update with one click. Free, no account. The interface is in Brazilian Portuguese.",
     "dlWindowsAction": "Download for Windows",
@@ -159,6 +165,12 @@
     "dlWhich": "Installer or portable?",
     "dlWhichText": "If unsure, pick the installer. The portable app is for computers where you cannot install programs. Both update themselves.",
     "dlLinux": "Is there a Linux app?",
-    "dlLinuxText": "Not yet. Use Screenshare in the browser, in Chrome, Edge or Firefox."
+    "dlLinuxText": "Not yet. Use Screenshare in the browser, in Chrome, Edge or Firefox.",
+    "dlAndroidAction": "Download for Android",
+    "dlAndroidSpec": "Test version · Android 10 or newer",
+    "dlAndroidButton": "Download the APK",
+    "dlAndroidNote": "Share your phone screen with game and app sound, watch the room's screens and talk. Open the APK on your phone and allow installing from unknown sources.",
+    "dlAndroid": "Is there an Android app?",
+    "dlAndroidText": "Yes, as a test version. Download the APK on your phone and allow installing apps from this source when Android asks. Room links open the app when it is installed. There is no iPhone app yet; use the browser."
   }
 }
