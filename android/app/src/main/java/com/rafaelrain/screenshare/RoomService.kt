@@ -232,8 +232,11 @@ class RoomService : LifecycleService() {
                     )
                 }
             }
-            val selector = if (lens == "back") CameraSelector.DEFAULT_BACK_CAMERA else CameraSelector.DEFAULT_FRONT_CAMERA
-            provider.bindToLifecycle(this, selector, analysis)
+            // The asked lens, else the other one (a phone, or the emulator, may have only one); none: camera off.
+            val wanted = if (lens == "back") CameraSelector.DEFAULT_BACK_CAMERA else CameraSelector.DEFAULT_FRONT_CAMERA
+            val other = if (lens == "back") CameraSelector.DEFAULT_FRONT_CAMERA else CameraSelector.DEFAULT_BACK_CAMERA
+            val selector = listOf(wanted, other).firstOrNull { runCatching { provider.hasCamera(it) }.getOrDefault(false) }
+            if (selector == null || runCatching { provider.bindToLifecycle(this, selector, analysis) }.isFailure) stopCamera()
         }, ContextCompat.getMainExecutor(this))
     }
 
