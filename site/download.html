@@ -35,6 +35,7 @@
         <p class="intro">{{dlIntro}}</p>
         <div class="actions">
           <a class="button primary" data-os="windows" data-line="native" data-file="Screenshare-native_{v}_x64-setup.exe" href="{{nativeSetupUrl}}">{{dlWindowsAction}}</a>
+          <a class="button primary" data-os="android" data-line="android" data-file="Screenshare-android_{v}.apk" href="https://github.com/RafaelrainBR/screenshare/releases/download/android-v0.1.0/Screenshare-android_0.1.0.apk">{{dlAndroidAction}}</a>
           <a class="button primary" data-os="mac" href="#native-mac">{{dlMacAction}}</a>
           <a class="text-link" href="/">{{dlBrowser}}</a>
         </div>
@@ -60,6 +61,10 @@
           <div class="command"><code id="native-command" data-line="native" data-file="install-macos-native.sh" data-template="curl -fsSL {url} | bash">curl -fsSL {{nativeMacScriptUrl}} | bash</code><button type="button" class="button secondary" data-copy="native-command" data-done="{{dlCopied}}">{{dlCopy}}</button></div>
           <p class="download-note"><a data-line="native" data-file="install-macos-native.sh" href="{{nativeMacScriptUrl}}">{{dlReadScript}}</a> · <a data-line="native" data-file="Screenshare-native-macos-arm64.tar.gz" href="{{nativeMacUrl}}">{{dlMacArchive}}</a></p>
         </article>
+        <article id="android" aria-labelledby="android-title">
+          <h3 id="android-title">Android</h3><p class="platform-spec">{{dlAndroidSpec}}</p>
+          <ul class="variants"><li><a class="button primary" data-line="android" data-file="Screenshare-android_{v}.apk" href="https://github.com/RafaelrainBR/screenshare/releases/download/android-v0.1.0/Screenshare-android_0.1.0.apk">{{dlAndroidButton}}</a><span>{{dlAndroidNote}}</span></li></ul>
+        </article>
       </div>
       <p class="download-alternatives"><a data-line="native" data-file="SHA256SUMS" href="{{nativeChecksumsUrl}}">SHA256SUMS</a> · <a href="https://github.com/RafaelrainBR/screenshare/releases">{{dlAllReleases}}</a></p>
     </section>
@@ -69,6 +74,7 @@
       <details><summary>{{dlWindowsWarn}}</summary><p>{{dlWindowsWarnText}}</p></details>
       <details><summary>{{dlMacWhy}}</summary><p>{{dlMacWhyText}}</p><p>{{macPermission}}</p></details>
       <details><summary>{{dlWhich}}</summary><p>{{dlWhichText}}</p></details>
+      <details><summary>{{dlAndroid}}</summary><p>{{dlAndroidText}}</p></details>
       <details><summary>{{dlLinux}}</summary><p>{{dlLinuxText}}</p></details>
     </section>
   </main>
