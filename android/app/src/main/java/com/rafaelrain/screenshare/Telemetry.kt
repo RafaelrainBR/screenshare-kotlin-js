@@ -24,10 +24,17 @@ object Telemetry {
         }
     }
 
+    /**
+     * A new room error, unless it is why a joined room dropped: the engine reconnects on its own
+     * (session.rs retries forever), so that drop is only logged with its reason above.
+     */
+    fun roomProblem(before: RoomView, next: RoomView): String? =
+        next.error?.takeIf { it != before.error && !(before.joined && !next.joined) }
+
     /** The room's state changes between two polls of the engine. */
     fun diff(before: RoomView, next: RoomView) {
         if (!before.joined && next.joined) info("room", "connected (connection ${next.generation}, ${next.people.size} people)")
-        if (before.joined && !next.joined) info("room", "disconnected, reconnecting")
+        if (before.joined && !next.joined) info("room", "disconnected, reconnecting${next.error?.let { " ($it)" }.orEmpty()}")
         if (before.people.size != next.people.size && next.joined) info("room", "${next.people.size} people, ${next.screenSharers.size} sharing screen, ${next.cameraSharers.size} camera")
         if (before.screenState != next.screenState) info("share", "screen ${before.screenState.ifEmpty { "off" }} -> ${next.screenState.ifEmpty { "off" }}")
         if (before.cameraState != next.cameraState) info("camera", "camera ${before.cameraState.ifEmpty { "off" }} -> ${next.cameraState.ifEmpty { "off" }}")
@@ -35,7 +42,7 @@ object Telemetry {
         if (before.localShareProblem != next.localShareProblem) {
             next.localShareProblem?.let { problem("share-limit", "our share is limited by $it") } ?: info("share", "share limit cleared")
         }
-        if (next.error != null && next.error != before.error) problem("room-error", next.error)
+        roomProblem(before, next)?.let { problem("room-error", it) }
         if (next.screenError != null && next.screenError != before.screenError) problem("share-error", next.screenError)
     }
 }
