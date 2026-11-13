@@ -23,4 +23,13 @@ class TelemetryTest {
         assertEquals("chat failed", Telemetry.roomProblem(joined, failed))
         assertNull(Telemetry.roomProblem(failed, failed))
     }
+
+    @Test
+    fun aShareLimitIsAProblemOncePerKind() {
+        val limited = joined.copy(localShareProblem = "SenderCpuTest")
+        assertEquals("SenderCpuTest", Telemetry.shareLimitProblem(joined, limited))
+        assertNull(Telemetry.shareLimitProblem(limited, joined))
+        assertNull(Telemetry.shareLimitProblem(joined, limited))
+        assertEquals("SenderBandwidthTest", Telemetry.shareLimitProblem(limited, joined.copy(localShareProblem = "SenderBandwidthTest")))
+    }
 }
