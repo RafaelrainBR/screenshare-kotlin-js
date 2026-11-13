@@ -31,6 +31,15 @@ object Telemetry {
     fun roomProblem(before: RoomView, next: RoomView): String? =
         next.error?.takeIf { it != before.error && !(before.joined && !next.joined) }
 
+    private val reportedLimits = mutableSetOf<String>()
+
+    /**
+     * A new share limit, once per kind for the app's life: on a weak phone the encoder flips
+     * between limited and not every minute, and each flip is the same problem, so later ones are only logged.
+     */
+    fun shareLimitProblem(before: RoomView, next: RoomView): String? =
+        next.localShareProblem?.takeIf { it != before.localShareProblem && reportedLimits.add(it) }
+
     /** The room's state changes between two polls of the engine. */
     fun diff(before: RoomView, next: RoomView) {
         if (!before.joined && next.joined) info("room", "connected (connection ${next.generation}, ${next.people.size} people)")
@@ -40,7 +49,11 @@ object Telemetry {
         if (before.cameraState != next.cameraState) info("camera", "camera ${before.cameraState.ifEmpty { "off" }} -> ${next.cameraState.ifEmpty { "off" }}")
         if (before.microphoneEnabled != next.microphoneEnabled) info("voice", "microphone ${if (next.microphoneEnabled) "on" else "off"}")
         if (before.localShareProblem != next.localShareProblem) {
-            next.localShareProblem?.let { problem("share-limit", "our share is limited by $it") } ?: info("share", "share limit cleared")
+            when {
+                shareLimitProblem(before, next) != null -> problem("share-limit", "our share is limited by ${next.localShareProblem}")
+                next.localShareProblem != null -> info("share", "share limited by ${next.localShareProblem} again")
+                else -> info("share", "share limit cleared")
+            }
         }
         roomProblem(before, next)?.let { problem("room-error", it) }
         if (next.screenError != null && next.screenError != before.screenError) problem("share-error", next.screenError)
